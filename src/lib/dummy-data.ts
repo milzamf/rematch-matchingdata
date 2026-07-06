@@ -92,8 +92,8 @@ export const qualityBreakdown = [
 
 export const insights = [
   {
-    title: "Enable phonetic blocking",
-    body: "Column customer_name has 32% Indonesian names with varied spelling. Adding Soundex blocking may recover ~1,200 additional matches.",
+    title: "Enable phonetic search optimization",
+    body: "Column customer_name has 32% Indonesian names with varied spelling. Adding a phonetic candidate strategy may recover ~1,200 additional matches.",
     action: "Apply suggestion",
   },
   {

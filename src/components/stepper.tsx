@@ -21,11 +21,11 @@ export function Stepper({
         const active = s.id === current;
         const isLast = i === steps.length - 1;
         return (
-          <li key={s.id} className="relative flex flex-col items-center min-w-0 px-1">
+          <li key={s.id} className="relative flex min-w-0 flex-col items-center px-1">
             {/* connector */}
             {!isLast && (
               <span
-                className={`absolute top-3.5 left-1/2 w-full h-px -translate-y-1/2 ${
+                className={`absolute left-1/2 top-3.5 h-px w-full -translate-y-1/2 ${
                   done ? "bg-brand/60" : "bg-border"
                 }`}
                 aria-hidden
@@ -35,7 +35,7 @@ export function Stepper({
             <button
               type="button"
               onClick={() => onSelect?.(s.id)}
-              className="relative z-10 flex flex-col items-center gap-1.5 w-full group"
+              className="group relative z-10 flex w-full min-w-0 flex-col items-center gap-1.5"
             >
               <span
                 className={[
@@ -49,16 +49,16 @@ export function Stepper({
               >
                 {done ? <Check className="size-3.5" /> : s.id}
               </span>
-              <div className="hidden md:block text-center w-full px-1">
+              <div className="hidden w-full min-w-0 px-1 text-center md:block">
                 <p
-                  className={`text-[11px] font-semibold leading-tight truncate ${
+                  className={`mx-auto max-w-full text-[10px] font-semibold leading-tight lg:text-[11px] ${
                     active || done ? "text-foreground" : "text-muted-foreground"
                   }`}
                 >
                   {s.title}
                 </p>
                 {s.desc && (
-                  <p className="text-[10px] text-muted-foreground leading-tight mt-0.5 truncate">
+                  <p className="mt-0.5 truncate text-[10px] leading-tight text-muted-foreground">
                     {s.desc}
                   </p>
                 )}

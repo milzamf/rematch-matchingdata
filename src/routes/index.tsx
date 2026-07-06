@@ -164,8 +164,8 @@ function DashboardPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {recentJobs.map((job) => (
-                    <tr key={job.id} className="hover:bg-secondary/30">
-                      <td className="px-6 py-3 min-w-0">
+                    <tr key={job.id} className="h-[68px] hover:bg-secondary/30">
+                      <td className="px-6 py-3 align-middle min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
                           <p className="text-sm font-semibold truncate">{job.name}</p>
                           <span className="font-mono text-[10px] text-muted-foreground shrink-0">
@@ -177,15 +177,15 @@ function DashboardPage() {
                           {job.input}
                         </p>
                       </td>
-                      <td className="px-6 py-3 text-right tabular-nums text-sm font-medium">
+                      <td className="px-6 py-3 align-middle text-right tabular-nums text-sm font-medium">
                         {job.records}
                       </td>
-                      <td className="px-6 py-3 text-right tabular-nums text-sm font-medium">
+                      <td className="px-6 py-3 align-middle text-right tabular-nums text-sm font-medium">
                         {job.accuracy}
                       </td>
-                      <td className="px-6 py-3">
+                      <td className="px-6 py-3 align-middle">
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusStyles(job.status)}`}
+                          className={`inline-flex min-w-24 items-center justify-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${statusStyles(job.status)}`}
                         >
                           <StatusIcon status={job.status} />
                           {job.status}

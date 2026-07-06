@@ -216,14 +216,22 @@ function MatchedTab() {
     <>
       <TableToolbar />
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: "120px" }} />
+            <col />
+            <col />
+            <col style={{ width: "150px" }} />
+            <col style={{ width: "130px" }} />
+            <col style={{ width: "120px" }} />
+          </colgroup>
           <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="text-left px-6 py-2.5 font-medium">ID</th>
               <th className="text-left px-6 py-2.5 font-medium">Reference</th>
               <th className="text-left px-6 py-2.5 font-medium">Input</th>
               <th className="text-left px-6 py-2.5 font-medium">Method</th>
-              <th className="text-left px-6 py-2.5 font-medium">Score</th>
+              <th className="text-right px-6 py-2.5 font-medium">Score</th>
               <th className="text-left px-6 py-2.5 font-medium">Time</th>
             </tr>
           </thead>
@@ -231,15 +239,15 @@ function MatchedTab() {
             {matchedRecords.map((r) => (
               <tr key={r.id} className="hover:bg-secondary/30">
                 <td className="px-6 py-3 font-mono text-xs text-muted-foreground">{r.id}</td>
-                <td className="px-6 py-3 font-medium">{r.ref}</td>
-                <td className="px-6 py-3">{r.input}</td>
+                <td className="px-6 py-3 font-medium truncate">{r.ref}</td>
+                <td className="px-6 py-3 truncate">{r.input}</td>
                 <td className="px-6 py-3">
                   <span className="text-[11px] bg-secondary rounded px-1.5 py-0.5 font-medium">
                     {r.method}
                   </span>
                 </td>
                 <td className="px-6 py-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-end gap-2">
                     <span className="font-semibold text-success tabular-nums w-14">
                       {r.score}%
                     </span>
@@ -262,41 +270,58 @@ function PossibleTab() {
   return (
     <>
       <TableToolbar />
-      <div className="divide-y divide-border">
-        {reviewQueue.map((r) => {
-          const tone = r.score >= 90 ? "bg-success" : r.score >= 80 ? "bg-warning" : "bg-destructive";
-          return (
-            <div
-              key={r.id}
-              className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto_auto] gap-4 items-center px-6 py-4"
-            >
-              <div>
-                <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Reference</p>
-                <p className="text-sm font-medium">{r.refName}</p>
-                <p className="text-xs text-muted-foreground">{r.refMeta}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase text-muted-foreground tracking-wider">Input</p>
-                <p className="text-sm font-medium">{r.inputName}</p>
-                <p className="text-xs text-muted-foreground">{r.inputMeta}</p>
-              </div>
-              <div className="flex items-center gap-2 w-32">
-                <span className="text-sm font-semibold tabular-nums">{r.score}%</span>
-                <div className="h-1 flex-1 bg-secondary rounded-full overflow-hidden">
-                  <div className={`h-full ${tone}`} style={{ width: `${r.score}%` }} />
-                </div>
-              </div>
-              <div className="flex gap-1.5">
-                <button className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium">
-                  Approve
-                </button>
-                <button className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary">
-                  Reject
-                </button>
-              </div>
-            </div>
-          );
-        })}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col />
+            <col />
+            <col style={{ width: "130px" }} />
+            <col style={{ width: "160px" }} />
+          </colgroup>
+          <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="text-left px-6 py-2.5 font-medium">Reference</th>
+              <th className="text-left px-6 py-2.5 font-medium">Input</th>
+              <th className="text-right px-6 py-2.5 font-medium">Similarity</th>
+              <th className="text-right px-6 py-2.5 font-medium">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {reviewQueue.map((r) => {
+              const tone = r.score >= 90 ? "bg-success" : r.score >= 80 ? "bg-warning" : "bg-destructive";
+              return (
+                <tr key={r.id} className="hover:bg-secondary/30">
+                  <td className="px-6 py-4 min-w-0">
+                    <p className="text-sm font-medium truncate">{r.refName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{r.refMeta}</p>
+                  </td>
+                  <td className="px-6 py-4 min-w-0">
+                    <p className="text-sm font-medium truncate">{r.inputName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{r.inputMeta}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="ml-auto flex w-32 items-center justify-end gap-2">
+                      <span className="w-12 text-right text-sm font-semibold tabular-nums">{r.score}%</span>
+                      <div className="h-1 flex-1 bg-secondary rounded-full overflow-hidden">
+                        <div className={`h-full ${tone}`} style={{ width: `${r.score}%` }} />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex justify-end gap-1.5">
+                      <button className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium">
+                        Approve
+                      </button>
+                      <button className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary">
+                        Reject
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </>
   );
@@ -312,17 +337,35 @@ function UnmatchedTab() {
   return (
     <>
       <TableToolbar />
-      <div className="divide-y divide-border">
-        {unmatched.map((u) => (
-          <div key={u.id} className="px-6 py-4 flex items-center gap-4">
-            <div className="flex-1">
-              <p className="text-sm font-medium">{u.value}</p>
-              <p className="text-xs text-muted-foreground">{u.reason}</p>
-            </div>
-            <span className="font-mono text-[11px] text-muted-foreground">{u.id}</span>
-            <button className="text-xs font-medium text-accent hover:underline">Force match</button>
-          </div>
-        ))}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: "130px" }} />
+            <col />
+            <col />
+            <col style={{ width: "130px" }} />
+          </colgroup>
+          <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="text-left px-6 py-2.5 font-medium">ID</th>
+              <th className="text-left px-6 py-2.5 font-medium">Input Record</th>
+              <th className="text-left px-6 py-2.5 font-medium">Reason</th>
+              <th className="text-right px-6 py-2.5 font-medium">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {unmatched.map((u) => (
+              <tr key={u.id} className="hover:bg-secondary/30">
+                <td className="px-6 py-4 font-mono text-[11px] text-muted-foreground">{u.id}</td>
+                <td className="px-6 py-4 font-medium truncate">{u.value}</td>
+                <td className="px-6 py-4 text-xs text-muted-foreground truncate">{u.reason}</td>
+                <td className="px-6 py-4 text-right">
+                  <button className="text-xs font-medium text-accent hover:underline">Force match</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </>
   );

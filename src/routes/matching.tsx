@@ -354,24 +354,20 @@ function StepMapping() {
         title="Column Mapping"
         desc="Link reference columns to input columns and choose a comparison method for each pair."
       />
-      <div className="space-y-2.5">
-        <div className="grid grid-cols-[1fr_32px_1fr_32px_200px] items-center gap-3 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="space-y-2.5 overflow-x-auto">
+        <div className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
           <span>Reference Column</span>
-          <span />
           <span>Input Column</span>
-          <span />
           <span>Matching Algorithm</span>
         </div>
         {mappings.map((m) => (
           <div
             key={m.ref}
-            className="grid grid-cols-[1fr_32px_1fr_32px_200px] items-center gap-3 border border-border rounded-lg px-4 py-3"
+            className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px] items-center gap-4 border border-border rounded-lg px-4 py-3"
           >
-            <p className="text-sm font-mono break-all">{m.ref}</p>
-            <ArrowRight className="size-4 text-muted-foreground mx-auto" />
-            <p className="text-sm font-mono break-all">{m.input}</p>
-            <ArrowRight className="size-4 text-muted-foreground mx-auto" />
-            <span className="inline-flex items-center justify-center rounded-md bg-secondary px-2 py-1 text-[11px] font-medium text-center">
+            <p className="truncate rounded-md bg-secondary/50 px-3 py-2 text-sm font-mono">{m.ref}</p>
+            <p className="truncate rounded-md bg-secondary/50 px-3 py-2 text-sm font-mono">{m.input}</p>
+            <span className="inline-flex h-9 items-center justify-center rounded-md bg-secondary px-2 py-1 text-center text-[11px] font-medium">
               {m.method}
             </span>
           </div>
@@ -401,7 +397,7 @@ function StepConfig() {
   const [autoMatch, setAutoMatch] = useState(90);
   const [review, setReview] = useState(75);
   const [noMatch, setNoMatch] = useState(60);
-  const [blockingMode, setBlockingMode] = useState<"auto" | "manual">("auto");
+  const [searchMode, setSearchMode] = useState<"auto" | "manual">("auto");
   const [manualBlocks, setManualBlocks] = useState<string[]>(["company_name", "npwp"]);
   const [candidates, setCandidates] = useState<1 | 3 | 5 | 10>(3);
   const [outputs, setOutputs] = useState<string[]>(["Matched", "Possible Match", "Unmatched", "Summary Report"]);
@@ -440,14 +436,14 @@ function StepConfig() {
   const applyRecommendation = () => {
     setStrategy("Hybrid");
     applyPreset("Balanced");
-    setBlockingMode("auto");
+    setSearchMode("auto");
   };
 
   return (
     <>
       <SectionTitle
         title="Matching Configuration"
-        desc="Tune presets, strategy, thresholds, blocking and outputs. Advanced controls are collapsed."
+        desc="Tune presets, strategy, thresholds, search optimization and outputs. Advanced controls are collapsed."
       />
 
       {/* Smart Recommendation */}
@@ -467,7 +463,7 @@ function StepConfig() {
               {[
                 ["Strategy", "Hybrid"],
                 ["Preset", "Balanced"],
-                ["Blocking", "Company Name Prefix"],
+                ["Search Optimization", "Company Name Prefix"],
                 ["Normalization", "Entity Name"],
               ].map(([k, v]) => (
                 <div key={k}>
@@ -544,25 +540,25 @@ function StepConfig() {
         </div>
       </ConfigSection>
 
-      {/* 4. Blocking Strategy */}
-      <ConfigSection title="Blocking Strategy" desc="Narrow candidate pairs before scoring.">
+      {/* 4. Search Optimization */}
+      <ConfigSection title="Search Optimization" desc="Narrow candidate pairs before scoring.">
         <div className="flex gap-2 mb-3">
           {(["auto", "manual"] as const).map((m) => (
             <button
               key={m}
-              onClick={() => setBlockingMode(m)}
+              onClick={() => setSearchMode(m)}
               className={[
                 "px-3 py-1.5 rounded-md border text-xs font-medium",
-                blockingMode === m
+                searchMode === m
                   ? "border-brand bg-brand/10 text-foreground"
                   : "border-border text-muted-foreground hover:bg-secondary",
               ].join(" ")}
             >
-              {m === "auto" ? "Auto Recommend" : "Manual Selection"}
+              {m === "auto" ? "Auto Recommend" : "Manual Candidate Strategy"}
             </button>
           ))}
         </div>
-        {blockingMode === "auto" ? (
+        {searchMode === "auto" ? (
           <div className="border border-border rounded-lg p-4 bg-secondary/30">
             <p className="text-xs text-muted-foreground mb-2">
               Based on the uploaded dataset, BatchMatch recommends:
