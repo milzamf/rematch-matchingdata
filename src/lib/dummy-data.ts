@@ -115,8 +115,17 @@ export const wizardSteps = [
   { id: 4, title: "Configure", desc: "Rules & weights" },
   { id: 5, title: "Run", desc: "Execute" },
   { id: 6, title: "Review", desc: "Manual approval" },
-  { id: 7, title: "Export", desc: "Download" },
+  { id: 7, title: "Sync", desc: "Merge plan" },
+  { id: 8, title: "Export", desc: "Download" },
 ];
+
+export const synchronizationSummary = {
+  droppedMatched: "12,482",
+  appendedUnmatched: "45",
+  updatedReference: "8,736",
+  conflictsToReview: "214",
+  finalReferenceSize: "186,547",
+};
 
 
 export const columnProfile = [

@@ -2,7 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
-import { matchedRecords, reviewQueue, recentJobs, auditTrail } from "@/lib/dummy-data";
+import {
+  matchedRecords,
+  reviewQueue,
+  recentJobs,
+  auditTrail,
+  synchronizationSummary,
+} from "@/lib/dummy-data";
 import {
   Download,
   FileDown,
@@ -176,6 +182,12 @@ function OverviewTab({ onExport }: { onExport: () => void }) {
     { label: "Duration", value: "2m 41s" },
     { label: "Completed", value: "2 hours ago" },
   ];
+  const syncSummary = [
+    { label: "Dropped matched records", value: synchronizationSummary.droppedMatched },
+    { label: "Appended unmatched records", value: synchronizationSummary.appendedUnmatched },
+    { label: "Updated reference records", value: synchronizationSummary.updatedReference },
+    { label: "Conflicts sent to review", value: synchronizationSummary.conflictsToReview },
+  ];
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 border border-border rounded-lg p-5">
@@ -205,6 +217,34 @@ function OverviewTab({ onExport }: { onExport: () => void }) {
             <span className="text-sm font-medium">Review 842 possible matches</span>
             <Clock className="size-4 text-warning" />
           </button>
+        </div>
+      </div>
+      <div className="lg:col-span-3 border border-border rounded-lg p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold">Synchronization Summary</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Estimated merge actions applied to the reference dataset.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Final reference size
+            </p>
+            <p className="text-lg font-semibold tabular-nums">
+              {synchronizationSummary.finalReferenceSize}
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {syncSummary.map((item) => (
+            <div key={item.label} className="rounded-md border border-border bg-secondary/20 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                {item.label}
+              </p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{item.value}</p>
+            </div>
+          ))}
         </div>
       </div>
     </div>

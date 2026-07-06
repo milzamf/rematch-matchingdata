@@ -3,7 +3,7 @@ import { useState, useRef } from "react";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
-import { wizardSteps, columnProfile, reviewQueue } from "@/lib/dummy-data";
+import { wizardSteps, columnProfile, reviewQueue, synchronizationSummary } from "@/lib/dummy-data";
 import {
   Check,
   Upload,
@@ -36,7 +36,7 @@ export const Route = createFileRoute("/matching")({
       {
         name: "description",
         content:
-          "Step-by-step matching workflow: upload datasets, profile columns, configure rules, run, and review results.",
+          "Step-by-step matching workflow: upload datasets, profile columns, configure rules, run, review, synchronize, and export results.",
       },
     ],
   }),
@@ -81,7 +81,7 @@ function MatchingPage() {
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
         <PageHeader
           title="New Matching Job"
-          description="One continuous workflow — upload, configure, run, review, and export."
+          description="One continuous workflow — upload, configure, run, review, synchronize, and export."
         />
 
         {/* Horizontal stepper */}
@@ -116,7 +116,8 @@ function MatchingPage() {
             />
           )}
           {step === 6 && <StepReview />}
-          {step === 7 && <StepExport />}
+          {step === 7 && <StepSynchronize />}
+          {step === 8 && <StepExport />}
 
           {/* Nav */}
           <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
@@ -400,7 +401,13 @@ function StepConfig() {
   const [searchMode, setSearchMode] = useState<"auto" | "manual">("auto");
   const [manualBlocks, setManualBlocks] = useState<string[]>(["company_name", "npwp"]);
   const [candidates, setCandidates] = useState<1 | 3 | 5 | 10>(3);
-  const [outputs, setOutputs] = useState<string[]>(["Matched", "Possible Match", "Unmatched", "Summary Report"]);
+  const [outputs, setOutputs] = useState<string[]>([
+    "Matched",
+    "Possible Match",
+    "Unmatched",
+    "Synchronization Summary",
+    "Summary Report",
+  ]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [weights, setWeights] = useState([
     { field: "company_name", weight: 45, method: "Token Sort Ratio" },
@@ -641,9 +648,24 @@ function StepConfig() {
       </ConfigSection>
 
       {/* 7. Output Configuration */}
-      <ConfigSection title="Output Configuration" desc="Choose what to include in the export.">
+      <ConfigSection
+        title="Output Configuration"
+        desc="Choose export contents and include the synchronization plan selected in the Sync step."
+      >
+        <div className="mb-4 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
+            <div>
+              <p className="text-sm font-semibold">Merge strategy will be included</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                Export files will record whether matched records were dropped, unmatched records were appended,
+                and conflicts were sent to review.
+              </p>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {["Matched", "Possible Match", "Unmatched", "Mapping Table", "Foreign Key", "Audit Trail", "Summary Report"].map(
+          {["Matched", "Possible Match", "Unmatched", "Synchronization Summary", "Mapping Table", "Foreign Key", "Audit Trail", "Summary Report"].map(
             (o) => {
               const on = outputs.includes(o);
               return (
@@ -948,7 +970,7 @@ function StepReview() {
         <EmptyState
           icon={ClipboardCheck}
           title="All caught up"
-          description="No records need manual review. You can move on to Export Results."
+          description="No records need manual review. You can move on to Synchronize."
         />
       </>
     );
@@ -1146,15 +1168,176 @@ function StepReview() {
 
 
 
+function StepSynchronize() {
+  const [matchedAction, setMatchedAction] = useState("Drop / Skip matched input records");
+  const [unmatchedAction, setUnmatchedAction] = useState("Append unmatched input records");
+  const [possibleAction, setPossibleAction] = useState("Send to manual review");
+  const [conflictAction, setConflictAction] = useState("Merge non-empty fields");
+
+  return (
+    <>
+      <SectionTitle
+        title="Synchronize"
+        desc="Choose what happens to matched, unmatched, and uncertain records before exporting."
+      />
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
+        <div className="space-y-4">
+          <SyncOptionGroup
+            title="Matched Records"
+            desc="Choose how to handle input records that already match the reference dataset."
+            value={matchedAction}
+            onChange={setMatchedAction}
+            options={[
+              "Drop / Skip matched input records",
+              "Update existing reference records",
+              "Keep both records",
+            ]}
+          />
+
+          <SyncOptionGroup
+            title="Unmatched Records"
+            desc="Choose how new or unknown input records should be handled."
+            value={unmatchedAction}
+            onChange={setUnmatchedAction}
+            options={[
+              "Append unmatched input records",
+              "Export unmatched separately",
+              "Ignore unmatched records",
+            ]}
+          />
+
+          <SyncOptionGroup
+            title="Possible Match Records"
+            desc="Choose how records below the auto-match threshold should be handled."
+            value={possibleAction}
+            onChange={setPossibleAction}
+            options={["Send to manual review", "Export separately", "Ignore until reviewed"]}
+          />
+
+          <SyncOptionGroup
+            title="Conflict Resolution"
+            desc="Choose how field-level conflicts should be handled when both records have values."
+            value={conflictAction}
+            onChange={setConflictAction}
+            options={[
+              "Keep reference value",
+              "Replace with input value",
+              "Merge non-empty fields",
+              "Send conflict to manual review",
+            ]}
+          />
+        </div>
+
+        <aside className="h-fit rounded-lg border border-border bg-secondary/20 p-5">
+          <div className="mb-4">
+            <p className="text-sm font-semibold">Summary preview</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Estimated impact based on the current match results.
+            </p>
+          </div>
+          <div className="space-y-3">
+            <SyncMetric label="Records to drop" value={synchronizationSummary.droppedMatched} />
+            <SyncMetric label="Records to append" value={synchronizationSummary.appendedUnmatched} />
+            <SyncMetric label="Conflict review" value={synchronizationSummary.conflictsToReview} />
+            <div className="border-t border-border pt-3">
+              <SyncMetric
+                label="Final reference size"
+                value={synchronizationSummary.finalReferenceSize}
+                strong
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-md border border-border bg-background px-3 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Selected merge plan
+            </p>
+            <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+              <li>Matched: {matchedAction}</li>
+              <li>Unmatched: {unmatchedAction}</li>
+              <li>Possible: {possibleAction}</li>
+              <li>Conflicts: {conflictAction}</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function SyncOptionGroup({
+  title,
+  desc,
+  options,
+  value,
+  onChange,
+}: {
+  title: string;
+  desc: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-border p-5">
+      <div className="mb-4">
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {options.map((option) => {
+          const selected = option === value;
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(option)}
+              className={[
+                "min-h-16 rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors",
+                selected
+                  ? "border-brand bg-brand/10 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
+              ].join(" ")}
+            >
+              {option}
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function SyncMetric({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`tabular-nums ${strong ? "text-lg font-semibold" : "text-sm font-semibold"}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+
 function StepExport() {
   const options = [
-    { label: "Excel (.xlsx)", desc: "Formatted workbook with matched, possible, unmatched sheets" },
-    { label: "CSV (.csv)", desc: "Flat file with match scores and source IDs" },
-    { label: "Update Reference", desc: "Merge approved matches back into master" },
+    { label: "Excel (.xlsx)", desc: "Workbook with results, sync summary, and audit trail" },
+    { label: "CSV (.csv)", desc: "Flat file with match scores and selected merge action" },
+    { label: "Updated Reference", desc: "Preview output after applying the synchronization plan" },
   ];
   return (
     <>
-      <SectionTitle title="Export Results" desc="Download the reconciled dataset or push to your systems." />
+      <SectionTitle title="Export Results" desc="Download results using the selected synchronization plan." />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {options.map((o) => (
           <button

@@ -669,7 +669,8 @@ Halaman Matching menggunakan wizard workflow:
 4. Configure
 5. Run
 6. Review
-7. Export
+7. Sync
+8. Export
 
 Stepper wizard harus memiliki lebar langkah yang konsisten, status yang jelas, dan responsif di layar desktop maupun mobile.
 
@@ -817,7 +818,16 @@ Komponen tabel:
   - menyorot conflicting fields;
   - memberi confidence reasoning yang dapat direview pengguna.
 
-#### 8.3.7 Export
+#### 8.3.7 Sync
+
+Sync adalah langkah Synchronization / Merge Strategy yang menentukan apa yang terjadi setelah matching dan review selesai.
+
+- Matched records dapat di-drop/skip agar tidak menimbulkan duplikasi.
+- Unmatched records dapat ditambahkan ke reference dataset.
+- Possible match records dapat dikirim ke manual review atau diexport terpisah.
+- Konflik nilai dapat dipertahankan dari reference, diganti dari input, digabung untuk field yang tidak kosong, atau dikirim ke review.
+
+#### 8.3.8 Export
 
 - Ringkasan hasil export.
 - Pilihan format export.
@@ -986,7 +996,7 @@ Integrasi AI harus bersifat optional. Jika endpoint tidak dikonfigurasi atau ser
 
 ### 12.4 Usability
 
-- Alur Matching mengikuti wizard 7 langkah: Upload, Profiling, Mapping, Configure, Run, Review, Export.
+- Alur Matching mengikuti wizard 8 langkah: Upload, Profiling, Mapping, Configure, Run, Review, Sync, Export.
 - Pengguna non-teknis dapat menjalankan matching tanpa menulis kode.
 - Setiap pengaturan matching memiliki default yang aman.
 - UI harus clean, minimalist, dan terasa seperti enterprise SaaS.
@@ -1345,10 +1355,11 @@ flowchart TD
     P --> P3[Unmatched]
     P --> Q{Manual review required?}
     Q -- Yes --> R[Manual Review]
-    R --> S[Export]
+    R --> S[Sync / Merge Strategy]
     Q -- No --> S
-    S --> T[Save Audit Trail]
-    T --> U([End])
+    S --> T[Export]
+    T --> U[Save Audit Trail]
+    U --> V([End])
 ```
 
 ## 19. Referensi
