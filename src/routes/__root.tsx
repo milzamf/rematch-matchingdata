@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/lib/auth";
 import { PreferencesProvider, usePreferences } from "@/lib/preferences";
+import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
   const { t } = usePreferences();
@@ -122,7 +123,10 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <PreferencesProvider>{children}</PreferencesProvider>
+        <PreferencesProvider>
+          {children}
+          <Toaster closeButton position="top-right" richColors />
+        </PreferencesProvider>
         <Scripts />
       </body>
     </html>

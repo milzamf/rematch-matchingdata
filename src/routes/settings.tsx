@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { toast } from "sonner";
 
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
+import { ConfirmationDialog, ErrorPanel, LoadingPanel } from "@/components/feedback-states";
 import { useAuth, getInitials } from "@/lib/auth";
 import { usePreferences } from "@/lib/preferences";
 
@@ -19,14 +21,14 @@ export const Route = createFileRoute("/settings")({
 function SettingsPage() {
   const { user } = useAuth();
   const { language, resolvedTheme, setLanguage, setTheme, t, theme } = usePreferences();
-  const [profile, setProfile] = useState({
+  const defaultProfile = {
     fullName: user?.fullName ?? "",
     username: user?.username ?? "",
     email: user?.email ?? "",
     organization: "BatchMatch Demo Workspace",
     role: t("settings.roleDataSteward"),
-  });
-  const [matchingDefaults, setMatchingDefaults] = useState({
+  };
+  const defaultMatchingDefaults = {
     preset: "Balanced",
     normalization: "Text Standardization",
     autoThreshold: "90",
@@ -34,21 +36,28 @@ function SettingsPage() {
     searchOptimization: "Auto Recommend",
     candidateCount: "5",
     exportFormat: "Excel (.xlsx)",
-  });
-  const [aiPreferences, setAiPreferences] = useState({
+  };
+  const defaultAiPreferences = {
     suggestions: true,
     columnMapping: true,
     configuration: true,
     reviewExplanation: true,
     tuning: false,
-  });
-  const [privacy, setPrivacy] = useState({
+  };
+  const defaultPrivacy = {
     nik: true,
     npwp: true,
     email: true,
     phone: true,
     maskedOnly: true,
-  });
+  };
+  const [profile, setProfile] = useState(defaultProfile);
+  const [matchingDefaults, setMatchingDefaults] = useState(defaultMatchingDefaults);
+  const [aiPreferences, setAiPreferences] = useState(defaultAiPreferences);
+  const [privacy, setPrivacy] = useState(defaultPrivacy);
+  const [saving, setSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -59,6 +68,31 @@ function SettingsPage() {
       username: user.username,
     }));
   }, [user]);
+
+  const resetLocalState = () => {
+    setProfile(defaultProfile);
+    setMatchingDefaults(defaultMatchingDefaults);
+    setAiPreferences(defaultAiPreferences);
+    setPrivacy(defaultPrivacy);
+    setSettingsError(null);
+    toast.info(t("feedback.toast.discarded"));
+  };
+
+  const saveLocalState = () => {
+    const auto = Number(matchingDefaults.autoThreshold);
+    const review = Number(matchingDefaults.reviewThreshold);
+    if (!Number.isFinite(auto) || !Number.isFinite(review) || auto <= review) {
+      setSettingsError(t("feedback.error.desc"));
+      toast.error(t("feedback.error.title"));
+      return;
+    }
+    setSettingsError(null);
+    setSaving(true);
+    window.setTimeout(() => {
+      setSaving(false);
+      toast.success(t("feedback.toast.saved"));
+    }, 700);
+  };
 
   return (
     <AppLayout>
@@ -75,7 +109,10 @@ function SettingsPage() {
               <div className="size-14 rounded-full bg-brand text-brand-foreground grid place-items-center text-lg font-semibold">
                 {user ? getInitials(user.fullName) : "??"}
               </div>
-              <button className="text-sm font-medium border border-border rounded-md px-3 py-1.5 hover:bg-secondary">
+              <button
+                onClick={() => toast.info(t("feedback.toast.photo"))}
+                className="text-sm font-medium border border-border rounded-md px-3 py-1.5 hover:bg-secondary"
+              >
                 {t("settings.changePhoto")}
               </button>
             </div>
@@ -306,18 +343,57 @@ function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <ReadOnlyItem label={t("settings.batchmatchVersion")} value="BatchMatch v0.1.0 MVP" />
               <ReadOnlyItem label={t("settings.buildType")} value={t("settings.frontendMockBuild")} />
-              <ReadOnlyItem label={t("settings.documentation")} value={t("settings.documentationPlaceholder")} />
+              <ReadOnlyItem
+                label={t("settings.documentation")}
+                value={t("settings.documentationPlaceholder")}
+                onClick={() => toast.info(t("feedback.toast.documentation"))}
+              />
             </div>
           </Card>
 
+          {settingsError && (
+            <ErrorPanel
+              title={t("feedback.error.title")}
+              description={settingsError}
+              action={
+                <button
+                  onClick={() => setSettingsError(null)}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                >
+                  {t("common.tryAgain")}
+                </button>
+              }
+            />
+          )}
+
+          {saving && (
+            <LoadingPanel title={t("feedback.loading.title")} description={t("feedback.loading.desc")} />
+          )}
+
           <div className="flex justify-end gap-2">
-            <button className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary">
+            <button
+              onClick={() => setDiscardOpen(true)}
+              className="px-4 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary"
+            >
               {t("common.discard")}
             </button>
-            <button className="px-4 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold hover:opacity-90">
+            <button
+              onClick={saveLocalState}
+              disabled={saving}
+              className="px-4 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold hover:opacity-90 disabled:opacity-60"
+            >
               {t("common.saveChanges")}
             </button>
           </div>
+          <ConfirmationDialog
+            open={discardOpen}
+            setOpen={setDiscardOpen}
+            title={t("feedback.confirm.discardTitle")}
+            description={t("feedback.confirm.discardDesc")}
+            cancelLabel={t("common.cancel")}
+            actionLabel={t("common.discard")}
+            onConfirm={resetLocalState}
+          />
         </div>
       </div>
     </AppLayout>
@@ -465,11 +541,24 @@ function Toggle({
   );
 }
 
-function ReadOnlyItem({ label, value }: { label: string; value: string }) {
+function ReadOnlyItem({
+  label,
+  onClick,
+  value,
+}: {
+  label: string;
+  onClick?: () => void;
+  value: string;
+}) {
+  const Component = onClick ? "button" : "div";
   return (
-    <div className="rounded-lg border border-border bg-secondary/20 p-4">
+    <Component
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className="rounded-lg border border-border bg-secondary/20 p-4 text-left"
+    >
       <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <p className="mt-1 text-sm font-semibold">{value}</p>
-    </div>
+    </Component>
   );
 }

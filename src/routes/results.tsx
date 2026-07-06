@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
+import { ConfirmationDialog, ErrorPanel, LoadingPanel } from "@/components/feedback-states";
 import { usePreferences } from "@/lib/preferences";
 import {
   matchedRecords,
@@ -43,7 +45,20 @@ type TabKey = (typeof tabs)[number];
 function ResultsPage() {
   const { t } = usePreferences();
   const [tab, setTab] = useState<TabKey>("overview");
+  const [confirmExportOpen, setConfirmExportOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [resultsError, setResultsError] = useState<string | null>(null);
   const hasResults = recentJobs.length > 0;
+  const prepareExport = () => {
+    setConfirmExportOpen(false);
+    setResultsError(null);
+    setIsExporting(true);
+    toast.info(t("feedback.toast.exportStarted"));
+    window.setTimeout(() => {
+      setIsExporting(false);
+      toast.success(t("feedback.toast.exportReady"));
+    }, 800);
+  };
 
   return (
     <AppLayout>
@@ -53,7 +68,10 @@ function ResultsPage() {
           description={t("results.description")}
           actions={
             <>
-              <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary">
+              <button
+                onClick={() => setConfirmExportOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
+              >
                 <Download className="size-4" />
                 CSV
               </button>
@@ -67,6 +85,39 @@ function ResultsPage() {
             </>
           }
         />
+
+        <ConfirmationDialog
+          open={confirmExportOpen}
+          setOpen={setConfirmExportOpen}
+          title={t("feedback.confirm.exportTitle")}
+          description={t("feedback.confirm.exportDesc")}
+          cancelLabel={t("common.cancel")}
+          actionLabel={t("common.download")}
+          onConfirm={prepareExport}
+        />
+
+        {resultsError && (
+          <div className="mb-6">
+            <ErrorPanel
+              title={t("feedback.error.title")}
+              description={resultsError}
+              action={
+                <button
+                  onClick={() => setResultsError(null)}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                >
+                  {t("common.tryAgain")}
+                </button>
+              }
+            />
+          </div>
+        )}
+
+        {isExporting && (
+          <div className="mb-6">
+            <LoadingPanel title={t("feedback.loading.title")} description={t("feedback.loading.desc")} />
+          </div>
+        )}
 
         {!hasResults ? (
           <Card>
@@ -160,7 +211,10 @@ function TableToolbar() {
         <Search className="size-3.5" />
         <span>{t("results.toolbar.filter")}</span>
       </div>
-      <button className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-2.5 py-1.5 hover:bg-secondary">
+      <button
+        onClick={() => toast.info(t("feedback.toast.actionQueued"))}
+        className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-2.5 py-1.5 hover:bg-secondary"
+      >
         <Filter className="size-3.5" />
         {t("common.filters")}
       </button>
@@ -249,6 +303,15 @@ function OverviewTab({ onExport }: { onExport: () => void }) {
 
 function MatchedTab() {
   const { t } = usePreferences();
+  if (matchedRecords.length === 0) {
+    return (
+      <EmptyState
+        icon={Inbox}
+        title={t("feedback.empty.title")}
+        description={t("feedback.empty.desc")}
+      />
+    );
+  }
   return (
     <>
       <TableToolbar />
@@ -305,6 +368,20 @@ function MatchedTab() {
 
 function PossibleTab() {
   const { t } = usePreferences();
+  const [rows, setRows] = useState(reviewQueue);
+  const decide = (id: string, decision: "approved" | "rejected") => {
+    setRows((current) => current.filter((row) => row.id !== id));
+    toast.success(t(decision === "approved" ? "feedback.toast.approved" : "feedback.toast.rejected"));
+  };
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={Inbox}
+        title={t("matching.review.allCaughtUp")}
+        description={t("matching.review.none")}
+      />
+    );
+  }
   return (
     <>
       <TableToolbar />
@@ -325,7 +402,7 @@ function PossibleTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {reviewQueue.map((r) => {
+            {rows.map((r) => {
               const tone = r.score >= 90 ? "bg-success" : r.score >= 80 ? "bg-warning" : "bg-destructive";
               return (
                 <tr key={r.id} className="hover:bg-secondary/30">
@@ -347,10 +424,16 @@ function PossibleTab() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex justify-end gap-1.5">
-                      <button className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium">
+                      <button
+                        onClick={() => decide(r.id, "approved")}
+                        className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
+                      >
                         {t("common.approve")}
                       </button>
-                      <button className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary">
+                      <button
+                        onClick={() => decide(r.id, "rejected")}
+                        className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
+                      >
                         {t("common.reject")}
                       </button>
                     </div>
@@ -367,12 +450,25 @@ function PossibleTab() {
 
 function UnmatchedTab() {
   const { t } = usePreferences();
-  const unmatched = [
+  const [unmatched, setUnmatched] = useState([
     { id: "UM-4401", value: "Toko Berkah Jaya", reason: t("results.unmatched.reason.noCandidate") },
     { id: "UM-4402", value: "PT Indo Sejahtera Nusantara", reason: t("results.unmatched.reason.country") },
     { id: "UM-4403", value: "Andi Wijaya (individual)", reason: t("results.unmatched.reason.ambiguous") },
     { id: "UM-4404", value: "CV Karya Mandiri 2024", reason: t("results.unmatched.reason.nullNpwp") },
-  ];
+  ]);
+  const forceMatch = (id: string) => {
+    setUnmatched((current) => current.filter((row) => row.id !== id));
+    toast.success(t("feedback.toast.actionQueued"));
+  };
+  if (unmatched.length === 0) {
+    return (
+      <EmptyState
+        icon={Inbox}
+        title={t("feedback.empty.title")}
+        description={t("feedback.empty.desc")}
+      />
+    );
+  }
   return (
     <>
       <TableToolbar />
@@ -399,7 +495,12 @@ function UnmatchedTab() {
                 <td className="px-6 py-4 font-medium truncate">{u.value}</td>
                 <td className="px-6 py-4 text-xs text-muted-foreground truncate">{u.reason}</td>
                 <td className="px-6 py-4 text-right">
-                  <button className="text-xs font-medium text-accent hover:underline">{t("results.table.forceMatch")}</button>
+                  <button
+                    onClick={() => forceMatch(u.id)}
+                    className="text-xs font-medium text-accent hover:underline"
+                  >
+                    {t("results.table.forceMatch")}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -492,12 +593,32 @@ function ExportTab() {
   const { t } = usePreferences();
   const [format, setFormat] = useState<"csv" | "xlsx" | "json">("xlsx");
   const [scope, setScope] = useState<"all" | "matched" | "possible" | "unmatched">("all");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
   const recent = [
     { name: "MJ-2481-matched.xlsx", size: "1.8 MB", date: relativeDate("2 hours ago", t) },
     { name: "MJ-2480-all.csv", size: "742 KB", date: relativeDate("Yesterday", t) },
   ];
+  const prepareDownload = () => {
+    setConfirmOpen(false);
+    setIsPreparing(true);
+    toast.info(t("feedback.toast.exportStarted"));
+    window.setTimeout(() => {
+      setIsPreparing(false);
+      toast.success(t("feedback.toast.exportReady"));
+    }, 800);
+  };
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <ConfirmationDialog
+        open={confirmOpen}
+        setOpen={setConfirmOpen}
+        title={t("feedback.confirm.exportTitle")}
+        description={t("feedback.confirm.exportDesc")}
+        cancelLabel={t("common.cancel")}
+        actionLabel={t("common.download")}
+        onConfirm={prepareDownload}
+      />
       <div className="lg:col-span-2 border border-border rounded-lg p-5">
         <p className="text-sm font-semibold">{t("results.export.configure")}</p>
         <p className="text-xs text-muted-foreground mt-1">
@@ -548,8 +669,18 @@ function ExportTab() {
           </div>
         </div>
 
-        <button className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-4 py-2 text-sm font-semibold hover:opacity-90">
-          <FileDown className="size-4" />
+        {isPreparing && (
+          <div className="mt-5">
+            <LoadingPanel title={t("feedback.loading.title")} description={t("feedback.loading.desc")} />
+          </div>
+        )}
+
+        <button
+          onClick={() => setConfirmOpen(true)}
+          disabled={isPreparing}
+          className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-60"
+        >
+          {isPreparing ? <Clock className="size-4" /> : <FileDown className="size-4" />}
           {t("common.download")} {scope}.{format}
         </button>
       </div>
@@ -569,7 +700,10 @@ function ExportTab() {
                   {r.size} · {r.date}
                 </p>
               </div>
-              <button className="text-muted-foreground hover:text-foreground">
+              <button
+                onClick={() => toast.success(t("feedback.toast.exportReady"))}
+                className="text-muted-foreground hover:text-foreground"
+              >
                 <Download className="size-4" />
               </button>
             </div>

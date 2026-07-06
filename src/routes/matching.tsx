@@ -1,8 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
+import { toast } from "sonner";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
+import { ConfirmationDialog } from "@/components/feedback-states";
 import { wizardSteps, columnProfile, reviewQueue, synchronizationSummary } from "@/lib/dummy-data";
 import { usePreferences } from "@/lib/preferences";
 import {
@@ -14,6 +16,7 @@ import {
   ArrowLeft,
   Play,
   Loader2,
+  Inbox,
   AlertCircle,
   ClipboardCheck,
   X,
@@ -58,6 +61,7 @@ function MatchingPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [runState, setRunState] = useState<RunState>("idle");
   const [progress, setProgress] = useState(0);
+  const [runConfirmOpen, setRunConfirmOpen] = useState(false);
 
   const canAdvance = step !== 1 || (reference && input);
   const localizedSteps = wizardSteps.map((s) => ({
@@ -67,6 +71,7 @@ function MatchingPage() {
   }));
 
   const startRun = () => {
+    toast.info(t("feedback.toast.runStarted"));
     setRunState("running");
     setProgress(0);
     const shouldFail = Math.random() < 0.15;
@@ -82,6 +87,11 @@ function MatchingPage() {
       });
     }, 300);
   };
+
+  useEffect(() => {
+    if (runState === "success") toast.success(t("feedback.toast.runComplete"));
+    if (runState === "failed") toast.error(t("feedback.toast.runFailed"));
+  }, [runState, t]);
 
   return (
     <AppLayout>
@@ -114,7 +124,7 @@ function MatchingPage() {
             <StepRun
               state={runState}
               progress={progress}
-              onStart={startRun}
+              onStart={() => setRunConfirmOpen(true)}
               onRetry={() => {
                 setRunState("idle");
                 setProgress(0);
@@ -159,6 +169,15 @@ function MatchingPage() {
             )}
           </div>
         </Card>
+        <ConfirmationDialog
+          open={runConfirmOpen}
+          setOpen={setRunConfirmOpen}
+          title={t("feedback.confirm.runTitle")}
+          description={t("feedback.confirm.runDesc")}
+          cancelLabel={t("common.cancel")}
+          actionLabel={t("matching.run.start")}
+          onConfirm={startRun}
+        />
       </div>
     </AppLayout>
   );
@@ -224,11 +243,19 @@ function StepUpload({
           file={reference}
           onFile={(f) => {
             const err = validateFile(f, t);
-            if (err) return setError(err);
+            if (err) {
+              setError(err);
+              toast.error(t("feedback.toast.invalidFile"));
+              return;
+            }
             setError(null);
             setReference({ name: f.name, size: f.size });
+            toast.success(t("feedback.toast.uploaded", { name: f.name }));
           }}
-          onClear={() => setReference(null)}
+          onClear={() => {
+            if (reference) toast.info(t("feedback.toast.removed", { name: reference.name }));
+            setReference(null);
+          }}
         />
         <FileSlot
           label={t("matching.upload.input")}
@@ -237,11 +264,19 @@ function StepUpload({
           file={input}
           onFile={(f) => {
             const err = validateFile(f, t);
-            if (err) return setError(err);
+            if (err) {
+              setError(err);
+              toast.error(t("feedback.toast.invalidFile"));
+              return;
+            }
             setError(null);
             setInput({ name: f.name, size: f.size });
+            toast.success(t("feedback.toast.uploaded", { name: f.name }));
           }}
-          onClear={() => setInput(null)}
+          onClear={() => {
+            if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
+            setInput(null);
+          }}
         />
       </div>
       {error && (
@@ -482,6 +517,7 @@ function StepConfig() {
     setStrategy("Hybrid");
     applyPreset("Balanced");
     setSearchMode("auto");
+    toast.success(t("feedback.toast.recommendationApplied"));
   };
 
   return (
@@ -1019,9 +1055,10 @@ function StepReview() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
   const paged = filtered.slice((page - 1) * perPage, page * perPage);
 
-  const decide = (id: string) => {
+  const decide = (id: string, decision: "approved" | "rejected") => {
     setItems((prev) => prev.filter((p) => p.id !== id));
     setSelected(null);
+    toast.success(t(decision === "approved" ? "feedback.toast.approved" : "feedback.toast.rejected"));
   };
 
   const recommendation = (score: number) =>
@@ -1070,6 +1107,15 @@ function StepReview() {
       </div>
 
       {/* table */}
+      {filtered.length === 0 ? (
+        <div className="rounded-lg border border-border">
+          <EmptyState
+            icon={Inbox}
+            title={t("feedback.empty.title")}
+            description={t("feedback.empty.desc")}
+          />
+        </div>
+      ) : (
       <div className="border border-border rounded-lg overflow-hidden">
         <div className="max-h-[520px] overflow-auto">
           <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
@@ -1119,13 +1165,13 @@ function StepReview() {
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                         <button
-                          onClick={() => decide(r.id)}
+                          onClick={() => decide(r.id, "approved")}
                           className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
                         >
                           {t("common.approve")}
                         </button>
                         <button
-                          onClick={() => decide(r.id)}
+                          onClick={() => decide(r.id, "rejected")}
                           className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
                         >
                           {t("common.reject")}
@@ -1160,6 +1206,7 @@ function StepReview() {
           </div>
         </div>
       </div>
+      )}
 
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <SheetContent side="right" className="sm:max-w-lg overflow-y-auto">
@@ -1207,13 +1254,13 @@ function StepReview() {
 
               <div className="mt-6 flex gap-2">
                 <button
-                  onClick={() => decide(selected.id)}
+                  onClick={() => decide(selected.id, "approved")}
                   className="flex-1 px-3 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold"
                 >
                   {t("common.approve")}
                 </button>
                 <button
-                  onClick={() => decide(selected.id)}
+                  onClick={() => decide(selected.id, "rejected")}
                   className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary"
                 >
                   {t("common.reject")}
@@ -1362,7 +1409,10 @@ function SyncOptionGroup({
             <button
               key={option}
               type="button"
-              onClick={() => onChange(option)}
+              onClick={() => {
+                onChange(option);
+                toast.info(t("feedback.toast.syncUpdated"));
+              }}
               className={[
                 "min-h-16 rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors",
                 selected
@@ -1432,6 +1482,7 @@ function StepExport() {
         {options.map((o) => (
           <button
             key={o.label}
+            onClick={() => toast.success(t("feedback.toast.exportReady"))}
             className="text-left border border-border rounded-lg p-4 hover:border-accent/40 hover:bg-secondary/40"
           >
             <p className="text-sm font-semibold">{o.label}</p>

@@ -1,4 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
 import {
   AlertTriangle,
   ArrowRight,
@@ -7,13 +9,17 @@ import {
   ClipboardCheck,
   Clock,
   Loader2,
+  Inbox,
   Play,
   Plus,
+  RefreshCw,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
 
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorPanel, LoadingPanel } from "@/components/feedback-states";
 import { useAuth } from "@/lib/auth";
 import { usePreferences } from "@/lib/preferences";
 import {
@@ -53,6 +59,8 @@ function StatusIcon({ status }: { status: string }) {
 function DashboardPage() {
   const { user } = useAuth();
   const { t } = usePreferences();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const firstName = user?.fullName.split(" ")[0] ?? "there";
   const lastJob = recentJobs[0];
   const pendingReviews = reviewQueue.length;
@@ -85,6 +93,14 @@ function DashboardPage() {
       action: t("dashboard.insights.enablePreset"),
     },
   ];
+  const refreshDashboard = () => {
+    setDashboardError(null);
+    setIsRefreshing(true);
+    window.setTimeout(() => {
+      setIsRefreshing(false);
+      toast.success(t("feedback.toast.refreshed"));
+    }, 700);
+  };
 
   return (
     <AppLayout>
@@ -92,7 +108,44 @@ function DashboardPage() {
         <PageHeader
           title={t("dashboard.title", { name: firstName })}
           description={t("dashboard.description")}
+          actions={
+            <button
+              onClick={refreshDashboard}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60"
+            >
+              {isRefreshing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              {t("common.refresh")}
+            </button>
+          }
         />
+
+        {dashboardError && (
+          <div className="mb-6">
+            <ErrorPanel
+              title={t("feedback.error.title")}
+              description={dashboardError}
+              action={
+                <button
+                  onClick={refreshDashboard}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                >
+                  {t("common.retry")}
+                </button>
+              }
+            />
+          </div>
+        )}
+
+        {isRefreshing && (
+          <div className="mb-6">
+            <LoadingPanel title={t("feedback.loading.title")} description={t("feedback.loading.desc")} />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
           <ActionCard
@@ -178,6 +231,13 @@ function DashboardPage() {
               </Link>
             </div>
             <div className="overflow-x-auto">
+              {recentJobs.length === 0 ? (
+                <EmptyState
+                  icon={Inbox}
+                  title={t("dashboard.action.noJob")}
+                  description={t("dashboard.noJobDesc")}
+                />
+              ) : (
               <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
                 <colgroup>
                   <col />
@@ -232,6 +292,7 @@ function DashboardPage() {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
           </Card>
 
@@ -294,7 +355,10 @@ function DashboardPage() {
                 <p className="text-xs text-muted-foreground leading-relaxed flex-1">
                   {insightText[i]?.body ?? ins.body}
                 </p>
-                <button className="self-start text-xs font-medium text-accent hover:underline inline-flex items-center gap-1">
+                <button
+                  onClick={() => toast.info(t("feedback.toast.actionQueued"))}
+                  className="self-start text-xs font-medium text-accent hover:underline inline-flex items-center gap-1"
+                >
                   {insightText[i]?.action ?? ins.action} <ArrowRight className="size-3" />
                 </button>
               </div>
