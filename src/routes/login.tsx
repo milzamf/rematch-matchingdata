@@ -1,12 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
+
 import { useAuth } from "@/lib/auth";
+import { usePreferences } from "@/lib/preferences";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "Sign in — BatchMatch" },
+      { title: "Sign in - BatchMatch" },
       { name: "description", content: "Sign in to your BatchMatch workspace." },
     ],
   }),
@@ -15,6 +17,7 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const { login, user, hydrated } = useAuth();
+  const { t } = usePreferences();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -28,38 +31,38 @@ function LoginPage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!username || !password) return setError("Enter your username and password.");
+    if (!username || !password) return setError(t("auth.loginMissing"));
     setLoading(true);
     setTimeout(() => {
       const res = login(username, password);
       setLoading(false);
-      if (!res.ok) setError(res.error);
+      if (!res.ok) setError(authError(res.error, t));
       else navigate({ to: "/" });
     }, 350);
   };
 
   return (
-    <AuthShell title="Welcome back" subtitle="Sign in to your BatchMatch workspace">
+    <AuthShell title={t("auth.signInTitle")} subtitle={t("auth.signInSubtitle")}>
       <form onSubmit={submit} className="space-y-4">
         <Field
-          label="Username"
+          label={t("auth.username")}
           value={username}
           onChange={setUsername}
-          placeholder="your username"
+          placeholder={t("auth.usernamePlaceholder")}
           autoFocus
         />
         <Field
-          label="Password"
+          label={t("auth.password")}
           type="password"
           value={password}
           onChange={setPassword}
-          placeholder="••••••••"
+          placeholder={t("auth.passwordPlaceholder")}
           rightSlot={
             <Link
               to="/forgot-password"
               className="text-xs font-medium text-accent hover:underline"
             >
-              Forgot?
+              {t("auth.forgot")}
             </Link>
           }
         />
@@ -74,20 +77,33 @@ function LoginPage() {
           className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-brand text-brand-foreground py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-60"
         >
           {loading && <Loader2 className="size-4 animate-spin" />}
-          Sign in
+          {t("auth.signIn")}
         </button>
       </form>
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Don't have an account?{" "}
+        {t("auth.noAccount")}{" "}
         <Link to="/register" className="font-medium text-accent hover:underline">
-          Create one
+          {t("auth.createOne")}
         </Link>
       </p>
       <p className="mt-3 text-center text-[11px] text-muted-foreground">
-        Demo account: <span className="font-mono">demo</span> / <span className="font-mono">demo1234</span>
+        {t("auth.demoAccount")} <span className="font-mono">demo</span> /{" "}
+        <span className="font-mono">demo1234</span>
       </p>
     </AuthShell>
   );
+}
+
+export function authError(error: string, t: ReturnType<typeof usePreferences>["t"]) {
+  const map: Record<string, Parameters<typeof t>[0]> = {
+    "Invalid username or password.": "auth.error.invalid",
+    "All fields are required.": "auth.error.required",
+    "Password must be at least 6 characters.": "auth.error.passwordLength",
+    "Username is already taken.": "auth.error.usernameTaken",
+    "Email is already registered.": "auth.error.emailRegistered",
+    "Enter a valid email.": "auth.error.emailInvalid",
+  };
+  return map[error] ? t(map[error]) : error;
 }
 
 export function AuthShell({
@@ -97,7 +113,7 @@ export function AuthShell({
 }: {
   title: string;
   subtitle: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
@@ -133,7 +149,7 @@ export function Field({
   type?: string;
   placeholder?: string;
   autoFocus?: boolean;
-  rightSlot?: React.ReactNode;
+  rightSlot?: ReactNode;
 }) {
   return (
     <label className="block">

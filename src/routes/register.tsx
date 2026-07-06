@@ -2,7 +2,8 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { AuthShell, Field } from "./login";
+import { usePreferences } from "@/lib/preferences";
+import { AuthShell, Field, authError } from "./login";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/register")({
 
 function RegisterPage() {
   const { register, user, hydrated } = useAuth();
+  const { t } = usePreferences();
   const navigate = useNavigate();
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
@@ -35,18 +37,18 @@ function RegisterPage() {
     setTimeout(() => {
       const res = register({ fullName, username, email, password });
       setLoading(false);
-      if (!res.ok) setError(res.error);
+      if (!res.ok) setError(authError(res.error, t));
       else navigate({ to: "/" });
     }, 350);
   };
 
   return (
-    <AuthShell title="Create your workspace" subtitle="Every account gets its own private workspace">
+    <AuthShell title={t("auth.createTitle")} subtitle={t("auth.createSubtitle")}>
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Full name" value={fullName} onChange={setFullName} placeholder="Andi Setiawan" autoFocus />
-        <Field label="Username" value={username} onChange={setUsername} placeholder="andi" />
-        <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@company.com" />
-        <Field label="Password" type="password" value={password} onChange={setPassword} placeholder="At least 6 characters" />
+        <Field label={t("auth.fullName")} value={fullName} onChange={setFullName} placeholder="Andi Setiawan" autoFocus />
+        <Field label={t("auth.username")} value={username} onChange={setUsername} placeholder="andi" />
+        <Field label={t("auth.email")} type="email" value={email} onChange={setEmail} placeholder="you@company.com" />
+        <Field label={t("auth.password")} type="password" value={password} onChange={setPassword} placeholder={t("auth.passwordMin")} />
         {error && (
           <p className="text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>
         )}
@@ -56,13 +58,13 @@ function RegisterPage() {
           className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-brand text-brand-foreground py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-60"
         >
           {loading && <Loader2 className="size-4 animate-spin" />}
-          Create account
+          {t("auth.createAccount")}
         </button>
       </form>
       <p className="mt-6 text-center text-xs text-muted-foreground">
-        Already have an account?{" "}
+        {t("auth.haveAccount")}{" "}
         <Link to="/login" className="font-medium text-accent hover:underline">
-          Sign in
+          {t("auth.signIn")}
         </Link>
       </p>
     </AuthShell>

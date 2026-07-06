@@ -1,31 +1,33 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AppLayout, PageHeader, Card } from "@/components/app-layout";
-import { useAuth } from "@/lib/auth";
 import {
-  ArrowUpRight,
+  AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
+  CheckCircle2,
+  ClipboardCheck,
+  Clock,
+  Loader2,
   Play,
   Plus,
   Sparkles,
   TrendingUp,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Loader2,
-  ClipboardCheck,
 } from "lucide-react";
+
+import { AppLayout, PageHeader, Card } from "@/components/app-layout";
+import { useAuth } from "@/lib/auth";
+import { usePreferences } from "@/lib/preferences";
 import {
+  insights,
   kpis,
+  qualityBreakdown,
   recentJobs,
   reviewQueue,
-  qualityBreakdown,
-  insights,
 } from "@/lib/dummy-data";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard — BatchMatch" },
+      { title: "Dashboard - BatchMatch" },
       {
         name: "description",
         content:
@@ -50,61 +52,89 @@ function StatusIcon({ status }: { status: string }) {
 
 function DashboardPage() {
   const { user } = useAuth();
+  const { t } = usePreferences();
   const firstName = user?.fullName.split(" ")[0] ?? "there";
   const lastJob = recentJobs[0];
   const pendingReviews = reviewQueue.length;
+  const kpiText = [
+    { label: t("dashboard.kpi.totalRecords"), delta: t("dashboard.kpi.totalDelta") },
+    { label: t("dashboard.kpi.matchedRecords"), delta: t("dashboard.kpi.matchedDelta") },
+    { label: t("dashboard.kpi.possibleMatches"), delta: t("dashboard.kpi.possibleDelta") },
+    { label: t("dashboard.kpi.integrityScore"), delta: t("dashboard.kpi.integrityDelta") },
+  ];
+  const qualityText = [
+    t("dashboard.quality.complete"),
+    t("dashboard.quality.standardized"),
+    t("dashboard.quality.unique"),
+    t("dashboard.quality.missing"),
+  ];
+  const insightText = [
+    {
+      title: t("dashboard.insights.phoneticTitle"),
+      body: t("dashboard.insights.phoneticBody"),
+      action: t("dashboard.insights.apply"),
+    },
+    {
+      title: t("dashboard.insights.weightTitle"),
+      body: t("dashboard.insights.weightBody"),
+      action: t("dashboard.insights.updateRule"),
+    },
+    {
+      title: t("dashboard.insights.addressTitle"),
+      body: t("dashboard.insights.addressBody"),
+      action: t("dashboard.insights.enablePreset"),
+    },
+  ];
 
   return (
     <AppLayout>
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
         <PageHeader
-          title={`Welcome back, ${firstName}`}
-          description="Pick up where you left off, start a new match, or clear your review queue."
+          title={t("dashboard.title", { name: firstName })}
+          description={t("dashboard.description")}
         />
 
-        {/* Action hero */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
           <ActionCard
             tone="accent"
-            eyebrow="Continue"
-            title={lastJob ? lastJob.name : "No job in progress"}
+            eyebrow={t("dashboard.action.continue")}
+            title={lastJob ? lastJob.name : t("dashboard.action.noJob")}
             description={
               lastJob
-                ? `${lastJob.id} · ${lastJob.records} records · ${lastJob.date}`
-                : "Start a new matching job to see it here."
+                ? `${lastJob.id} - ${lastJob.records} ${t("dashboard.recent.records").toLowerCase()} - ${displayDate(lastJob.date, t)}`
+                : t("dashboard.noJobDesc")
             }
             icon={Play}
-            cta={lastJob ? "Resume job" : "Start first match"}
+            cta={lastJob ? t("dashboard.action.resume") : t("dashboard.action.firstMatch")}
             to="/matching"
           />
           <ActionCard
             tone="brand"
-            eyebrow="New"
-            title="Start a matching job"
-            description="Upload data, map columns, and reconcile against your reference set."
+            eyebrow={t("dashboard.action.new")}
+            title={t("dashboard.action.startNewTitle")}
+            description={t("dashboard.action.startNewDesc")}
             icon={Plus}
-            cta="New Matching"
+            cta={t("topbar.newMatching")}
             to="/matching"
             primary
           />
           <ActionCard
             tone="warning"
-            eyebrow="Review queue"
-            title={`${pendingReviews} pending manual reviews`}
-            description="Records near your threshold that need a human decision."
+            eyebrow={t("dashboard.action.reviewQueue")}
+            title={t("dashboard.action.pendingReviews", { count: pendingReviews })}
+            description={t("dashboard.action.reviewDesc")}
             icon={ClipboardCheck}
-            cta="Review now"
+            cta={t("dashboard.action.reviewNow")}
             to="/results"
             badge={pendingReviews > 0 ? String(pendingReviews) : undefined}
           />
         </div>
 
-        {/* KPI cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          {kpis.map((k) => (
+          {kpis.map((k, index) => (
             <Card key={k.label} className="p-5">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                {k.label}
+                {kpiText[index]?.label ?? k.label}
               </p>
               <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
                 {k.value}
@@ -119,31 +149,32 @@ function DashboardPage() {
                     k.tone === "warning" ? "text-warning" : "text-muted-foreground"
                   }`}
                 >
-                  {k.delta}
+                  {kpiText[index]?.delta ?? k.delta}
                 </p>
               )}
               {k.progress !== undefined && (
-                <p className="mt-2 text-xs text-muted-foreground">{k.delta}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {kpiText[index]?.delta ?? k.delta}
+                </p>
               )}
             </Card>
           ))}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Recent Matching Jobs */}
           <Card className="lg:col-span-2 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <div>
-                <h3 className="text-base font-semibold">Recent Matching Jobs</h3>
+                <h3 className="text-base font-semibold">{t("dashboard.recent.title")}</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Latest reconciliation runs in your workspace
+                  {t("dashboard.recent.desc")}
                 </p>
               </div>
               <Link
                 to="/results"
                 className="text-xs font-medium text-accent inline-flex items-center gap-1 hover:underline"
               >
-                View all <ArrowUpRight className="size-3" />
+                {t("common.viewAll")} <ArrowUpRight className="size-3" />
               </Link>
             </div>
             <div className="overflow-x-auto">
@@ -156,10 +187,16 @@ function DashboardPage() {
                 </colgroup>
                 <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="text-left px-6 py-2.5 font-medium">Job Name</th>
-                    <th className="text-right px-6 py-2.5 font-medium">Records</th>
-                    <th className="text-right px-6 py-2.5 font-medium">Match Rate</th>
-                    <th className="text-left px-6 py-2.5 font-medium">Status</th>
+                    <th className="text-left px-6 py-2.5 font-medium">
+                      {t("dashboard.recent.jobName")}
+                    </th>
+                    <th className="text-right px-6 py-2.5 font-medium">
+                      {t("dashboard.recent.records")}
+                    </th>
+                    <th className="text-right px-6 py-2.5 font-medium">
+                      {t("dashboard.recent.matchRate")}
+                    </th>
+                    <th className="text-left px-6 py-2.5 font-medium">{t("common.status")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -173,7 +210,7 @@ function DashboardPage() {
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {job.reference} <span className="text-muted-foreground/60">→</span>{" "}
+                          {job.reference} <span className="text-muted-foreground/60">-&gt;</span>{" "}
                           {job.input}
                         </p>
                       </td>
@@ -188,7 +225,7 @@ function DashboardPage() {
                           className={`inline-flex min-w-24 items-center justify-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${statusStyles(job.status)}`}
                         >
                           <StatusIcon status={job.status} />
-                          {job.status}
+                          {displayStatus(job.status, t)}
                         </span>
                       </td>
                     </tr>
@@ -198,14 +235,12 @@ function DashboardPage() {
             </div>
           </Card>
 
-
-          {/* Data quality overview */}
           <Card className="p-6">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-base font-semibold">Data Quality</h3>
+                <h3 className="text-base font-semibold">{t("dashboard.quality.title")}</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Reference dataset · customer_master
+                  {t("dashboard.quality.reference")}
                 </p>
               </div>
               <div className="text-right">
@@ -216,7 +251,7 @@ function DashboardPage() {
               </div>
             </div>
             <div className="mt-5 space-y-3.5">
-              {qualityBreakdown.map((q) => {
+              {qualityBreakdown.map((q, index) => {
                 const color =
                   q.color === "success"
                     ? "bg-success"
@@ -226,7 +261,7 @@ function DashboardPage() {
                 return (
                   <div key={q.label}>
                     <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-muted-foreground">{q.label}</span>
+                      <span className="text-muted-foreground">{qualityText[index] ?? q.label}</span>
                       <span className="font-medium tabular-nums">{q.value}%</span>
                     </div>
                     <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -239,27 +274,28 @@ function DashboardPage() {
           </Card>
         </div>
 
-        {/* Insights */}
         <Card>
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <div className="flex items-center gap-2">
               <Sparkles className="size-4 text-accent" />
-              <h3 className="text-base font-semibold">Matching Insights & Recommendations</h3>
+              <h3 className="text-base font-semibold">{t("dashboard.insights.title")}</h3>
             </div>
-            <span className="text-[11px] text-muted-foreground">Auto-generated · updated 10m ago</span>
+            <span className="text-[11px] text-muted-foreground">
+              {t("dashboard.insights.generated")}
+            </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
             {insights.map((ins, i) => (
               <div key={i} className="p-6 flex flex-col gap-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="size-4 text-warning" />
-                  <p className="text-sm font-semibold">{ins.title}</p>
+                  <p className="text-sm font-semibold">{insightText[i]?.title ?? ins.title}</p>
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed flex-1">
-                  {ins.body}
+                  {insightText[i]?.body ?? ins.body}
                 </p>
                 <button className="self-start text-xs font-medium text-accent hover:underline inline-flex items-center gap-1">
-                  {ins.action} <ArrowRight className="size-3" />
+                  {insightText[i]?.action ?? ins.action} <ArrowRight className="size-3" />
                 </button>
               </div>
             ))}
@@ -268,6 +304,21 @@ function DashboardPage() {
       </div>
     </AppLayout>
   );
+}
+
+function displayStatus(status: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (status === "Completed") return t("common.completed");
+  if (status === "Running") return t("common.running");
+  if (status === "Review") return t("common.review");
+  return status;
+}
+
+function displayDate(date: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (date === "Yesterday") return t("results.export.scope.all") === "semua" ? "Kemarin" : date;
+  if (date.startsWith("Today")) return t("results.export.scope.all") === "semua" ? date.replace("Today", "Hari ini") : date;
+  if (date === "2 hours ago") return t("results.export.scope.all") === "semua" ? "2 jam lalu" : date;
+  if (date === "5 hours ago") return t("results.export.scope.all") === "semua" ? "5 jam lalu" : date;
+  return date;
 }
 
 function ActionCard({

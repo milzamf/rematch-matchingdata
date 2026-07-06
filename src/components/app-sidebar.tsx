@@ -7,17 +7,19 @@ import {
 } from "lucide-react";
 
 import { useAuth, getInitials } from "@/lib/auth";
+import { usePreferences } from "@/lib/preferences";
 
 const nav = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Matching", url: "/matching", icon: GitCompareArrows },
-  { title: "Results", url: "/results", icon: ClipboardCheck },
-  { title: "Settings", url: "/settings", icon: SettingsIcon },
+  { labelKey: "nav.dashboard", url: "/", icon: LayoutDashboard },
+  { labelKey: "nav.matching", url: "/matching", icon: GitCompareArrows },
+  { labelKey: "nav.results", url: "/results", icon: ClipboardCheck },
+  { labelKey: "nav.settings", url: "/settings", icon: SettingsIcon },
 ] as const;
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const { user } = useAuth();
+  const { t } = usePreferences();
   const initials = user ? getInitials(user.fullName) : "??";
 
   return (
@@ -28,7 +30,9 @@ export function AppSidebar() {
         </div>
         <div className="flex flex-col leading-tight">
           <span className="font-semibold text-[15px] tracking-tight text-foreground">BatchMatch</span>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Data Platform</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {t("brand.subtitle")}
+          </span>
         </div>
       </div>
 
@@ -48,7 +52,7 @@ export function AppSidebar() {
               ].join(" ")}
             >
               <Icon className="size-4" />
-              <span>{item.title}</span>
+              <span>{t(item.labelKey)}</span>
             </Link>
           );
         })}

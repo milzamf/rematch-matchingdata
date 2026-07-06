@@ -4,6 +4,7 @@ import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
 import { wizardSteps, columnProfile, reviewQueue, synchronizationSummary } from "@/lib/dummy-data";
+import { usePreferences } from "@/lib/preferences";
 import {
   Check,
   Upload,
@@ -50,6 +51,7 @@ const ALLOWED = [".csv", ".xlsx", ".xls", ".xml", ".dbf"];
 const MAX_MB = 50;
 
 function MatchingPage() {
+  const { t } = usePreferences();
   const [step, setStep] = useState(1);
   const [reference, setReference] = useState<UploadedFile | null>(null);
   const [input, setInput] = useState<UploadedFile | null>(null);
@@ -58,6 +60,11 @@ function MatchingPage() {
   const [progress, setProgress] = useState(0);
 
   const canAdvance = step !== 1 || (reference && input);
+  const localizedSteps = wizardSteps.map((s) => ({
+    ...s,
+    title: t(`step.${stepKey(s.id)}`),
+    desc: t(`step.${stepKey(s.id)}Desc`),
+  }));
 
   const startRun = () => {
     setRunState("running");
@@ -80,13 +87,13 @@ function MatchingPage() {
     <AppLayout>
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
         <PageHeader
-          title="New Matching Job"
-          description="One continuous workflow — upload, configure, run, review, synchronize, and export."
+          title={t("matching.title")}
+          description={t("matching.description")}
         />
 
         {/* Horizontal stepper */}
         <Card className="p-5 mb-6 sticky top-16 z-10">
-          <Stepper steps={wizardSteps} current={step} onSelect={setStep} />
+          <Stepper steps={localizedSteps} current={step} onSelect={setStep} />
         </Card>
 
         <Card className="p-6">
@@ -127,17 +134,17 @@ function MatchingPage() {
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ArrowLeft className="size-4" />
-              Back
+              {t("common.back")}
             </button>
             <p className="text-xs text-muted-foreground">
-              Step {step} of {wizardSteps.length}
+              {t("common.stepOf", { current: step, total: wizardSteps.length })}
             </p>
             {step === wizardSteps.length ? (
               <Link
                 to="/results"
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90"
               >
-                Go to Results
+                {t("common.goToResults")}
                 <ArrowRight className="size-4" />
               </Link>
             ) : (
@@ -146,7 +153,7 @@ function MatchingPage() {
                 onClick={() => setStep((s) => Math.min(wizardSteps.length, s + 1))}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Continue
+                {t("common.continue")}
                 <ArrowRight className="size-4" />
               </button>
             )}
@@ -155,6 +162,20 @@ function MatchingPage() {
       </div>
     </AppLayout>
   );
+}
+
+function stepKey(id: number) {
+  return ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
+    id - 1
+  ] as
+    | "upload"
+    | "profiling"
+    | "mapping"
+    | "configure"
+    | "run"
+    | "review"
+    | "sync"
+    | "export";
 }
 
 function SectionTitle({ title, desc }: { title: string; desc: string }) {
@@ -166,10 +187,10 @@ function SectionTitle({ title, desc }: { title: string; desc: string }) {
   );
 }
 
-function validateFile(file: File): string | null {
+function validateFile(file: File, t: ReturnType<typeof usePreferences>["t"]): string | null {
   const ext = "." + file.name.split(".").pop()?.toLowerCase();
-  if (!ALLOWED.includes(ext)) return `Unsupported format. Allowed: ${ALLOWED.join(", ")}`;
-  if (file.size > MAX_MB * 1024 * 1024) return `File exceeds ${MAX_MB}MB limit.`;
+  if (!ALLOWED.includes(ext)) return t("matching.upload.unsupported", { formats: ALLOWED.join(", ") });
+  if (file.size > MAX_MB * 1024 * 1024) return t("matching.upload.tooLarge", { max: MAX_MB });
   return null;
 }
 
@@ -188,20 +209,21 @@ function StepUpload({
   error: string | null;
   setError: (e: string | null) => void;
 }) {
+  const { t } = usePreferences();
   return (
     <>
       <SectionTitle
-        title="Upload Dataset"
-        desc="Provide your reference (master) file and the input file to match against."
+        title={t("matching.upload.title")}
+        desc={t("matching.upload.desc")}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FileSlot
-          label="Reference File"
-          hint="Master dataset (customer_master, vendors, etc.)"
+          label={t("matching.upload.reference")}
+          hint={t("matching.upload.referenceHint")}
           icon={Database}
           file={reference}
           onFile={(f) => {
-            const err = validateFile(f);
+            const err = validateFile(f, t);
             if (err) return setError(err);
             setError(null);
             setReference({ name: f.name, size: f.size });
@@ -209,12 +231,12 @@ function StepUpload({
           onClear={() => setReference(null)}
         />
         <FileSlot
-          label="Input File"
-          hint="File to reconcile against the reference"
+          label={t("matching.upload.input")}
+          hint={t("matching.upload.inputHint")}
           icon={FileSpreadsheet}
           file={input}
           onFile={(f) => {
-            const err = validateFile(f);
+            const err = validateFile(f, t);
             if (err) return setError(err);
             setError(null);
             setInput({ name: f.name, size: f.size });
@@ -230,7 +252,7 @@ function StepUpload({
       )}
       <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground bg-secondary/40 rounded-md px-3 py-2">
         <Upload className="size-3.5" />
-        Accepted: {ALLOWED.join(", ")} · Max {MAX_MB} MB · UTF-8 recommended.
+        {t("matching.upload.accepted", { formats: ALLOWED.join(", "), max: MAX_MB })}
       </div>
     </>
   );
@@ -252,6 +274,7 @@ function FileSlot({
   onClear: () => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  const { t } = usePreferences();
   return (
     <div className="border border-dashed border-border rounded-lg p-6 hover:border-accent/50 hover:bg-secondary/30 transition-colors">
       <input
@@ -288,12 +311,14 @@ function FileSlot({
         )}
       </div>
       <div className="mt-4 flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{file ? "Uploaded" : "No file"}</span>
+        <span className="text-muted-foreground">
+          {file ? t("common.uploaded") : t("common.noFile")}
+        </span>
         <button
           onClick={() => ref.current?.click()}
           className="font-medium text-accent hover:underline"
         >
-          {file ? "Replace" : "Choose file"}
+          {file ? t("common.replace") : t("common.chooseFile")}
         </button>
       </div>
     </div>
@@ -301,26 +326,35 @@ function FileSlot({
 }
 
 function StepProfile() {
+  const { t } = usePreferences();
+  const flagKeys = [
+    "matching.profile.flag.primary",
+    "matching.profile.flag.highSignal",
+    "matching.profile.flag.strict",
+    "matching.profile.flag.normalize",
+    "matching.profile.flag.standardize",
+    "matching.profile.flag.exact",
+  ] as const;
   return (
     <>
       <SectionTitle
-        title="Data Profiling"
-        desc="Review inferred column types, quality, and detected patterns before mapping."
+        title={t("matching.profile.title")}
+        desc={t("matching.profile.desc")}
       />
       <div className="border border-border rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-secondary/40">
             <tr className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              <th className="text-left px-4 py-2.5 font-medium">Column</th>
-              <th className="text-left px-4 py-2.5 font-medium">Type</th>
-              <th className="text-left px-4 py-2.5 font-medium">Nulls</th>
-              <th className="text-left px-4 py-2.5 font-medium">Unique</th>
-              <th className="text-left px-4 py-2.5 font-medium">Pattern</th>
-              <th className="text-left px-4 py-2.5 font-medium">Flag</th>
+              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.column")}</th>
+              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.type")}</th>
+              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.nulls")}</th>
+              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.unique")}</th>
+              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.pattern")}</th>
+              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.flag")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {columnProfile.map((c) => (
+            {columnProfile.map((c, index) => (
               <tr key={c.name} className="hover:bg-secondary/30">
                 <td className="px-4 py-3 font-mono text-xs">{c.name}</td>
                 <td className="px-4 py-3">
@@ -331,7 +365,9 @@ function StepProfile() {
                 <td className="px-4 py-3 text-xs tabular-nums">{c.nulls}</td>
                 <td className="px-4 py-3 text-xs tabular-nums">{c.unique}</td>
                 <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{c.pattern}</td>
-                <td className="px-4 py-3 text-xs text-accent">{c.flag}</td>
+                <td className="px-4 py-3 text-xs text-accent">
+                  {flagKeys[index] ? t(flagKeys[index]) : c.flag}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -342,6 +378,7 @@ function StepProfile() {
 }
 
 function StepMapping() {
+  const { t } = usePreferences();
   const mappings = [
     { ref: "customer_id", input: "cust_id", method: "Exact" },
     { ref: "company_name", input: "account_name", method: "Fuzzy — Token Sort" },
@@ -352,14 +389,14 @@ function StepMapping() {
   return (
     <>
       <SectionTitle
-        title="Column Mapping"
-        desc="Link reference columns to input columns and choose a comparison method for each pair."
+        title={t("matching.mapping.title")}
+        desc={t("matching.mapping.desc")}
       />
       <div className="space-y-2.5 overflow-x-auto">
         <div className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-          <span>Reference Column</span>
-          <span>Input Column</span>
-          <span>Matching Algorithm</span>
+          <span>{t("matching.mapping.reference")}</span>
+          <span>{t("matching.mapping.input")}</span>
+          <span>{t("matching.mapping.algorithm")}</span>
         </div>
         {mappings.map((m) => (
           <div
@@ -374,7 +411,7 @@ function StepMapping() {
           </div>
         ))}
         <button className="w-full py-3 border border-dashed border-border rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors">
-          + Add column mapping
+          {t("matching.mapping.add")}
         </button>
       </div>
     </>
@@ -393,6 +430,7 @@ const PRESET_DEFAULTS: Record<Preset, { autoMatch: number; review: number; noMat
 };
 
 function StepConfig() {
+  const { t } = usePreferences();
   const [preset, setPreset] = useState<Preset>("Balanced");
   const [strategy, setStrategy] = useState<Strategy>("Hybrid");
   const [autoMatch, setAutoMatch] = useState(90);
@@ -449,8 +487,8 @@ function StepConfig() {
   return (
     <>
       <SectionTitle
-        title="Matching Configuration"
-        desc="Tune presets, strategy, thresholds, search optimization and outputs. Advanced controls are collapsed."
+        title={t("matching.config.title")}
+        desc={t("matching.config.desc")}
       />
 
       {/* Smart Recommendation */}
@@ -461,17 +499,17 @@ function StepConfig() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold">Recommended Configuration</p>
+              <p className="text-sm font-semibold">{t("matching.config.recommended")}</p>
               <span className="text-[10px] font-semibold bg-accent/15 text-accent rounded-full px-1.5 py-0.5">
-                Confidence 96%
+                {t("matching.config.confidence")}
               </span>
             </div>
             <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                ["Strategy", "Hybrid"],
-                ["Preset", "Balanced"],
-                ["Search Optimization", "Company Name Prefix"],
-                ["Normalization", "Entity Name"],
+                [t("matching.config.strategy"), "Hybrid"],
+                [t("matching.config.preset"), "Balanced"],
+                [t("matching.config.search"), "Company Name Prefix"],
+                [t("matching.config.normalization"), "Entity Name"],
               ].map(([k, v]) => (
                 <div key={k}>
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{k}</p>
@@ -484,13 +522,13 @@ function StepConfig() {
             onClick={applyRecommendation}
             className="shrink-0 px-3 py-2 rounded-md bg-accent text-accent-foreground text-xs font-semibold hover:opacity-90"
           >
-            Apply Recommendation
+            {t("matching.config.applyRecommendation")}
           </button>
         </div>
       </div>
 
       {/* 1. Preset */}
-      <ConfigSection title="Preset" desc="Templates that set thresholds, strategy and normalization together.">
+      <ConfigSection title={t("matching.config.preset")} desc={t("matching.config.presetDesc")}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           {(["Balanced", "Strict", "Exploratory", "Custom"] as Preset[]).map((p) => (
             <button
@@ -510,12 +548,12 @@ function StepConfig() {
       </ConfigSection>
 
       {/* 2. Strategy */}
-      <ConfigSection title="Matching Strategy" desc="Select how records are compared.">
+      <ConfigSection title={t("matching.config.strategy")} desc={t("matching.config.strategyDesc")}>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           {([
-            ["Hybrid", "Recommended"],
-            ["Exact", "Exact Match"],
-            ["Fuzzy", "Fuzzy Match"],
+            ["Hybrid", t("matching.config.recommendedLabel")],
+            ["Exact", t("matching.config.exactMatch")],
+            ["Fuzzy", t("matching.config.fuzzyMatch")],
             ["Composite", "Composite"],
             ["Rule-Based", "Rule-Based"],
           ] as [Strategy, string][]).map(([key, label]) => (
@@ -539,16 +577,16 @@ function StepConfig() {
       </ConfigSection>
 
       {/* 3. Similarity Threshold */}
-      <ConfigSection title="Similarity Threshold" desc={`Preset "${preset}" recommends the values below.`}>
+      <ConfigSection title={t("matching.config.threshold")} desc={t("matching.config.thresholdDesc", { preset })}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ThresholdInput label="Auto Match" tone="success" value={autoMatch} onChange={setAutoMatch} />
-          <ThresholdInput label="Manual Review" tone="warning" value={review} onChange={setReview} />
-          <ThresholdInput label="No Match" tone="muted" value={noMatch} onChange={setNoMatch} />
+          <ThresholdInput label={t("matching.config.autoMatch")} tone="success" value={autoMatch} onChange={setAutoMatch} />
+          <ThresholdInput label={t("matching.config.manualReview")} tone="warning" value={review} onChange={setReview} />
+          <ThresholdInput label={t("matching.config.noMatch")} tone="muted" value={noMatch} onChange={setNoMatch} />
         </div>
       </ConfigSection>
 
       {/* 4. Search Optimization */}
-      <ConfigSection title="Search Optimization" desc="Narrow candidate pairs before scoring.">
+      <ConfigSection title={t("matching.config.search")} desc={t("matching.config.searchDesc")}>
         <div className="flex gap-2 mb-3">
           {(["auto", "manual"] as const).map((m) => (
             <button
@@ -561,14 +599,14 @@ function StepConfig() {
                   : "border-border text-muted-foreground hover:bg-secondary",
               ].join(" ")}
             >
-              {m === "auto" ? "Auto Recommend" : "Manual Candidate Strategy"}
+              {m === "auto" ? t("matching.config.autoRecommend") : t("matching.config.manualCandidate")}
             </button>
           ))}
         </div>
         {searchMode === "auto" ? (
           <div className="border border-border rounded-lg p-4 bg-secondary/30">
             <p className="text-xs text-muted-foreground mb-2">
-              Based on the uploaded dataset, BatchMatch recommends:
+              {t("matching.config.recommends")}
             </p>
             <div className="flex flex-wrap gap-1.5">
               {AUTO_RECOMMEND_KEYS.map((k) => (
@@ -608,7 +646,7 @@ function StepConfig() {
       </ConfigSection>
 
       {/* 5. Data Normalization */}
-      <ConfigSection title="Data Normalization" desc="Clean values before comparison.">
+      <ConfigSection title={t("matching.config.normalizationTitle")} desc={t("matching.config.normalizationDesc")}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {Object.keys(norm).map((k) => (
             <label
@@ -621,14 +659,14 @@ function StepConfig() {
                 onChange={(e) => setNorm((prev) => ({ ...prev, [k]: e.target.checked }))}
                 className="size-3.5 accent-brand"
               />
-              <span className="text-xs">{k}</span>
+              <span className="text-xs">{normalizationLabel(k, t)}</span>
             </label>
           ))}
         </div>
       </ConfigSection>
 
       {/* 6. Candidate Generation */}
-      <ConfigSection title="Candidate Generation" desc="How many candidates per input record.">
+      <ConfigSection title={t("matching.config.candidateTitle")} desc={t("matching.config.candidateDesc")}>
         <div className="grid grid-cols-4 gap-2 max-w-md">
           {([1, 3, 5, 10] as const).map((n) => (
             <button
@@ -641,7 +679,7 @@ function StepConfig() {
                   : "border-border text-muted-foreground hover:bg-secondary",
               ].join(" ")}
             >
-              Top {n}
+              {t("matching.config.topN", { count: n })}
             </button>
           ))}
         </div>
@@ -649,17 +687,16 @@ function StepConfig() {
 
       {/* 7. Output Configuration */}
       <ConfigSection
-        title="Output Configuration"
-        desc="Choose export contents and include the synchronization plan selected in the Sync step."
+        title={t("matching.config.outputTitle")}
+        desc={t("matching.config.outputDesc")}
       >
         <div className="mb-4 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
           <div className="flex items-start gap-3">
             <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
             <div>
-              <p className="text-sm font-semibold">Merge strategy will be included</p>
+              <p className="text-sm font-semibold">{t("matching.config.mergeIncluded")}</p>
               <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                Export files will record whether matched records were dropped, unmatched records were appended,
-                and conflicts were sent to review.
+                {t("matching.config.mergeIncludedDesc")}
               </p>
             </div>
           </div>
@@ -681,7 +718,7 @@ function StepConfig() {
                     }
                     className="size-3.5 accent-brand"
                   />
-                  <span className="text-xs">{o}</span>
+                  <span className="text-xs">{outputLabel(o, t)}</span>
                 </label>
               );
             },
@@ -696,9 +733,9 @@ function StepConfig() {
           className="w-full flex items-center justify-between px-5 py-4 text-left"
         >
           <div>
-            <p className="text-sm font-semibold">Advanced Settings</p>
+            <p className="text-sm font-semibold">{t("matching.config.advanced")}</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Field weights, per-column algorithms, tolerances. Most users don't need this.
+              {t("matching.config.advancedDesc")}
             </p>
           </div>
           <ChevronDown
@@ -709,13 +746,13 @@ function StepConfig() {
           <div className="border-t border-border px-5 py-5 space-y-5">
             <div>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold">Field Weights</p>
+                <p className="text-sm font-semibold">{t("matching.config.fieldWeights")}</p>
                 <p
                   className={`text-xs font-medium tabular-nums ${
                     totalWeight === 100 ? "text-success" : "text-destructive"
                   }`}
                 >
-                  Total: {totalWeight}%
+                  {t("matching.config.total", { value: totalWeight })}
                 </p>
               </div>
               <div className="space-y-3">
@@ -746,10 +783,10 @@ function StepConfig() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {[
-                ["Mandatory Rules", "NPWP must match exactly when present"],
-                ["Numeric Tolerance", "± 0.5%"],
-                ["Date Tolerance", "± 3 days"],
-                ["Similarity Formula", "Weighted average (default)"],
+                [t("matching.config.mandatoryRules"), t("matching.config.mandatoryRulesValue")],
+                [t("matching.config.numericTolerance"), "+/- 0.5%"],
+                [t("matching.config.dateTolerance"), "+/- 3 days"],
+                [t("matching.config.similarityFormula"), t("matching.config.weightedAverage")],
               ].map(([k, v]) => (
                 <div key={k} className="border border-border rounded-md px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{k}</p>
@@ -773,6 +810,7 @@ function ConfigSection({
   desc: string;
   children: React.ReactNode;
 }) {
+  const { t } = usePreferences();
   return (
     <section className="border border-border rounded-lg p-5 mb-4">
       <div className="mb-4">
@@ -782,6 +820,33 @@ function ConfigSection({
       {children}
     </section>
   );
+}
+
+function normalizationLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
+  const labels: Record<string, Parameters<typeof t>[0]> = {
+    Lowercase: "matching.norm.lowercase",
+    "Trim Spaces": "matching.norm.trim",
+    "Remove Punctuation": "matching.norm.punctuation",
+    "Ignore Legal Entity (PT, CV, Ltd, Inc)": "matching.norm.legal",
+    "Normalize Address": "matching.norm.address",
+    "Normalize Phone Number": "matching.norm.phone",
+    "Normalize Date Format": "matching.norm.date",
+  };
+  return labels[value] ? t(labels[value]) : value;
+}
+
+function outputLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
+  const labels: Record<string, Parameters<typeof t>[0]> = {
+    Matched: "matching.output.matched",
+    "Possible Match": "matching.output.possible",
+    Unmatched: "matching.output.unmatched",
+    "Synchronization Summary": "matching.output.syncSummary",
+    "Mapping Table": "matching.output.mapping",
+    "Foreign Key": "matching.output.foreignKey",
+    "Audit Trail": "matching.output.audit",
+    "Summary Report": "matching.output.summary",
+  };
+  return labels[value] ? t(labels[value]) : value;
 }
 
 function ThresholdInput({
@@ -829,11 +894,12 @@ function StepRun({
   onRetry: () => void;
   onBack: () => void;
 }) {
+  const { t } = usePreferences();
   return (
     <>
       <SectionTitle
-        title="Run Matching"
-        desc="Execute the job with your current configuration and monitor progress."
+        title={t("matching.run.title")}
+        desc={t("matching.run.desc")}
       />
       {state === "idle" && (
         <div className="border border-border rounded-lg p-6">
@@ -843,9 +909,9 @@ function StepRun({
                 <Play className="size-5" />
               </div>
               <div>
-                <p className="text-sm font-semibold">Ready to run</p>
+                <p className="text-sm font-semibold">{t("matching.run.ready")}</p>
                 <p className="text-xs text-muted-foreground">
-                  Estimated: ~1.2M pairwise comparisons · 2–3 minutes
+                  {t("matching.run.estimated")}
                 </p>
               </div>
             </div>
@@ -853,7 +919,7 @@ function StepRun({
               onClick={onStart}
               className="px-4 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold hover:opacity-90"
             >
-              Start Matching
+              {t("matching.run.start")}
             </button>
           </div>
         </div>
@@ -864,18 +930,18 @@ function StepRun({
           <div className="flex items-center gap-3 mb-4">
             <Loader2 className="size-5 text-accent animate-spin" />
             <div>
-              <p className="text-sm font-semibold">Matching in progress…</p>
+              <p className="text-sm font-semibold">{t("matching.run.progressTitle")}</p>
               <p className="text-xs text-muted-foreground">
                 {progress < 40
-                  ? "Building candidate pairs"
+                  ? t("matching.run.building")
                   : progress < 80
-                    ? "Scoring comparisons"
-                    : "Finalizing results"}
+                    ? t("matching.run.scoring")
+                    : t("matching.run.finalizing")}
               </p>
             </div>
           </div>
           <div className="flex justify-between text-xs mb-2">
-            <span className="text-muted-foreground">Progress</span>
+            <span className="text-muted-foreground">{t("common.progress")}</span>
             <span className="font-medium tabular-nums">{Math.round(progress)}%</span>
           </div>
           <div className="h-2 bg-secondary rounded-full overflow-hidden">
@@ -890,9 +956,9 @@ function StepRun({
             <Check className="size-5 text-success" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold">Matching complete</p>
+            <p className="text-sm font-semibold">{t("matching.run.complete")}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              12,482 matched · 842 possible · 45 unmatched. Move to Manual Review next.
+              {t("matching.run.completeDesc")}
             </p>
           </div>
         </div>
@@ -904,22 +970,22 @@ function StepRun({
             <AlertCircle className="size-5 text-destructive" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold">Matching failed</p>
+            <p className="text-sm font-semibold">{t("matching.run.failed")}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              A worker error stopped the job at {Math.round(progress)}%. No results were written.
+              {t("matching.run.failedDesc", { progress: Math.round(progress) })}
             </p>
             <div className="mt-3 flex gap-2">
               <button
                 onClick={onRetry}
                 className="px-3 py-1.5 rounded-md bg-brand text-brand-foreground text-xs font-semibold"
               >
-                Retry
+                {t("common.retry")}
               </button>
               <button
                 onClick={onBack}
                 className="px-3 py-1.5 rounded-md border border-border text-xs font-medium hover:bg-secondary"
               >
-                Back to configuration
+                {t("common.backToConfig")}
               </button>
             </div>
           </div>
@@ -932,6 +998,7 @@ function StepRun({
 type ReviewRow = (typeof reviewQueue)[number];
 
 function StepReview() {
+  const { t } = usePreferences();
   const [items, setItems] = useState(reviewQueue);
   const [query, setQuery] = useState("");
   const [sortDesc, setSortDesc] = useState(true);
@@ -958,19 +1025,19 @@ function StepReview() {
   };
 
   const recommendation = (score: number) =>
-    score >= 90 ? "Approve" : score >= 80 ? "Review closely" : "Likely reject";
+    score >= 90 ? t("matching.review.recApprove") : score >= 80 ? t("matching.review.recReview") : t("matching.review.recReject");
 
   if (items.length === 0) {
     return (
       <>
         <SectionTitle
-          title="Manual Review"
-          desc="Approve or reject possible matches that fall between your review thresholds."
+          title={t("matching.review.title")}
+          desc={t("matching.review.emptyDesc")}
         />
         <EmptyState
           icon={ClipboardCheck}
-          title="All caught up"
-          description="No records need manual review. You can move on to Synchronize."
+          title={t("matching.review.allCaughtUp")}
+          description={t("matching.review.none")}
         />
       </>
     );
@@ -979,8 +1046,8 @@ function StepReview() {
   return (
     <>
       <SectionTitle
-        title="Manual Review"
-        desc="Approve or reject possible matches. Click any row to inspect side-by-side."
+        title={t("matching.review.title")}
+        desc={t("matching.review.desc")}
       />
 
       {/* toolbar */}
@@ -993,12 +1060,12 @@ function StepReview() {
               setQuery(e.target.value);
               setPage(1);
             }}
-            placeholder="Search records…"
+            placeholder={t("matching.review.search")}
             className="w-full bg-transparent outline-none text-xs"
           />
         </div>
         <p className="text-xs text-muted-foreground tabular-nums">
-          {filtered.length} of {items.length} records
+          {t("matching.review.count", { filtered: filtered.length, total: items.length })}
         </p>
       </div>
 
@@ -1015,16 +1082,16 @@ function StepReview() {
             </colgroup>
             <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="text-left px-4 py-2.5 font-medium">Reference Record</th>
-                <th className="text-left px-4 py-2.5 font-medium">Input Record</th>
+                <th className="text-left px-4 py-2.5 font-medium">{t("matching.review.reference")}</th>
+                <th className="text-left px-4 py-2.5 font-medium">{t("matching.review.input")}</th>
                 <th
                   className="text-right px-4 py-2.5 font-medium cursor-pointer select-none"
                   onClick={() => setSortDesc((v) => !v)}
                 >
-                  Similarity {sortDesc ? "↓" : "↑"}
+                  {t("matching.review.similarity")} {sortDesc ? "↓" : "↑"}
                 </th>
-                <th className="text-left px-4 py-2.5 font-medium">Recommendation</th>
-                <th className="text-right px-4 py-2.5 font-medium">Action</th>
+                <th className="text-left px-4 py-2.5 font-medium">{t("matching.review.recommendation")}</th>
+                <th className="text-right px-4 py-2.5 font-medium">{t("common.action")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -1055,13 +1122,13 @@ function StepReview() {
                           onClick={() => decide(r.id)}
                           className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
                         >
-                          Approve
+                          {t("common.approve")}
                         </button>
                         <button
                           onClick={() => decide(r.id)}
                           className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
                         >
-                          Reject
+                          {t("common.reject")}
                         </button>
                       </div>
                     </td>
@@ -1073,7 +1140,7 @@ function StepReview() {
         </div>
         <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
           <span>
-            Page {page} of {totalPages}
+            {t("matching.review.page", { page, total: totalPages })}
           </span>
           <div className="flex gap-1.5">
             <button
@@ -1081,14 +1148,14 @@ function StepReview() {
               disabled={page === 1}
               className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
             >
-              Prev
+              {t("common.prev")}
             </button>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
               className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
             >
-              Next
+              {t("common.next")}
             </button>
           </div>
         </div>
@@ -1099,13 +1166,13 @@ function StepReview() {
           {selected && (
             <>
               <SheetHeader>
-                <SheetTitle className="text-base">Compare records</SheetTitle>
-                <SheetDescription>{selected.id} · Similarity {selected.score}%</SheetDescription>
+                <SheetTitle className="text-base">{t("matching.review.compare")}</SheetTitle>
+                <SheetDescription>{selected.id} - {t("matching.review.similarity")} {selected.score}%</SheetDescription>
               </SheetHeader>
               <div className="mt-5 grid grid-cols-2 gap-4">
                 {[
-                  { title: "Reference", name: selected.refName, meta: selected.refMeta },
-                  { title: "Input", name: selected.inputName, meta: selected.inputMeta },
+                  { title: t("results.table.reference"), name: selected.refName, meta: selected.refMeta },
+                  { title: t("results.table.input"), name: selected.inputName, meta: selected.inputMeta },
                 ].map((s) => (
                   <div key={s.title} className="border border-border rounded-lg p-3">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -1118,12 +1185,12 @@ function StepReview() {
               </div>
 
               <div className="mt-5">
-                <p className="text-xs font-semibold mb-2">Column scores</p>
+                <p className="text-xs font-semibold mb-2">{t("matching.review.columnScores")}</p>
                 <div className="space-y-2">
                   {[
-                    { col: "Name", score: selected.score },
-                    { col: "Identifier", score: Math.min(100, selected.score + 4) },
-                    { col: "Address", score: Math.max(0, selected.score - 10) },
+                    { col: t("matching.review.name"), score: selected.score },
+                    { col: t("matching.review.identifier"), score: Math.min(100, selected.score + 4) },
+                    { col: t("matching.review.address"), score: Math.max(0, selected.score - 10) },
                   ].map((c) => (
                     <div key={c.col} className="grid grid-cols-[100px_1fr_50px] items-center gap-3">
                       <span className="text-xs">{c.col}</span>
@@ -1143,19 +1210,19 @@ function StepReview() {
                   onClick={() => decide(selected.id)}
                   className="flex-1 px-3 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold"
                 >
-                  Approve
+                  {t("common.approve")}
                 </button>
                 <button
                   onClick={() => decide(selected.id)}
                   className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary"
                 >
-                  Reject
+                  {t("common.reject")}
                 </button>
                 <button
                   onClick={() => setSelected(null)}
                   className="px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary"
                 >
-                  Skip
+                  {t("common.skip")}
                 </button>
               </div>
             </>
@@ -1169,6 +1236,7 @@ function StepReview() {
 
 
 function StepSynchronize() {
+  const { t } = usePreferences();
   const [matchedAction, setMatchedAction] = useState("Drop / Skip matched input records");
   const [unmatchedAction, setUnmatchedAction] = useState("Append unmatched input records");
   const [possibleAction, setPossibleAction] = useState("Send to manual review");
@@ -1177,15 +1245,15 @@ function StepSynchronize() {
   return (
     <>
       <SectionTitle
-        title="Synchronize"
-        desc="Choose what happens to matched, unmatched, and uncertain records before exporting."
+        title={t("matching.sync.title")}
+        desc={t("matching.sync.desc")}
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
         <div className="space-y-4">
           <SyncOptionGroup
-            title="Matched Records"
-            desc="Choose how to handle input records that already match the reference dataset."
+            title={t("matching.sync.matchedTitle")}
+            desc={t("matching.sync.matchedDesc")}
             value={matchedAction}
             onChange={setMatchedAction}
             options={[
@@ -1196,8 +1264,8 @@ function StepSynchronize() {
           />
 
           <SyncOptionGroup
-            title="Unmatched Records"
-            desc="Choose how new or unknown input records should be handled."
+            title={t("matching.sync.unmatchedTitle")}
+            desc={t("matching.sync.unmatchedDesc")}
             value={unmatchedAction}
             onChange={setUnmatchedAction}
             options={[
@@ -1208,16 +1276,16 @@ function StepSynchronize() {
           />
 
           <SyncOptionGroup
-            title="Possible Match Records"
-            desc="Choose how records below the auto-match threshold should be handled."
+            title={t("matching.sync.possibleTitle")}
+            desc={t("matching.sync.possibleDesc")}
             value={possibleAction}
             onChange={setPossibleAction}
             options={["Send to manual review", "Export separately", "Ignore until reviewed"]}
           />
 
           <SyncOptionGroup
-            title="Conflict Resolution"
-            desc="Choose how field-level conflicts should be handled when both records have values."
+            title={t("matching.sync.conflictTitle")}
+            desc={t("matching.sync.conflictDesc")}
             value={conflictAction}
             onChange={setConflictAction}
             options={[
@@ -1231,18 +1299,18 @@ function StepSynchronize() {
 
         <aside className="h-fit rounded-lg border border-border bg-secondary/20 p-5">
           <div className="mb-4">
-            <p className="text-sm font-semibold">Summary preview</p>
+            <p className="text-sm font-semibold">{t("matching.sync.summaryPreview")}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Estimated impact based on the current match results.
+              {t("matching.sync.summaryDesc")}
             </p>
           </div>
           <div className="space-y-3">
-            <SyncMetric label="Records to drop" value={synchronizationSummary.droppedMatched} />
-            <SyncMetric label="Records to append" value={synchronizationSummary.appendedUnmatched} />
-            <SyncMetric label="Conflict review" value={synchronizationSummary.conflictsToReview} />
+            <SyncMetric label={t("matching.sync.drop")} value={synchronizationSummary.droppedMatched} />
+            <SyncMetric label={t("matching.sync.append")} value={synchronizationSummary.appendedUnmatched} />
+            <SyncMetric label={t("matching.sync.conflictReview")} value={synchronizationSummary.conflictsToReview} />
             <div className="border-t border-border pt-3">
               <SyncMetric
-                label="Final reference size"
+                label={t("matching.sync.finalSize")}
                 value={synchronizationSummary.finalReferenceSize}
                 strong
               />
@@ -1251,13 +1319,13 @@ function StepSynchronize() {
 
           <div className="mt-5 rounded-md border border-border bg-background px-3 py-3">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Selected merge plan
+              {t("matching.sync.selectedPlan")}
             </p>
             <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-              <li>Matched: {matchedAction}</li>
-              <li>Unmatched: {unmatchedAction}</li>
-              <li>Possible: {possibleAction}</li>
-              <li>Conflicts: {conflictAction}</li>
+              <li>{t("matching.sync.matched")}: {syncLabel(matchedAction, t)}</li>
+              <li>{t("matching.sync.unmatched")}: {syncLabel(unmatchedAction, t)}</li>
+              <li>{t("matching.sync.possible")}: {syncLabel(possibleAction, t)}</li>
+              <li>{t("matching.sync.conflicts")}: {syncLabel(conflictAction, t)}</li>
             </ul>
           </div>
         </aside>
@@ -1279,6 +1347,8 @@ function SyncOptionGroup({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const { t } = usePreferences();
+
   return (
     <section className="rounded-lg border border-border p-5">
       <div className="mb-4">
@@ -1300,13 +1370,32 @@ function SyncOptionGroup({
                   : "border-border text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
               ].join(" ")}
             >
-              {option}
+              {syncLabel(option, t)}
             </button>
           );
         })}
       </div>
     </section>
   );
+}
+
+function syncLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
+  const labels: Record<string, Parameters<typeof t>[0]> = {
+    "Drop / Skip matched input records": "matching.sync.dropMatched",
+    "Update existing reference records": "matching.sync.updateReference",
+    "Keep both records": "matching.sync.keepBoth",
+    "Append unmatched input records": "matching.sync.appendUnmatched",
+    "Export unmatched separately": "matching.sync.exportUnmatched",
+    "Ignore unmatched records": "matching.sync.ignoreUnmatched",
+    "Send to manual review": "matching.sync.sendReview",
+    "Export separately": "matching.sync.exportSeparately",
+    "Ignore until reviewed": "matching.sync.ignoreUntilReviewed",
+    "Keep reference value": "matching.sync.keepReference",
+    "Replace with input value": "matching.sync.replaceInput",
+    "Merge non-empty fields": "matching.sync.mergeNonEmpty",
+    "Send conflict to manual review": "matching.sync.sendConflict",
+  };
+  return labels[value] ? t(labels[value]) : value;
 }
 
 function SyncMetric({
@@ -1330,14 +1419,15 @@ function SyncMetric({
 
 
 function StepExport() {
+  const { t } = usePreferences();
   const options = [
-    { label: "Excel (.xlsx)", desc: "Workbook with results, sync summary, and audit trail" },
-    { label: "CSV (.csv)", desc: "Flat file with match scores and selected merge action" },
-    { label: "Updated Reference", desc: "Preview output after applying the synchronization plan" },
+    { label: "Excel (.xlsx)", desc: t("matching.export.excelDesc") },
+    { label: "CSV (.csv)", desc: t("matching.export.csvDesc") },
+    { label: t("matching.export.referenceLabel"), desc: t("matching.export.referenceDesc") },
   ];
   return (
     <>
-      <SectionTitle title="Export Results" desc="Download results using the selected synchronization plan." />
+      <SectionTitle title={t("matching.export.title")} desc={t("matching.export.desc")} />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {options.map((o) => (
           <button

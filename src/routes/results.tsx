@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
+import { usePreferences } from "@/lib/preferences";
 import {
   matchedRecords,
   reviewQueue,
@@ -35,19 +36,12 @@ export const Route = createFileRoute("/results")({
   component: ResultsPage,
 });
 
-const tabs = [
-  { key: "overview", label: "Overview" },
-  { key: "matched", label: "Matched" },
-  { key: "possible", label: "Possible Match" },
-  { key: "unmatched", label: "Unmatched" },
-  { key: "stats", label: "Statistics" },
-  { key: "audit", label: "Audit Trail" },
-  { key: "export", label: "Export History" },
-] as const;
+const tabs = ["overview", "matched", "possible", "unmatched", "stats", "audit", "export"] as const;
 
-type TabKey = (typeof tabs)[number]["key"];
+type TabKey = (typeof tabs)[number];
 
 function ResultsPage() {
+  const { t } = usePreferences();
   const [tab, setTab] = useState<TabKey>("overview");
   const hasResults = recentJobs.length > 0;
 
@@ -55,8 +49,8 @@ function ResultsPage() {
     <AppLayout>
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
         <PageHeader
-          title="Results"
-          description="MJ-2481 · CRM Cleanup — Q1 Customers · Completed 2 hours ago"
+          title={t("results.title")}
+          description={t("results.description")}
           actions={
             <>
               <button className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary">
@@ -68,7 +62,7 @@ function ResultsPage() {
                 className="inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-3 py-2 text-sm font-medium hover:opacity-90"
               >
                 <FileDown className="size-4" />
-                Export Results
+                {t("results.export")}
               </button>
             </>
           }
@@ -78,35 +72,35 @@ function ResultsPage() {
           <Card>
             <EmptyState
               icon={Inbox}
-              title="No completed jobs yet"
-              description="Start a matching job to see results, statistics, and audit trail here."
+              title={t("results.emptyTitle")}
+              description={t("results.emptyDesc")}
             />
           </Card>
         ) : (
           <>
             {/* Stat summary */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <StatChip label="Matched" value="12,482" tone="success" icon={CheckCircle2} />
-              <StatChip label="Possible" value="842" tone="warning" icon={Clock} />
-              <StatChip label="Unmatched" value="45" tone="destructive" icon={XCircle} />
-              <StatChip label="Confidence" value="98.4%" tone="muted" icon={CheckCircle2} />
+              <StatChip label={t("results.stat.matched")} value="12,482" tone="success" icon={CheckCircle2} />
+              <StatChip label={t("results.stat.possible")} value="842" tone="warning" icon={Clock} />
+              <StatChip label={t("results.stat.unmatched")} value="45" tone="destructive" icon={XCircle} />
+              <StatChip label={t("results.stat.confidence")} value="98.4%" tone="muted" icon={CheckCircle2} />
             </div>
 
             {/* Tabs */}
             <Card>
               <div className="border-b border-border px-2 flex items-center gap-1 overflow-x-auto">
-                {tabs.map((t) => (
+                {tabs.map((item) => (
                   <button
-                    key={t.key}
-                    onClick={() => setTab(t.key)}
+                    key={item}
+                    onClick={() => setTab(item)}
                     className={[
                       "px-3 py-3 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors",
-                      tab === t.key
+                      tab === item
                         ? "border-brand text-foreground"
                         : "border-transparent text-muted-foreground hover:text-foreground",
                     ].join(" ")}
                   >
-                    {t.label}
+                    {t(`results.tab.${item}` as Parameters<typeof t>[0])}
                   </button>
                 ))}
               </div>
@@ -159,39 +153,41 @@ function StatChip({
 }
 
 function TableToolbar() {
+  const { t } = usePreferences();
   return (
     <div className="flex items-center justify-between px-6 py-3 border-b border-border">
       <div className="flex items-center gap-2 text-xs text-muted-foreground bg-background border border-border rounded-md px-2.5 py-1.5 w-64">
         <Search className="size-3.5" />
-        <span>Filter records…</span>
+        <span>{t("results.toolbar.filter")}</span>
       </div>
       <button className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-2.5 py-1.5 hover:bg-secondary">
         <Filter className="size-3.5" />
-        Filters
+        {t("common.filters")}
       </button>
     </div>
   );
 }
 
 function OverviewTab({ onExport }: { onExport: () => void }) {
+  const { t } = usePreferences();
   const summary = [
-    { label: "Job ID", value: "MJ-2481" },
-    { label: "Reference", value: "customer_master.xlsx" },
-    { label: "Input", value: "salesforce_export.csv" },
-    { label: "Records", value: "24,109" },
-    { label: "Duration", value: "2m 41s" },
-    { label: "Completed", value: "2 hours ago" },
+    { label: t("results.overview.jobId"), value: "MJ-2481" },
+    { label: t("results.overview.reference"), value: "customer_master.xlsx" },
+    { label: t("results.overview.input"), value: "salesforce_export.csv" },
+    { label: t("results.overview.records"), value: "24,109" },
+    { label: t("results.overview.duration"), value: "2m 41s" },
+    { label: t("results.overview.completed"), value: relativeDate("2 hours ago", t) },
   ];
   const syncSummary = [
-    { label: "Dropped matched records", value: synchronizationSummary.droppedMatched },
-    { label: "Appended unmatched records", value: synchronizationSummary.appendedUnmatched },
-    { label: "Updated reference records", value: synchronizationSummary.updatedReference },
-    { label: "Conflicts sent to review", value: synchronizationSummary.conflictsToReview },
+    { label: t("results.overview.dropped"), value: synchronizationSummary.droppedMatched },
+    { label: t("results.overview.appended"), value: synchronizationSummary.appendedUnmatched },
+    { label: t("results.overview.updated"), value: synchronizationSummary.updatedReference },
+    { label: t("results.overview.conflicts"), value: synchronizationSummary.conflictsToReview },
   ];
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 border border-border rounded-lg p-5">
-        <p className="text-sm font-semibold mb-4">Job summary</p>
+        <p className="text-sm font-semibold mb-4">{t("results.overview.jobSummary")}</p>
         <div className="grid grid-cols-2 gap-4">
           {summary.map((s) => (
             <div key={s.label}>
@@ -204,17 +200,17 @@ function OverviewTab({ onExport }: { onExport: () => void }) {
         </div>
       </div>
       <div className="border border-border rounded-lg p-5">
-        <p className="text-sm font-semibold mb-4">Next steps</p>
+        <p className="text-sm font-semibold mb-4">{t("results.overview.nextSteps")}</p>
         <div className="space-y-2">
           <button
             onClick={onExport}
             className="w-full text-left flex items-center justify-between p-3 rounded-lg border border-border hover:bg-secondary/40"
           >
-            <span className="text-sm font-medium">Export results</span>
+            <span className="text-sm font-medium">{t("results.overview.exportResults")}</span>
             <FileDown className="size-4 text-muted-foreground" />
           </button>
           <button className="w-full text-left flex items-center justify-between p-3 rounded-lg border border-border hover:bg-secondary/40">
-            <span className="text-sm font-medium">Review 842 possible matches</span>
+            <span className="text-sm font-medium">{t("results.overview.reviewPossible")}</span>
             <Clock className="size-4 text-warning" />
           </button>
         </div>
@@ -222,14 +218,14 @@ function OverviewTab({ onExport }: { onExport: () => void }) {
       <div className="lg:col-span-3 border border-border rounded-lg p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold">Synchronization Summary</p>
+            <p className="text-sm font-semibold">{t("results.overview.syncSummary")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Estimated merge actions applied to the reference dataset.
+              {t("results.overview.syncDesc")}
             </p>
           </div>
           <div className="text-right">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Final reference size
+              {t("results.overview.finalSize")}
             </p>
             <p className="text-lg font-semibold tabular-nums">
               {synchronizationSummary.finalReferenceSize}
@@ -252,6 +248,7 @@ function OverviewTab({ onExport }: { onExport: () => void }) {
 }
 
 function MatchedTab() {
+  const { t } = usePreferences();
   return (
     <>
       <TableToolbar />
@@ -267,12 +264,12 @@ function MatchedTab() {
           </colgroup>
           <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="text-left px-6 py-2.5 font-medium">ID</th>
-              <th className="text-left px-6 py-2.5 font-medium">Reference</th>
-              <th className="text-left px-6 py-2.5 font-medium">Input</th>
-              <th className="text-left px-6 py-2.5 font-medium">Method</th>
-              <th className="text-right px-6 py-2.5 font-medium">Score</th>
-              <th className="text-left px-6 py-2.5 font-medium">Time</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.id")}</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.reference")}</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.input")}</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.method")}</th>
+              <th className="text-right px-6 py-2.5 font-medium">{t("results.table.score")}</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.time")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -307,6 +304,7 @@ function MatchedTab() {
 }
 
 function PossibleTab() {
+  const { t } = usePreferences();
   return (
     <>
       <TableToolbar />
@@ -320,10 +318,10 @@ function PossibleTab() {
           </colgroup>
           <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="text-left px-6 py-2.5 font-medium">Reference</th>
-              <th className="text-left px-6 py-2.5 font-medium">Input</th>
-              <th className="text-right px-6 py-2.5 font-medium">Similarity</th>
-              <th className="text-right px-6 py-2.5 font-medium">Action</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.reference")}</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.input")}</th>
+              <th className="text-right px-6 py-2.5 font-medium">{t("matching.review.similarity")}</th>
+              <th className="text-right px-6 py-2.5 font-medium">{t("common.action")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -350,10 +348,10 @@ function PossibleTab() {
                   <td className="px-6 py-4">
                     <div className="flex justify-end gap-1.5">
                       <button className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium">
-                        Approve
+                        {t("common.approve")}
                       </button>
                       <button className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary">
-                        Reject
+                        {t("common.reject")}
                       </button>
                     </div>
                   </td>
@@ -368,11 +366,12 @@ function PossibleTab() {
 }
 
 function UnmatchedTab() {
+  const { t } = usePreferences();
   const unmatched = [
-    { id: "UM-4401", value: "Toko Berkah Jaya", reason: "No candidate above threshold" },
-    { id: "UM-4402", value: "PT Indo Sejahtera Nusantara", reason: "Blocked by country mismatch" },
-    { id: "UM-4403", value: "Andi Wijaya (individual)", reason: "Ambiguous — 3 candidates < 70%" },
-    { id: "UM-4404", value: "CV Karya Mandiri 2024", reason: "Null NPWP + short name" },
+    { id: "UM-4401", value: "Toko Berkah Jaya", reason: t("results.unmatched.reason.noCandidate") },
+    { id: "UM-4402", value: "PT Indo Sejahtera Nusantara", reason: t("results.unmatched.reason.country") },
+    { id: "UM-4403", value: "Andi Wijaya (individual)", reason: t("results.unmatched.reason.ambiguous") },
+    { id: "UM-4404", value: "CV Karya Mandiri 2024", reason: t("results.unmatched.reason.nullNpwp") },
   ];
   return (
     <>
@@ -387,10 +386,10 @@ function UnmatchedTab() {
           </colgroup>
           <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="text-left px-6 py-2.5 font-medium">ID</th>
-              <th className="text-left px-6 py-2.5 font-medium">Input Record</th>
-              <th className="text-left px-6 py-2.5 font-medium">Reason</th>
-              <th className="text-right px-6 py-2.5 font-medium">Action</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.id")}</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.inputRecord")}</th>
+              <th className="text-left px-6 py-2.5 font-medium">{t("results.table.reason")}</th>
+              <th className="text-right px-6 py-2.5 font-medium">{t("common.action")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -400,7 +399,7 @@ function UnmatchedTab() {
                 <td className="px-6 py-4 font-medium truncate">{u.value}</td>
                 <td className="px-6 py-4 text-xs text-muted-foreground truncate">{u.reason}</td>
                 <td className="px-6 py-4 text-right">
-                  <button className="text-xs font-medium text-accent hover:underline">Force match</button>
+                  <button className="text-xs font-medium text-accent hover:underline">{t("results.table.forceMatch")}</button>
                 </td>
               </tr>
             ))}
@@ -412,6 +411,7 @@ function UnmatchedTab() {
 }
 
 function StatsTab() {
+  const { t } = usePreferences();
   const methodBreakdown = [
     { method: "Exact", count: 8210, pct: 66 },
     { method: "Fuzzy (Jaro-Winkler)", count: 2841, pct: 23 },
@@ -421,7 +421,7 @@ function StatsTab() {
   return (
     <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="border border-border rounded-lg p-5">
-        <p className="text-sm font-semibold">Match Method Distribution</p>
+        <p className="text-sm font-semibold">{t("results.stats.method")}</p>
         <div className="mt-4 space-y-3">
           {methodBreakdown.map((m) => (
             <div key={m.method}>
@@ -439,7 +439,7 @@ function StatsTab() {
         </div>
       </div>
       <div className="border border-border rounded-lg p-5">
-        <p className="text-sm font-semibold">Score Distribution</p>
+        <p className="text-sm font-semibold">{t("results.stats.score")}</p>
         <div className="mt-4 flex items-end gap-1.5 h-40">
           {[6, 10, 14, 22, 30, 42, 58, 78, 88, 96].map((h, i) => (
             <div key={i} className="flex-1 flex flex-col items-center gap-1">
@@ -452,7 +452,7 @@ function StatsTab() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground mt-3">
-          Most records cluster in the ≥ 90 range — a healthy distribution.
+          {t("results.stats.note")}
         </p>
       </div>
     </div>
@@ -460,13 +460,14 @@ function StatsTab() {
 }
 
 function AuditTab() {
+  const { t } = usePreferences();
   return (
     <div className="divide-y divide-border">
       {auditTrail.map((a, i) => (
         <div key={i} className="px-6 py-3 flex items-center gap-4">
           <span className="font-mono text-xs text-muted-foreground w-20">{a.time}</span>
           <span className="text-sm font-medium w-40 truncate">{a.user}</span>
-          <span className="text-sm text-muted-foreground w-40">{a.action}</span>
+          <span className="text-sm text-muted-foreground w-40">{auditAction(a.action, t)}</span>
           <span className="text-sm truncate flex-1">{a.target}</span>
         </div>
       ))}
@@ -474,24 +475,38 @@ function AuditTab() {
   );
 }
 
+function auditAction(action: string, t: ReturnType<typeof usePreferences>["t"]) {
+  const isIndonesian = t("results.export.scope.all") === "semua";
+  if (!isIndonesian) return action;
+  const map: Record<string, string> = {
+    "Approved match": "Match disetujui",
+    "Changed threshold": "Threshold diubah",
+    "Job completed": "Job selesai",
+    "Job started": "Job dimulai",
+    "Uploaded file": "File diunggah",
+  };
+  return map[action] ?? action;
+}
+
 function ExportTab() {
+  const { t } = usePreferences();
   const [format, setFormat] = useState<"csv" | "xlsx" | "json">("xlsx");
   const [scope, setScope] = useState<"all" | "matched" | "possible" | "unmatched">("all");
   const recent = [
-    { name: "MJ-2481-matched.xlsx", size: "1.8 MB", date: "2 hours ago" },
-    { name: "MJ-2480-all.csv", size: "742 KB", date: "Yesterday" },
+    { name: "MJ-2481-matched.xlsx", size: "1.8 MB", date: relativeDate("2 hours ago", t) },
+    { name: "MJ-2480-all.csv", size: "742 KB", date: relativeDate("Yesterday", t) },
   ];
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-2 border border-border rounded-lg p-5">
-        <p className="text-sm font-semibold">Configure export</p>
+        <p className="text-sm font-semibold">{t("results.export.configure")}</p>
         <p className="text-xs text-muted-foreground mt-1">
-          Pick the format and which subset of records to include.
+          {t("results.export.configureDesc")}
         </p>
 
         <div className="mt-5">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-            Format
+            {t("results.export.format")}
           </p>
           <div className="grid grid-cols-3 gap-2">
             {(["xlsx", "csv", "json"] as const).map((f) => (
@@ -513,7 +528,7 @@ function ExportTab() {
 
         <div className="mt-5">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-            Scope
+            {t("results.export.scope")}
           </p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {(["all", "matched", "possible", "unmatched"] as const).map((s) => (
@@ -527,7 +542,7 @@ function ExportTab() {
                     : "border-border text-muted-foreground hover:bg-secondary",
                 ].join(" ")}
               >
-                {s}
+                {t(`results.export.scope.${s}` as Parameters<typeof t>[0])}
               </button>
             ))}
           </div>
@@ -535,12 +550,12 @@ function ExportTab() {
 
         <button className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-4 py-2 text-sm font-semibold hover:opacity-90">
           <FileDown className="size-4" />
-          Download {scope}.{format}
+          {t("common.download")} {scope}.{format}
         </button>
       </div>
 
       <div className="border border-border rounded-lg p-5">
-        <p className="text-sm font-semibold mb-3">Recent exports</p>
+        <p className="text-sm font-semibold mb-3">{t("results.export.recent")}</p>
         <div className="space-y-2">
           {recent.map((r) => (
             <div
@@ -563,4 +578,14 @@ function ExportTab() {
       </div>
     </div>
   );
+}
+
+function relativeDate(value: string, t: ReturnType<typeof usePreferences>["t"]) {
+  const isIndonesian = t("results.export.scope.all") === "semua";
+  if (!isIndonesian) return value;
+  if (value === "2 hours ago") return "2 jam lalu";
+  if (value === "5 hours ago") return "5 jam lalu";
+  if (value === "Yesterday") return "Kemarin";
+  if (value.startsWith("Today")) return value.replace("Today", "Hari ini");
+  return value;
 }
