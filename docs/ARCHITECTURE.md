@@ -1,61 +1,264 @@
 # BatchMatch Architecture
 
-Status: Initial high-level architecture. `PRD.md` remains the source of truth for product scope.
+## 1. Overview
 
-## High-Level Components
+BatchMatch uses a separated architecture:
 
-### React Frontend
+- Frontend: React + Tailwind CSS
+- Backend: Laravel REST API
+- Database: MySQL or PostgreSQL
+- Matching Engine: Laravel Service Layer, with optional Python/RapidFuzz service later
+- AI Assistance: External AI API through backend only
+- Export Engine: Backend service for Excel, CSV, JSON, and audit output
 
-Provides the BatchMatch web UI: Dashboard, Matching wizard, Results, and Settings. It handles user interaction, local UI state, form validation feedback, loading/empty/error states, toasts, confirmation dialogs, and API calls. It does not run backend matching logic.
+Frontend must never access database, AI token, or file storage directly.
 
-### Laravel REST API
+---
 
-Owns authentication, authorization, workspace isolation, request validation, job orchestration, persistence, and API contracts. It exposes REST endpoints consumed by the React frontend.
+## 2. High-Level Architecture
 
-### Database
+```mermaid
+flowchart LR
+    U[User] --> FE[React Frontend]
+    FE --> API[Laravel REST API]
+    API --> DB[(Database)]
+    API --> FS[File Storage]
+    API --> ME[Matching Engine]
+    API --> AI[AI Assistance Service]
+    API --> EX[Export Engine]
+    ME --> DB
+    AI --> DB
+    EX --> FS
 
-Stores users, workspaces, dataset metadata, job configurations, mappings, results, review decisions, exports, AI recommendations, and audit logs. Raw uploaded files should be stored outside the relational database, with references stored in metadata tables.
+## 3. Main Workflow
+flowchart TD
+    A[Upload] --> B[Profiling]
+    B --> C[Mapping]
+    C --> D[Configure]
+    D --> E[Run Matching]
+    E --> F[Review]
+    F --> G[Sync]
+    G --> H[Export]
+    H --> I[Audit Trail]
 
-### Matching Engine
+## 4. Backend Layering
+Laravel should use service-oriented structure.
 
-Parses normalized tabular data, profiles columns, applies normalization, generates candidates, scores similarity, classifies results, and produces sync/export-ready outputs. It may run inside Laravel services initially and move to queued workers as file sizes grow.
+Controller
+↓
+Form Request
+↓
+Action / Service
+↓
+Repository
+↓
+Model
+↓
+Database
 
-### AI Assistance Service
+Controllers must stay thin. Business logic belongs in Services or Actions.
 
-Provides optional suggestions for profiling, column mapping, matching configuration, review explanation, and tuning. AI suggestions are reviewable, can be ignored, and must not overwrite user choices without confirmation.
+Recommended folders:
+app/
+├── Actions/
+├── DTO/
+├── Enums/
+├── Http/
+├── Jobs/
+├── Models/
+├── Policies/
+├── Repositories/
+├── Services/
+├── Support/
+└── ValueObjects/
 
-### Export Service
+## 5. Core Backend Services
+### AuthService
+Handles login, register, forgot password, session, and user workspace access.
 
-Generates downloadable files for matched, possible match, unmatched, sync summary, mapping keys, audit trail, and updated reference outputs. It records export history and storage metadata.
+### DatasetService
+Handles uploaded datasets, metadata, storage, parser selection, and dataset ownership.
 
-### Audit Trail
+### ProfilingService
+Generates column statistics, missing values, unique values, duplicate rate, and suggested key columns.
 
-Records user actions and system events across upload, profiling, mapping, configuration, matching run, review, sync, export, and AI recommendations. Audit records support reproducibility and accountability.
+### MappingService
+Stores and validates reference/input column mappings.
 
-## Data Flow
+### MatchingConfigurationService
+Stores preset, strategy, thresholds, normalization, Search Optimization, candidate count, output configuration, and advanced settings.
 
-1. Upload: user uploads reference and input datasets.
-2. Profiling: system parses files, extracts schema, profiles columns, and returns warnings or suggestions.
-3. Mapping: user maps reference columns to input columns.
-4. Configure: user selects preset, strategy, thresholds, normalization, candidate strategy, output configuration, and advanced settings.
-5. Run: matching job is queued or executed and produces scored results.
-6. Review: possible matches are approved, rejected, skipped, or force matched.
-7. Sync: user selects merge strategy for matched, unmatched, possible match, and conflict records.
-8. Export: system generates output files and records export history and audit trail.
+### MatchingEngineService
+Runs the matching pipeline.
 
-## Runtime Boundaries
+Pipeline:
+Parser
+→ Profiler
+→ Normalizer
+→ Search Optimization
+→ Candidate Generator
+→ Field Scorer
+→ Composite Scorer
+→ Decision Engine
+→ Review Queue
 
-- Frontend owns presentation, navigation, and immediate feedback.
-- Laravel owns business rules, permissions, validation, persistence, and orchestration.
-- Matching Engine owns deterministic parsing, profiling, scoring, and classification.
-- AI Assistance owns optional recommendations only.
-- Export Service owns file generation and export records.
-- Audit Trail records every important decision without driving UI behavior directly.
+### ReviewService
+Handles accept, reject, skip, reviewer notes, and candidate decisions.
 
-## Initial Deployment Shape
+### SyncService
+Applies merge strategy:
+skip/drop matched duplicates
+append unmatched records
+update reference records
+resolve conflicts
 
-- React frontend served as a static or SSR-compatible build.
-- Laravel API hosted as the main backend application.
-- MySQL or PostgreSQL for relational data.
-- File/object storage for uploads and generated exports.
-- Queue workers for parsing, matching, AI calls, export generation, and long-running jobs.
+### ExportService
+Generates downloadable outputs and audit sheets.
+
+### AIRecommendationService
+Provides AI suggestions for profiling, mapping, configuration, review explanation, and tuning.
+AI tokens must only exist in backend environment variables.
+
+### AuditTrailService
+Records important user actions, configuration changes, AI suggestions, review decisions, sync decisions, and export activity.
+
+## 6. Main Entities
+Initial entities:
+users
+workspaces
+datasets
+dataset_columns
+matching_jobs
+column_mappings
+matching_configurations
+matching_results
+review_decisions
+sync_plans
+exports
+audit_logs
+ai_recommendations
+
+Each user owns their own workspace data. Users must not access other users' jobs, uploads, exports, or audit trail.
+
+## 7. API Modules
+Planned REST API groups:
+/api/auth
+/api/user
+/api/workspaces
+/api/datasets
+/api/profiling
+/api/matching-jobs
+/api/mappings
+/api/configurations
+/api/results
+/api/reviews
+/api/sync
+/api/exports
+/api/ai
+/api/audit-logs 
+
+## 8. File Handling
+Uploaded files are stored through Laravel storage.
+Rules:
+
+original files must never be modified
+parsed output should be stored separately
+temporary files should expire
+file access must require authenticated user/session
+sensitive content must not be logged
+
+## 9. AI Integration
+AI is optional.
+Frontend calls Laravel API. Laravel calls AI provider.
+
+flowchart LR
+    FE[Frontend] --> API[Laravel API]
+    API --> REDACT[Masking / Redaction]
+    REDACT --> AI[AI Provider]
+    AI --> API
+    API --> DB[(Store Recommendation)]
+    API --> FE
+
+Rules:
+never expose AI token to frontend
+mask sensitive fields before AI request
+AI suggestions are optional
+user must confirm before applying suggestions
+applied/ignored AI suggestions are stored in audit trail
+
+## 10. Export Architecture
+Export output may include:
+Summary
+Matched
+Possible Match
+Unmatched
+Mapping
+Config
+Score Detail
+Review Decisions
+Sync Summary
+Audit Trail
+
+Export generation should run in backend service or queue job.
+
+## 11. Queue Jobs
+Long-running operations should use jobs:
+ParseDatasetJob
+ProfileDatasetJob
+RunMatchingJob
+GenerateExportJob
+GenerateAIRecommendationJob
+CleanupTemporaryFilesJob
+
+## 12. Security Principles
+- use Laravel Sanctum for authentication
+- hash passwords securely
+- validate uploaded files
+- restrict file access by user/workspace
+- store AI tokens in .env
+- mask sensitive data before AI calls
+- never log raw sensitive data
+- record audit trail for important actions
+
+## 13. Frontend Responsibility
+
+Frontend handles:
+UI state
+workflow navigation
+form input
+table display
+review interaction
+preferences
+API calls
+
+Frontend must not handle:
+file parsing
+matching calculation
+AI token
+database logic
+export generation
+
+## 14. Backend Responsibility
+
+Backend handles:
+authentication
+authorization
+file storage
+parsing
+profiling
+matching
+AI integration
+export generation
+audit logging
+
+## 15. Future Scalability
+Potential future improvements:
+- Python matching microservice
+- queue workers
+- Redis cache
+- object storage
+- role-based access control
+- scheduled matching
+- active learning from review decisions
+- probabilistic linkage engine
+- enterprise deployment with Docker
