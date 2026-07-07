@@ -12,6 +12,7 @@
     "test:e2e": "playwright test",
     "review:screenshots": "playwright test playwright/screenshots.spec.ts",
     "review:lighthouse": "node scripts/lighthouse-audit.mjs",
+    "review": "node scripts/review.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
