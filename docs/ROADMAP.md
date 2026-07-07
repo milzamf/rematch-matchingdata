@@ -1,29 +1,32 @@
 # BatchMatch Roadmap
 
-Status: Draft architecture planning document.
+Status: Phase-level roadmap. Keep this document concise and aligned with `PRD.md`.
 
-## Completed Sprints
+## Completed
 
-| Sprint | Scope | Status |
-| --- | --- | --- |
-| UI Polish | Navigation, dashboard tables, wizard layout, mapping layout, configuration sections, review table, and results tabs. | Completed |
-| Synchronization Strategy | Added Sync workflow step and merge strategy UI for matched, unmatched, possible match, and conflict handling. | Completed |
-| Preferences | Added theme mode, language switcher, Settings preferences, AI preferences, and data privacy settings. | Completed |
-| Frontend Finalization | Added loading states, empty states, error states, toast notifications, and confirmation dialogs. | Completed |
-
-## Next Phases
-
-| Phase | Goal |
+| Phase / Epic | Outcome |
 | --- | --- |
-| Architecture | Finalize system boundaries, data model, API modules, and operational decisions before backend work. |
-| DX Automation | Add scripts, lint/test/build checks, seed data, local environment docs, and CI guardrails. |
-| Laravel Backend | Implement REST API, authentication, workspace isolation, file metadata, job lifecycle, and audit logging. |
-| Matching Engine | Implement parsers, profiling, normalization, candidate generation, scoring, thresholding, and sync execution. |
-| AI Integration | Connect optional AI suggestions through configurable API endpoints and secure token configuration. |
-| Export & Audit | Generate exports, export history, audit trail records, and reproducible job configuration snapshots. |
-| Deployment | Prepare production build, environment variables, storage, queue workers, database migrations, and release process. |
+| UI Polish | Main navigation, dashboard table, matching wizard layout, configuration sections, review table, and results tabs refined. |
+| Synchronization Strategy | Sync step added between Review and Export with merge strategy for matched, unmatched, possible match, and conflict records. |
+| Preferences | Theme mode, language switcher, local preferences, AI preferences, and data privacy settings added to Settings. |
+| Frontend Finalization | Loading, empty, error, toast, and confirmation states added across the frontend. |
+| DX Automation | Playwright smoke tests, screenshot capture, Lighthouse audit, and unified review command added. |
+| Architecture Docs | Initial architecture, database, API, changelog, and roadmap documentation created. |
 
-## Product Guardrails
+## Next
+
+| Phase / Epic | Goal |
+| --- | --- |
+| Laravel Foundation | Establish Laravel backend structure, service layers, environment setup, storage, queues, and base conventions. |
+| Auth API | Implement login, register, forgot password, session/token handling, workspace access, and ownership rules. |
+| Dataset Upload | Implement secure file upload, parser selection, file metadata, preview, validation, and workspace-scoped storage. |
+| Profiling | Generate column metadata, data quality statistics, suggested keys, warnings, and profiling summaries. |
+| Matching Engine | Implement normalization, column mapping, search optimization, candidate generation, scoring, thresholds, review classification, and sync execution. |
+| AI Assistance | Connect optional AI suggestions through backend-only configurable endpoints with masking, confirmation, and audit logging. |
+| Export & Audit | Generate exports, export history, reproducible configuration snapshots, sync summaries, and audit trail records. |
+| Deployment | Prepare production build, database migrations, queue workers, storage, environment variables, and release process. |
+
+## Guardrails
 
 - `PRD.md` remains the source of truth for feature scope and business rules.
 - Main navigation remains Dashboard, Matching, Results, Settings.
