@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test:e2e": "playwright test",
+    "review:screenshots": "playwright test playwright/screenshots.spec.ts",
     "format": "prettier --write ."
   },
   "dependencies": {
