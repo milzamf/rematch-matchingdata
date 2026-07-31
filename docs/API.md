@@ -10,6 +10,15 @@ Status: Initial API contract draft. Do not implement backend from this document 
 - All workspace-scoped endpoints must verify the authenticated user's membership in the active workspace.
 - File parsing, profiling, matching, AI calls, export generation, and audit logging happen in the backend.
 
+## Implemented MVP Vertical Slice
+
+| Endpoint | Method | Purpose | Basic request fields | Basic response fields |
+| --- | --- | --- | --- | --- |
+| `/api/health` | `GET` | Check API availability. | none | `success`, `data.service`, `data.status`, `data.version` |
+| `/api/datasets/inspect` | `POST` | Upload and inspect one CSV/XLSX dataset for the current frontend workflow. | `file`, `dataset_role`, `sheet_name`, `delimiter`, `header_row` | `dataset`, `columns`, `preview_rows`, `profiling_summary` |
+
+Note: `/api/datasets/inspect` is intentionally not workspace-prefixed in this first vertical slice because authentication/workspace APIs are not implemented yet. It should move behind workspace ownership once Auth API is added.
+
 ## 1. Auth
 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |

@@ -1,11 +1,13 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link } from "@tanstack/react-router";
+import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog } from "@/components/feedback-states";
-import { wizardSteps, columnProfile, reviewQueue, synchronizationSummary } from "@/lib/dummy-data";
+import { wizardSteps, reviewQueue, synchronizationSummary } from "@/lib/dummy-data";
+import { ApiError, inspectDataset, type DatasetInspectResult, type DatasetRole } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
 import {
   Check,
@@ -19,6 +21,8 @@ import {
   Inbox,
   AlertCircle,
   ClipboardCheck,
+  Plus,
+  Trash2,
   X,
   Sparkles,
   ChevronDown,
@@ -32,11 +36,10 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 
-
 export const Route = createFileRoute("/matching")({
   head: () => ({
     meta: [
-      { title: "Matching Workflow — BatchMatch" },
+      { title: "Matching Workflow â€” BatchMatch" },
       {
         name: "description",
         content:
@@ -47,11 +50,34 @@ export const Route = createFileRoute("/matching")({
   component: MatchingPage,
 });
 
-type UploadedFile = { name: string; size: number };
+type UploadedFile = {
+  name: string;
+  size: number;
+  status: "loading" | "success" | "error";
+  result?: DatasetInspectResult;
+  error?: string;
+};
 type RunState = "idle" | "running" | "success" | "failed";
+type MatchingAlgorithm =
+  "Exact" | "Normalized Exact" | "Contains" | "Starts With" | "Ends With" | "Fuzzy";
+type ColumnMappingDraft = {
+  id: string;
+  referenceColumnId: string;
+  inputColumnId: string;
+  algorithm: MatchingAlgorithm;
+  suggested: boolean;
+};
 
-const ALLOWED = [".csv", ".xlsx", ".xls", ".xml", ".dbf"];
+const ALLOWED = [".csv", ".xlsx"];
 const MAX_MB = 50;
+const MATCHING_ALGORITHMS: MatchingAlgorithm[] = [
+  "Exact",
+  "Normalized Exact",
+  "Contains",
+  "Starts With",
+  "Ends With",
+  "Fuzzy",
+];
 
 function MatchingPage() {
   const { t } = usePreferences();
@@ -62,8 +88,14 @@ function MatchingPage() {
   const [runState, setRunState] = useState<RunState>("idle");
   const [progress, setProgress] = useState(0);
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
+  const [columnMappings, setColumnMappings] = useState<ColumnMappingDraft[]>([]);
 
-  const canAdvance = step !== 1 || (reference && input);
+  const referenceColumns = reference?.result?.columns ?? [];
+  const inputColumns = input?.result?.columns ?? [];
+  const hasCompletedMapping = columnMappings.some((mapping) => mapping.inputColumnId);
+  const canAdvance =
+    (step !== 1 || (reference?.status === "success" && input?.status === "success")) &&
+    (step !== 3 || hasCompletedMapping);
   const localizedSteps = wizardSteps.map((s) => ({
     ...s,
     title: t(`step.${stepKey(s.id)}`),
@@ -88,6 +120,45 @@ function MatchingPage() {
     }, 300);
   };
 
+  const handleInspectFile = async (role: DatasetRole, file: File) => {
+    const err = validateFile(file, t);
+    const setFile = role === "reference" ? setReference : setInput;
+
+    if (err) {
+      setUploadError(err);
+      setFile({ name: file.name, size: file.size, status: "error", error: err });
+      toast.error(t("feedback.toast.invalidFile"));
+      return;
+    }
+
+    setUploadError(null);
+    setFile({ name: file.name, size: file.size, status: "loading" });
+
+    try {
+      const result = await inspectDataset({ file, datasetRole: role });
+      setFile({ name: file.name, size: file.size, status: "success", result });
+      toast.success(t("feedback.toast.uploaded", { name: file.name }));
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : t("matching.upload.inspectFailed");
+      setFile({ name: file.name, size: file.size, status: "error", error: message });
+      setUploadError(message);
+      toast.error(t("feedback.toast.invalidFile"));
+    }
+  };
+
+  useEffect(() => {
+    const inspectedReferenceColumns = reference?.result?.columns ?? [];
+    const inspectedInputColumns = input?.result?.columns ?? [];
+
+    if (inspectedReferenceColumns.length === 0 || inspectedInputColumns.length === 0) {
+      setColumnMappings([]);
+      return;
+    }
+
+    setColumnMappings(suggestColumnMappings(inspectedReferenceColumns, inspectedInputColumns));
+  }, [reference?.result, input?.result]);
+
   useEffect(() => {
     if (runState === "success") toast.success(t("feedback.toast.runComplete"));
     if (runState === "failed") toast.error(t("feedback.toast.runFailed"));
@@ -96,10 +167,7 @@ function MatchingPage() {
   return (
     <AppLayout>
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
-        <PageHeader
-          title={t("matching.title")}
-          description={t("matching.description")}
-        />
+        <PageHeader title={t("matching.title")} description={t("matching.description")} />
 
         {/* Horizontal stepper */}
         <Card className="p-5 mb-6 sticky top-16 z-10">
@@ -111,14 +179,27 @@ function MatchingPage() {
             <StepUpload
               reference={reference}
               input={input}
-              setReference={setReference}
-              setInput={setInput}
+              onInspectFile={handleInspectFile}
+              onClearReference={() => {
+                if (reference) toast.info(t("feedback.toast.removed", { name: reference.name }));
+                setReference(null);
+              }}
+              onClearInput={() => {
+                if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
+                setInput(null);
+              }}
               error={uploadError}
-              setError={setUploadError}
             />
           )}
-          {step === 2 && <StepProfile />}
-          {step === 3 && <StepMapping />}
+          {step === 2 && <StepProfile reference={reference?.result} input={input?.result} />}
+          {step === 3 && (
+            <StepColumnMapping
+              referenceColumns={referenceColumns}
+              inputColumns={inputColumns}
+              mappings={columnMappings}
+              setMappings={setColumnMappings}
+            />
+          )}
           {step === 4 && <StepConfig />}
           {step === 5 && (
             <StepRun
@@ -186,15 +267,7 @@ function MatchingPage() {
 function stepKey(id: number) {
   return ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
     id - 1
-  ] as
-    | "upload"
-    | "profiling"
-    | "mapping"
-    | "configure"
-    | "run"
-    | "review"
-    | "sync"
-    | "export";
+  ] as "upload" | "profiling" | "mapping" | "configure" | "run" | "review" | "sync" | "export";
 }
 
 function SectionTitle({ title, desc }: { title: string; desc: string }) {
@@ -208,7 +281,8 @@ function SectionTitle({ title, desc }: { title: string; desc: string }) {
 
 function validateFile(file: File, t: ReturnType<typeof usePreferences>["t"]): string | null {
   const ext = "." + file.name.split(".").pop()?.toLowerCase();
-  if (!ALLOWED.includes(ext)) return t("matching.upload.unsupported", { formats: ALLOWED.join(", ") });
+  if (!ALLOWED.includes(ext))
+    return t("matching.upload.unsupported", { formats: ALLOWED.join(", ") });
   if (file.size > MAX_MB * 1024 * 1024) return t("matching.upload.tooLarge", { max: MAX_MB });
   return null;
 }
@@ -216,67 +290,38 @@ function validateFile(file: File, t: ReturnType<typeof usePreferences>["t"]): st
 function StepUpload({
   reference,
   input,
-  setReference,
-  setInput,
+  onInspectFile,
+  onClearReference,
+  onClearInput,
   error,
-  setError,
 }: {
   reference: UploadedFile | null;
   input: UploadedFile | null;
-  setReference: (f: UploadedFile | null) => void;
-  setInput: (f: UploadedFile | null) => void;
+  onInspectFile: (role: DatasetRole, file: File) => void;
+  onClearReference: () => void;
+  onClearInput: () => void;
   error: string | null;
-  setError: (e: string | null) => void;
 }) {
   const { t } = usePreferences();
   return (
     <>
-      <SectionTitle
-        title={t("matching.upload.title")}
-        desc={t("matching.upload.desc")}
-      />
+      <SectionTitle title={t("matching.upload.title")} desc={t("matching.upload.desc")} />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FileSlot
           label={t("matching.upload.reference")}
           hint={t("matching.upload.referenceHint")}
           icon={Database}
           file={reference}
-          onFile={(f) => {
-            const err = validateFile(f, t);
-            if (err) {
-              setError(err);
-              toast.error(t("feedback.toast.invalidFile"));
-              return;
-            }
-            setError(null);
-            setReference({ name: f.name, size: f.size });
-            toast.success(t("feedback.toast.uploaded", { name: f.name }));
-          }}
-          onClear={() => {
-            if (reference) toast.info(t("feedback.toast.removed", { name: reference.name }));
-            setReference(null);
-          }}
+          onFile={(file) => onInspectFile("reference", file)}
+          onClear={onClearReference}
         />
         <FileSlot
           label={t("matching.upload.input")}
           hint={t("matching.upload.inputHint")}
           icon={FileSpreadsheet}
           file={input}
-          onFile={(f) => {
-            const err = validateFile(f, t);
-            if (err) {
-              setError(err);
-              toast.error(t("feedback.toast.invalidFile"));
-              return;
-            }
-            setError(null);
-            setInput({ name: f.name, size: f.size });
-            toast.success(t("feedback.toast.uploaded", { name: f.name }));
-          }}
-          onClear={() => {
-            if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
-            setInput(null);
-          }}
+          onFile={(file) => onInspectFile("input", file)}
+          onClear={onClearInput}
         />
       </div>
       {error && (
@@ -310,6 +355,10 @@ function FileSlot({
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const { t } = usePreferences();
+  const isLoading = file?.status === "loading";
+  const isSuccess = file?.status === "success";
+  const isError = file?.status === "error";
+
   return (
     <div className="border border-dashed border-border rounded-lg p-6 hover:border-accent/50 hover:bg-secondary/30 transition-colors">
       <input
@@ -325,20 +374,42 @@ function FileSlot({
       />
       <div className="flex items-start gap-3">
         <div className="size-10 rounded-lg bg-secondary grid place-items-center">
-          <Icon className="size-5 text-foreground" />
+          {isLoading ? (
+            <Loader2 className="size-5 animate-spin text-accent" />
+          ) : (
+            <Icon className="size-5 text-foreground" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold">{label}</p>
           {file ? (
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">
-              {file.name} · {(file.size / 1024 / 1024).toFixed(2)} MB
-            </p>
+            <div className="mt-0.5 space-y-1">
+              <p className="text-xs text-muted-foreground truncate">
+                {file.name} Â· {(file.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+              {isLoading && (
+                <p className="text-xs text-accent">{t("matching.upload.inspecting")}</p>
+              )}
+              {isSuccess && file.result && (
+                <p className="text-xs text-muted-foreground">
+                  {t("matching.upload.inspected", {
+                    rows: file.result.dataset.row_count,
+                    columns: file.result.dataset.column_count,
+                  })}
+                </p>
+              )}
+              {isError && file.error && <p className="text-xs text-destructive">{file.error}</p>}
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>
           )}
         </div>
         {file ? (
-          <button onClick={onClear} className="text-muted-foreground hover:text-destructive">
+          <button
+            onClick={onClear}
+            disabled={isLoading}
+            className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             <X className="size-4" />
           </button>
         ) : (
@@ -347,10 +418,17 @@ function FileSlot({
       </div>
       <div className="mt-4 flex items-center justify-between text-xs">
         <span className="text-muted-foreground">
-          {file ? t("common.uploaded") : t("common.noFile")}
+          {isLoading
+            ? t("common.loading")
+            : isSuccess
+              ? t("common.uploaded")
+              : isError
+                ? t("common.error")
+                : t("common.noFile")}
         </span>
         <button
           onClick={() => ref.current?.click()}
+          disabled={isLoading}
           className="font-medium text-accent hover:underline"
         >
           {file ? t("common.replace") : t("common.chooseFile")}
@@ -360,108 +438,530 @@ function FileSlot({
   );
 }
 
-function StepProfile() {
+function StepProfile({
+  reference,
+  input,
+}: {
+  reference?: DatasetInspectResult;
+  input?: DatasetInspectResult;
+}) {
   const { t } = usePreferences();
-  const flagKeys = [
-    "matching.profile.flag.primary",
-    "matching.profile.flag.highSignal",
-    "matching.profile.flag.strict",
-    "matching.profile.flag.normalize",
-    "matching.profile.flag.standardize",
-    "matching.profile.flag.exact",
-  ] as const;
-  return (
-    <>
-      <SectionTitle
-        title={t("matching.profile.title")}
-        desc={t("matching.profile.desc")}
-      />
-      <div className="border border-border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-secondary/40">
-            <tr className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.column")}</th>
-              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.type")}</th>
-              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.nulls")}</th>
-              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.unique")}</th>
-              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.pattern")}</th>
-              <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.flag")}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {columnProfile.map((c, index) => (
-              <tr key={c.name} className="hover:bg-secondary/30">
-                <td className="px-4 py-3 font-mono text-xs">{c.name}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex text-[10px] font-mono bg-secondary rounded px-1.5 py-0.5">
-                    {c.type}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs tabular-nums">{c.nulls}</td>
-                <td className="px-4 py-3 text-xs tabular-nums">{c.unique}</td>
-                <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{c.pattern}</td>
-                <td className="px-4 py-3 text-xs text-accent">
-                  {flagKeys[index] ? t(flagKeys[index]) : c.flag}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+  const profiles = [
+    { label: t("matching.upload.reference"), result: reference },
+    { label: t("matching.upload.input"), result: input },
+  ].filter((profile): profile is { label: string; result: DatasetInspectResult } =>
+    Boolean(profile.result),
   );
-}
 
-function StepMapping() {
-  const { t } = usePreferences();
-  const mappings = [
-    { ref: "customer_id", input: "cust_id", method: "Exact" },
-    { ref: "company_name", input: "account_name", method: "Fuzzy — Token Sort" },
-    { ref: "npwp", input: "tax_id", method: "Exact (Strict)" },
-    { ref: "address", input: "billing_address", method: "Address Normalize + TF-IDF" },
-    { ref: "email", input: "email_primary", method: "Normalized Exact" },
-  ];
+  if (profiles.length === 0) {
+    return (
+      <>
+        <SectionTitle title={t("matching.profile.title")} desc={t("matching.profile.desc")} />
+        <EmptyState
+          icon={Inbox}
+          title={t("matching.profile.emptyTitle")}
+          description={t("matching.profile.emptyDesc")}
+          className="rounded-lg border border-border"
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      <SectionTitle
-        title={t("matching.mapping.title")}
-        desc={t("matching.mapping.desc")}
-      />
-      <div className="space-y-2.5 overflow-x-auto">
-        <div className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-          <span>{t("matching.mapping.reference")}</span>
-          <span>{t("matching.mapping.input")}</span>
-          <span>{t("matching.mapping.algorithm")}</span>
+      <SectionTitle title={t("matching.profile.title")} desc={t("matching.profile.desc")} />
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {profiles.map(({ label, result }) => (
+            <div key={result.dataset.id} className="rounded-lg border border-border p-4">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {label}
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold">
+                {result.dataset.original_filename}
+              </p>
+              <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                <ProfileStat
+                  label={t("matching.profile.rows")}
+                  value={result.dataset.row_count.toLocaleString()}
+                />
+                <ProfileStat
+                  label={t("matching.profile.columns")}
+                  value={result.dataset.column_count.toLocaleString()}
+                />
+                <ProfileStat
+                  label={t("matching.profile.preview")}
+                  value={result.preview_rows.length.toLocaleString()}
+                />
+              </div>
+            </div>
+          ))}
         </div>
-        {mappings.map((m) => (
-          <div
-            key={m.ref}
-            className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px] items-center gap-4 border border-border rounded-lg px-4 py-3"
-          >
-            <p className="truncate rounded-md bg-secondary/50 px-3 py-2 text-sm font-mono">{m.ref}</p>
-            <p className="truncate rounded-md bg-secondary/50 px-3 py-2 text-sm font-mono">{m.input}</p>
-            <span className="inline-flex h-9 items-center justify-center rounded-md bg-secondary px-2 py-1 text-center text-[11px] font-medium">
-              {m.method}
-            </span>
-          </div>
-        ))}
-        <button className="w-full py-3 border border-dashed border-border rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors">
-          {t("matching.mapping.add")}
-        </button>
+
+        <div className="border border-border rounded-lg overflow-x-auto">
+          <table className="w-full min-w-[920px] text-sm">
+            <thead className="bg-secondary/40">
+              <tr className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                <th className="text-left px-4 py-2.5 font-medium">
+                  {t("matching.profile.dataset")}
+                </th>
+                <th className="text-left px-4 py-2.5 font-medium">
+                  {t("matching.profile.column")}
+                </th>
+                <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.type")}</th>
+                <th className="text-right px-4 py-2.5 font-medium">
+                  {t("matching.profile.nulls")}
+                </th>
+                <th className="text-right px-4 py-2.5 font-medium">
+                  {t("matching.profile.unique")}
+                </th>
+                <th className="text-right px-4 py-2.5 font-medium">
+                  {t("matching.profile.duplicates")}
+                </th>
+                <th className="text-left px-4 py-2.5 font-medium">
+                  {t("matching.profile.samples")}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {profiles.flatMap(({ label, result }) =>
+                result.columns.map((column) => (
+                  <tr key={`${result.dataset.id}-${column.id}`} className="hover:bg-secondary/30">
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{label}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{column.name}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex text-[10px] font-mono bg-secondary rounded px-1.5 py-0.5 uppercase">
+                        {column.data_type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs tabular-nums">
+                      {column.null_count} ({column.null_percentage}%)
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs tabular-nums">
+                      {column.unique_count.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs tabular-nums">
+                      {column.duplicate_percentage}%
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {column.sample_values.length > 0 ? column.sample_values.join(", ") : "-"}
+                    </td>
+                  </tr>
+                )),
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
 }
 
+function ProfileStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="mt-1 text-base font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function StepColumnMapping({
+  referenceColumns,
+  inputColumns,
+  mappings,
+  setMappings,
+}: {
+  referenceColumns: DatasetInspectResult["columns"];
+  inputColumns: DatasetInspectResult["columns"];
+  mappings: ColumnMappingDraft[];
+  setMappings: Dispatch<SetStateAction<ColumnMappingDraft[]>>;
+}) {
+  const { t } = usePreferences();
+  const usedReferenceIds = new Set(mappings.map((mapping) => mapping.referenceColumnId));
+  const hasColumns = referenceColumns.length > 0 && inputColumns.length > 0;
+  const hasAvailableReference = referenceColumns.some((column) => !usedReferenceIds.has(column.id));
+  const selectClass =
+    "h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:cursor-not-allowed disabled:opacity-50";
+
+  const updateMapping = (id: string, patch: Partial<ColumnMappingDraft>) => {
+    setMappings((current) => {
+      if (
+        patch.referenceColumnId &&
+        current.some(
+          (mapping) => mapping.id !== id && mapping.referenceColumnId === patch.referenceColumnId,
+        )
+      ) {
+        toast.error(t("matching.mapping.duplicateReference"));
+        return current;
+      }
+
+      return current.map((mapping) => {
+        if (mapping.id !== id) return mapping;
+
+        const next = { ...mapping, ...patch, suggested: false };
+        const referenceColumn = referenceColumns.find(
+          (column) => column.id === next.referenceColumnId,
+        );
+        const inputColumn = inputColumns.find((column) => column.id === next.inputColumnId);
+
+        if ((patch.referenceColumnId || patch.inputColumnId) && referenceColumn) {
+          next.algorithm =
+            inputColumn && patch.algorithm === undefined
+              ? defaultMappingAlgorithm(referenceColumn, inputColumn)
+              : defaultAlgorithmForColumn(referenceColumn);
+        }
+
+        return next;
+      });
+    });
+  };
+
+  const addMapping = () => {
+    const referenceColumn = referenceColumns.find((column) => !usedReferenceIds.has(column.id));
+    if (!referenceColumn || inputColumns.length === 0) {
+      toast.error(t("matching.mapping.noAvailableReference"));
+      return;
+    }
+
+    const suggestedInput = findBestInputColumn(referenceColumn, inputColumns, new Set());
+    const inputColumn =
+      suggestedInput && suggestedInput.score >= 0.6 ? suggestedInput.column : null;
+
+    setMappings((current) => [
+      ...current,
+      {
+        id: `manual-${Date.now()}`,
+        referenceColumnId: referenceColumn.id,
+        inputColumnId: inputColumn?.id ?? "",
+        algorithm: inputColumn
+          ? defaultMappingAlgorithm(referenceColumn, inputColumn)
+          : defaultAlgorithmForColumn(referenceColumn),
+        suggested: false,
+      },
+    ]);
+    toast.success(t("matching.mapping.added"));
+  };
+
+  const removeMapping = (id: string) => {
+    setMappings((current) => current.filter((mapping) => mapping.id !== id));
+    toast.info(t("matching.mapping.removed"));
+  };
+
+  return (
+    <>
+      <SectionTitle title={t("matching.mapping.title")} desc={t("matching.mapping.desc")} />
+
+      {!hasColumns ? (
+        <EmptyState
+          icon={ClipboardCheck}
+          title={t("matching.mapping.emptyTitle")}
+          description={t("matching.mapping.emptyDesc")}
+        />
+      ) : (
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <MappingStat
+              label={t("matching.mapping.referenceCount")}
+              value={referenceColumns.length}
+            />
+            <MappingStat label={t("matching.mapping.inputCount")} value={inputColumns.length} />
+            <MappingStat
+              label={t("matching.mapping.mappedCount")}
+              value={mappings.filter((mapping) => mapping.inputColumnId).length}
+            />
+          </div>
+
+          <div className="rounded-lg border border-border bg-secondary/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">{t("matching.mapping.suggestionTitle")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("matching.mapping.suggestionDesc")}
+                </p>
+              </div>
+              <span className="rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand">
+                {t("matching.mapping.suggestedCount", {
+                  count: mappings.filter((mapping) => mapping.suggested).length,
+                })}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-2.5 overflow-x-auto">
+            <div className="grid min-w-[860px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px_44px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <span>{t("matching.mapping.reference")}</span>
+              <span>{t("matching.mapping.input")}</span>
+              <span>{t("matching.mapping.algorithm")}</span>
+              <span className="sr-only">{t("common.action")}</span>
+            </div>
+
+            {mappings.map((mapping, index) => {
+              const usedByOtherRows = new Set(
+                mappings
+                  .filter((item) => item.id !== mapping.id)
+                  .map((item) => item.referenceColumnId),
+              );
+
+              return (
+                <div
+                  key={mapping.id}
+                  data-testid="mapping-row"
+                  className="grid min-w-[860px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px_44px] items-center gap-4 rounded-lg border border-border px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <select
+                      aria-label={t("matching.mapping.referenceSelect", { row: index + 1 })}
+                      data-testid="mapping-reference-select"
+                      value={mapping.referenceColumnId}
+                      onChange={(event) =>
+                        updateMapping(mapping.id, { referenceColumnId: event.target.value })
+                      }
+                      className={selectClass}
+                    >
+                      {referenceColumns.map((column) => (
+                        <option
+                          key={column.id}
+                          value={column.id}
+                          disabled={usedByOtherRows.has(column.id)}
+                        >
+                          {columnLabel(column)}
+                        </option>
+                      ))}
+                    </select>
+                    {mapping.suggested && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {t("matching.mapping.autoSuggested")}
+                      </p>
+                    )}
+                  </div>
+
+                  <select
+                    aria-label={t("matching.mapping.inputSelect", { row: index + 1 })}
+                    data-testid="mapping-input-select"
+                    value={mapping.inputColumnId}
+                    onChange={(event) =>
+                      updateMapping(mapping.id, { inputColumnId: event.target.value })
+                    }
+                    className={selectClass}
+                  >
+                    <option value="">{t("matching.mapping.noInputSelected")}</option>
+                    {inputColumns.map((column) => (
+                      <option key={column.id} value={column.id}>
+                        {columnLabel(column)}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    aria-label={t("matching.mapping.algorithmSelect", { row: index + 1 })}
+                    data-testid="mapping-algorithm-select"
+                    value={mapping.algorithm}
+                    onChange={(event) =>
+                      updateMapping(mapping.id, {
+                        algorithm: event.target.value as MatchingAlgorithm,
+                      })
+                    }
+                    className={selectClass}
+                  >
+                    {MATCHING_ALGORITHMS.map((algorithm) => (
+                      <option key={algorithm} value={algorithm}>
+                        {algorithmLabel(algorithm, t)}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    data-testid="mapping-remove-button"
+                    onClick={() => removeMapping(mapping.id)}
+                    className="grid size-10 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                    aria-label={t("matching.mapping.remove", { row: index + 1 })}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              );
+            })}
+
+            {mappings.length === 0 && (
+              <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center">
+                <p className="text-sm font-medium">{t("matching.mapping.noMappingsTitle")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("matching.mapping.noMappingsDesc")}
+                </p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              data-testid="mapping-add-button"
+              onClick={addMapping}
+              disabled={!hasAvailableReference}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Plus className="size-4" />
+              {t("matching.mapping.add")}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function MappingStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border px-4 py-3">
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function suggestColumnMappings(
+  referenceColumns: DatasetInspectResult["columns"],
+  inputColumns: DatasetInspectResult["columns"],
+): ColumnMappingDraft[] {
+  const usedInputIds = new Set<string>();
+
+  return referenceColumns.map((referenceColumn) => {
+    const match = findBestInputColumn(referenceColumn, inputColumns, usedInputIds);
+    const hasSuggestion = Boolean(match && match.score >= 0.6);
+    const inputColumn = hasSuggestion ? match?.column : null;
+
+    if (inputColumn) {
+      usedInputIds.add(inputColumn.id);
+    }
+
+    return {
+      id: inputColumn
+        ? `suggested-${referenceColumn.id}-${inputColumn.id}`
+        : `unmatched-${referenceColumn.id}`,
+      referenceColumnId: referenceColumn.id,
+      inputColumnId: inputColumn?.id ?? "",
+      algorithm: inputColumn
+        ? defaultMappingAlgorithm(referenceColumn, inputColumn)
+        : defaultAlgorithmForColumn(referenceColumn),
+      suggested: hasSuggestion,
+    };
+  });
+}
+
+function findBestInputColumn(
+  referenceColumn: DatasetInspectResult["columns"][number],
+  inputColumns: DatasetInspectResult["columns"],
+  usedInputIds: Set<string>,
+): { column: DatasetInspectResult["columns"][number]; score: number } | null {
+  return inputColumns.reduce<{
+    column: DatasetInspectResult["columns"][number];
+    score: number;
+  } | null>((best, inputColumn) => {
+    if (usedInputIds.has(inputColumn.id)) return best;
+
+    const score = columnNameSimilarity(referenceColumn.name, inputColumn.name);
+    if (!best || score > best.score) return { column: inputColumn, score };
+
+    return best;
+  }, null);
+}
+
+function defaultMappingAlgorithm(
+  referenceColumn: DatasetInspectResult["columns"][number],
+  inputColumn: DatasetInspectResult["columns"][number],
+): MatchingAlgorithm {
+  const types = [referenceColumn.data_type, inputColumn.data_type].map((type) =>
+    type.toLowerCase(),
+  );
+
+  if (types.some((type) => ["number", "date", "boolean"].includes(type))) {
+    return "Exact";
+  }
+
+  return "Normalized Exact";
+}
+
+function defaultAlgorithmForColumn(
+  column: DatasetInspectResult["columns"][number],
+): MatchingAlgorithm {
+  return ["number", "date", "boolean"].includes(column.data_type.toLowerCase())
+    ? "Exact"
+    : "Normalized Exact";
+}
+
+function columnNameSimilarity(referenceName: string, inputName: string): number {
+  const referenceNormalized = normalizeColumnName(referenceName);
+  const inputNormalized = normalizeColumnName(inputName);
+
+  if (referenceNormalized.compact === inputNormalized.compact) return 1;
+  if (
+    referenceNormalized.compact.length > 2 &&
+    inputNormalized.compact.length > 2 &&
+    (referenceNormalized.compact.includes(inputNormalized.compact) ||
+      inputNormalized.compact.includes(referenceNormalized.compact))
+  ) {
+    return 0.8;
+  }
+
+  const referenceTokens = new Set(referenceNormalized.tokens);
+  const inputTokens = new Set(inputNormalized.tokens);
+  const shared = [...referenceTokens].filter((token) => inputTokens.has(token)).length;
+  const total = new Set([...referenceTokens, ...inputTokens]).size;
+
+  return total === 0 ? 0 : shared / total;
+}
+
+function normalizeColumnName(name: string): { compact: string; tokens: string[] } {
+  const separated = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+  const tokens = separated
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map(expandColumnToken);
+
+  return {
+    compact: tokens.join(""),
+    tokens,
+  };
+}
+
+function expandColumnToken(token: string): string {
+  const aliases: Record<string, string> = {
+    kab: "kabupaten",
+    kabkota: "kabupatenkota",
+    kota: "kota",
+  };
+
+  return aliases[token] ?? token;
+}
+
+function columnLabel(column: DatasetInspectResult["columns"][number]): string {
+  return `${column.name} - ${column.data_type.toUpperCase()}`;
+}
+
+function algorithmLabel(
+  algorithm: MatchingAlgorithm,
+  t: ReturnType<typeof usePreferences>["t"],
+): string {
+  if (algorithm === "Exact") return t("matching.mapping.algorithm.exact");
+  if (algorithm === "Normalized Exact") return t("matching.mapping.algorithm.normalizedExact");
+  if (algorithm === "Contains") return t("matching.mapping.algorithm.contains");
+  if (algorithm === "Starts With") return t("matching.mapping.algorithm.startsWith");
+  if (algorithm === "Ends With") return t("matching.mapping.algorithm.endsWith");
+  return t("matching.mapping.algorithm.fuzzy");
+}
 
 type Preset = "Balanced" | "Strict" | "Exploratory" | "Custom";
 type Strategy = "Hybrid" | "Exact" | "Fuzzy" | "Composite" | "Rule-Based";
 
-const PRESET_DEFAULTS: Record<Preset, { autoMatch: number; review: number; noMatch: number; strategy: Strategy }> = {
-  Balanced:    { autoMatch: 90, review: 75, noMatch: 60, strategy: "Hybrid" },
-  Strict:      { autoMatch: 95, review: 85, noMatch: 70, strategy: "Exact" },
+const PRESET_DEFAULTS: Record<
+  Preset,
+  { autoMatch: number; review: number; noMatch: number; strategy: Strategy }
+> = {
+  Balanced: { autoMatch: 90, review: 75, noMatch: 60, strategy: "Hybrid" },
+  Strict: { autoMatch: 95, review: 85, noMatch: 70, strategy: "Exact" },
   Exploratory: { autoMatch: 85, review: 65, noMatch: 50, strategy: "Fuzzy" },
-  Custom:      { autoMatch: 90, review: 75, noMatch: 60, strategy: "Hybrid" },
+  Custom: { autoMatch: 90, review: 75, noMatch: 60, strategy: "Hybrid" },
 };
 
 function StepConfig() {
@@ -511,7 +1011,16 @@ function StepConfig() {
   };
 
   const AUTO_RECOMMEND_KEYS = ["Company Name Prefix", "NPWP", "Email Domain", "Postal Code"];
-  const AVAILABLE_COLUMNS = ["customer_id", "company_name", "npwp", "address", "phone", "email", "city", "postal_code"];
+  const AVAILABLE_COLUMNS = [
+    "customer_id",
+    "company_name",
+    "npwp",
+    "address",
+    "phone",
+    "email",
+    "city",
+    "postal_code",
+  ];
 
   const applyRecommendation = () => {
     setStrategy("Hybrid");
@@ -522,10 +1031,7 @@ function StepConfig() {
 
   return (
     <>
-      <SectionTitle
-        title={t("matching.config.title")}
-        desc={t("matching.config.desc")}
-      />
+      <SectionTitle title={t("matching.config.title")} desc={t("matching.config.desc")} />
 
       {/* Smart Recommendation */}
       <div className="border border-accent/30 bg-accent/5 rounded-lg p-5 mb-6">
@@ -586,13 +1092,15 @@ function StepConfig() {
       {/* 2. Strategy */}
       <ConfigSection title={t("matching.config.strategy")} desc={t("matching.config.strategyDesc")}>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          {([
-            ["Hybrid", t("matching.config.recommendedLabel")],
-            ["Exact", t("matching.config.exactMatch")],
-            ["Fuzzy", t("matching.config.fuzzyMatch")],
-            ["Composite", "Composite"],
-            ["Rule-Based", "Rule-Based"],
-          ] as [Strategy, string][]).map(([key, label]) => (
+          {(
+            [
+              ["Hybrid", t("matching.config.recommendedLabel")],
+              ["Exact", t("matching.config.exactMatch")],
+              ["Fuzzy", t("matching.config.fuzzyMatch")],
+              ["Composite", "Composite"],
+              ["Rule-Based", "Rule-Based"],
+            ] as [Strategy, string][]
+          ).map(([key, label]) => (
             <button
               key={key}
               onClick={() => {
@@ -613,11 +1121,29 @@ function StepConfig() {
       </ConfigSection>
 
       {/* 3. Similarity Threshold */}
-      <ConfigSection title={t("matching.config.threshold")} desc={t("matching.config.thresholdDesc", { preset })}>
+      <ConfigSection
+        title={t("matching.config.threshold")}
+        desc={t("matching.config.thresholdDesc", { preset })}
+      >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ThresholdInput label={t("matching.config.autoMatch")} tone="success" value={autoMatch} onChange={setAutoMatch} />
-          <ThresholdInput label={t("matching.config.manualReview")} tone="warning" value={review} onChange={setReview} />
-          <ThresholdInput label={t("matching.config.noMatch")} tone="muted" value={noMatch} onChange={setNoMatch} />
+          <ThresholdInput
+            label={t("matching.config.autoMatch")}
+            tone="success"
+            value={autoMatch}
+            onChange={setAutoMatch}
+          />
+          <ThresholdInput
+            label={t("matching.config.manualReview")}
+            tone="warning"
+            value={review}
+            onChange={setReview}
+          />
+          <ThresholdInput
+            label={t("matching.config.noMatch")}
+            tone="muted"
+            value={noMatch}
+            onChange={setNoMatch}
+          />
         </div>
       </ConfigSection>
 
@@ -635,15 +1161,15 @@ function StepConfig() {
                   : "border-border text-muted-foreground hover:bg-secondary",
               ].join(" ")}
             >
-              {m === "auto" ? t("matching.config.autoRecommend") : t("matching.config.manualCandidate")}
+              {m === "auto"
+                ? t("matching.config.autoRecommend")
+                : t("matching.config.manualCandidate")}
             </button>
           ))}
         </div>
         {searchMode === "auto" ? (
           <div className="border border-border rounded-lg p-4 bg-secondary/30">
-            <p className="text-xs text-muted-foreground mb-2">
-              {t("matching.config.recommends")}
-            </p>
+            <p className="text-xs text-muted-foreground mb-2">{t("matching.config.recommends")}</p>
             <div className="flex flex-wrap gap-1.5">
               {AUTO_RECOMMEND_KEYS.map((k) => (
                 <span
@@ -682,7 +1208,10 @@ function StepConfig() {
       </ConfigSection>
 
       {/* 5. Data Normalization */}
-      <ConfigSection title={t("matching.config.normalizationTitle")} desc={t("matching.config.normalizationDesc")}>
+      <ConfigSection
+        title={t("matching.config.normalizationTitle")}
+        desc={t("matching.config.normalizationDesc")}
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {Object.keys(norm).map((k) => (
             <label
@@ -702,7 +1231,10 @@ function StepConfig() {
       </ConfigSection>
 
       {/* 6. Candidate Generation */}
-      <ConfigSection title={t("matching.config.candidateTitle")} desc={t("matching.config.candidateDesc")}>
+      <ConfigSection
+        title={t("matching.config.candidateTitle")}
+        desc={t("matching.config.candidateDesc")}
+      >
         <div className="grid grid-cols-4 gap-2 max-w-md">
           {([1, 3, 5, 10] as const).map((n) => (
             <button
@@ -738,27 +1270,34 @@ function StepConfig() {
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {["Matched", "Possible Match", "Unmatched", "Synchronization Summary", "Mapping Table", "Foreign Key", "Audit Trail", "Summary Report"].map(
-            (o) => {
-              const on = outputs.includes(o);
-              return (
-                <label
-                  key={o}
-                  className="flex items-center gap-2.5 border border-border rounded-md px-3 py-2 cursor-pointer hover:bg-secondary/30"
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() =>
-                      setOutputs((prev) => (on ? prev.filter((x) => x !== o) : [...prev, o]))
-                    }
-                    className="size-3.5 accent-brand"
-                  />
-                  <span className="text-xs">{outputLabel(o, t)}</span>
-                </label>
-              );
-            },
-          )}
+          {[
+            "Matched",
+            "Possible Match",
+            "Unmatched",
+            "Synchronization Summary",
+            "Mapping Table",
+            "Foreign Key",
+            "Audit Trail",
+            "Summary Report",
+          ].map((o) => {
+            const on = outputs.includes(o);
+            return (
+              <label
+                key={o}
+                className="flex items-center gap-2.5 border border-border rounded-md px-3 py-2 cursor-pointer hover:bg-secondary/30"
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() =>
+                    setOutputs((prev) => (on ? prev.filter((x) => x !== o) : [...prev, o]))
+                  }
+                  className="size-3.5 accent-brand"
+                />
+                <span className="text-xs">{outputLabel(o, t)}</span>
+              </label>
+            );
+          })}
         </div>
       </ConfigSection>
 
@@ -897,12 +1436,16 @@ function ThresholdInput({
   onChange: (n: number) => void;
 }) {
   const color =
-    tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : "text-muted-foreground";
+    tone === "success"
+      ? "text-success"
+      : tone === "warning"
+        ? "text-warning"
+        : "text-muted-foreground";
   return (
     <div className="border border-border rounded-lg p-4">
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-        <span className={`text-sm font-semibold tabular-nums ${color}`}>≥ {value}%</span>
+        <span className={`text-sm font-semibold tabular-nums ${color}`}>â‰¥ {value}%</span>
       </div>
       <input
         type="range"
@@ -915,7 +1458,6 @@ function ThresholdInput({
     </div>
   );
 }
-
 
 function StepRun({
   state,
@@ -933,10 +1475,7 @@ function StepRun({
   const { t } = usePreferences();
   return (
     <>
-      <SectionTitle
-        title={t("matching.run.title")}
-        desc={t("matching.run.desc")}
-      />
+      <SectionTitle title={t("matching.run.title")} desc={t("matching.run.desc")} />
       {state === "idle" && (
         <div className="border border-border rounded-lg p-6">
           <div className="flex items-center justify-between">
@@ -946,9 +1485,7 @@ function StepRun({
               </div>
               <div>
                 <p className="text-sm font-semibold">{t("matching.run.ready")}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t("matching.run.estimated")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("matching.run.estimated")}</p>
               </div>
             </div>
             <button
@@ -993,9 +1530,7 @@ function StepRun({
           </div>
           <div className="flex-1">
             <p className="text-sm font-semibold">{t("matching.run.complete")}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t("matching.run.completeDesc")}
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">{t("matching.run.completeDesc")}</p>
           </div>
         </div>
       )}
@@ -1058,19 +1593,22 @@ function StepReview() {
   const decide = (id: string, decision: "approved" | "rejected") => {
     setItems((prev) => prev.filter((p) => p.id !== id));
     setSelected(null);
-    toast.success(t(decision === "approved" ? "feedback.toast.approved" : "feedback.toast.rejected"));
+    toast.success(
+      t(decision === "approved" ? "feedback.toast.approved" : "feedback.toast.rejected"),
+    );
   };
 
   const recommendation = (score: number) =>
-    score >= 90 ? t("matching.review.recApprove") : score >= 80 ? t("matching.review.recReview") : t("matching.review.recReject");
+    score >= 90
+      ? t("matching.review.recApprove")
+      : score >= 80
+        ? t("matching.review.recReview")
+        : t("matching.review.recReject");
 
   if (items.length === 0) {
     return (
       <>
-        <SectionTitle
-          title={t("matching.review.title")}
-          desc={t("matching.review.emptyDesc")}
-        />
+        <SectionTitle title={t("matching.review.title")} desc={t("matching.review.emptyDesc")} />
         <EmptyState
           icon={ClipboardCheck}
           title={t("matching.review.allCaughtUp")}
@@ -1082,10 +1620,7 @@ function StepReview() {
 
   return (
     <>
-      <SectionTitle
-        title={t("matching.review.title")}
-        desc={t("matching.review.desc")}
-      />
+      <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
 
       {/* toolbar */}
       <div className="flex items-center justify-between gap-3 mb-3">
@@ -1116,96 +1651,107 @@ function StepReview() {
           />
         </div>
       ) : (
-      <div className="border border-border rounded-lg overflow-hidden">
-        <div className="max-h-[520px] overflow-auto">
-          <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
-            <colgroup>
-              <col />
-              <col />
-              <col style={{ width: "140px" }} />
-              <col style={{ width: "140px" }} />
-              <col style={{ width: "180px" }} />
-            </colgroup>
-            <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="text-left px-4 py-2.5 font-medium">{t("matching.review.reference")}</th>
-                <th className="text-left px-4 py-2.5 font-medium">{t("matching.review.input")}</th>
-                <th
-                  className="text-right px-4 py-2.5 font-medium cursor-pointer select-none"
-                  onClick={() => setSortDesc((v) => !v)}
-                >
-                  {t("matching.review.similarity")} {sortDesc ? "↓" : "↑"}
-                </th>
-                <th className="text-left px-4 py-2.5 font-medium">{t("matching.review.recommendation")}</th>
-                <th className="text-right px-4 py-2.5 font-medium">{t("common.action")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {paged.map((r) => {
-                const tone =
-                  r.score >= 90 ? "text-success" : r.score >= 80 ? "text-warning" : "text-destructive";
-                return (
-                  <tr
-                    key={r.id}
-                    onClick={() => setSelected(r)}
-                    className="hover:bg-secondary/40 cursor-pointer"
+        <div className="border border-border rounded-lg overflow-hidden">
+          <div className="max-h-[520px] overflow-auto">
+            <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+              <colgroup>
+                <col />
+                <col />
+                <col style={{ width: "140px" }} />
+                <col style={{ width: "140px" }} />
+                <col style={{ width: "180px" }} />
+              </colgroup>
+              <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="text-left px-4 py-2.5 font-medium">
+                    {t("matching.review.reference")}
+                  </th>
+                  <th className="text-left px-4 py-2.5 font-medium">
+                    {t("matching.review.input")}
+                  </th>
+                  <th
+                    className="text-right px-4 py-2.5 font-medium cursor-pointer select-none"
+                    onClick={() => setSortDesc((v) => !v)}
                   >
-                    <td className="px-4 py-3 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.refName}</p>
-                      <p className="text-xs text-muted-foreground truncate">{r.refMeta}</p>
-                    </td>
-                    <td className="px-4 py-3 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.inputName}</p>
-                      <p className="text-xs text-muted-foreground truncate">{r.inputMeta}</p>
-                    </td>
-                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${tone}`}>
-                      {r.score}%
-                    </td>
-                    <td className="px-4 py-3 text-xs">{recommendation(r.score)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => decide(r.id, "approved")}
-                          className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
+                    {t("matching.review.similarity")} {sortDesc ? "â†“" : "â†‘"}
+                  </th>
+                  <th className="text-left px-4 py-2.5 font-medium">
+                    {t("matching.review.recommendation")}
+                  </th>
+                  <th className="text-right px-4 py-2.5 font-medium">{t("common.action")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {paged.map((r) => {
+                  const tone =
+                    r.score >= 90
+                      ? "text-success"
+                      : r.score >= 80
+                        ? "text-warning"
+                        : "text-destructive";
+                  return (
+                    <tr
+                      key={r.id}
+                      onClick={() => setSelected(r)}
+                      className="hover:bg-secondary/40 cursor-pointer"
+                    >
+                      <td className="px-4 py-3 min-w-0">
+                        <p className="text-sm font-medium truncate">{r.refName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{r.refMeta}</p>
+                      </td>
+                      <td className="px-4 py-3 min-w-0">
+                        <p className="text-sm font-medium truncate">{r.inputName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{r.inputMeta}</p>
+                      </td>
+                      <td className={`px-4 py-3 text-right tabular-nums font-semibold ${tone}`}>
+                        {r.score}%
+                      </td>
+                      <td className="px-4 py-3 text-xs">{recommendation(r.score)}</td>
+                      <td className="px-4 py-3">
+                        <div
+                          className="flex justify-end gap-1.5"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {t("common.approve")}
-                        </button>
-                        <button
-                          onClick={() => decide(r.id, "rejected")}
-                          className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
-                        >
-                          {t("common.reject")}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
-          <span>
-            {t("matching.review.page", { page, total: totalPages })}
-          </span>
-          <div className="flex gap-1.5">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
-            >
-              {t("common.prev")}
-            </button>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
-            >
-              {t("common.next")}
-            </button>
+                          <button
+                            onClick={() => decide(r.id, "approved")}
+                            className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
+                          >
+                            {t("common.approve")}
+                          </button>
+                          <button
+                            onClick={() => decide(r.id, "rejected")}
+                            className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
+                          >
+                            {t("common.reject")}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
+            <span>{t("matching.review.page", { page, total: totalPages })}</span>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
+              >
+                {t("common.prev")}
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
+              >
+                {t("common.next")}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
       )}
 
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
@@ -1214,12 +1760,22 @@ function StepReview() {
             <>
               <SheetHeader>
                 <SheetTitle className="text-base">{t("matching.review.compare")}</SheetTitle>
-                <SheetDescription>{selected.id} - {t("matching.review.similarity")} {selected.score}%</SheetDescription>
+                <SheetDescription>
+                  {selected.id} - {t("matching.review.similarity")} {selected.score}%
+                </SheetDescription>
               </SheetHeader>
               <div className="mt-5 grid grid-cols-2 gap-4">
                 {[
-                  { title: t("results.table.reference"), name: selected.refName, meta: selected.refMeta },
-                  { title: t("results.table.input"), name: selected.inputName, meta: selected.inputMeta },
+                  {
+                    title: t("results.table.reference"),
+                    name: selected.refName,
+                    meta: selected.refMeta,
+                  },
+                  {
+                    title: t("results.table.input"),
+                    name: selected.inputName,
+                    meta: selected.inputMeta,
+                  },
                 ].map((s) => (
                   <div key={s.title} className="border border-border rounded-lg p-3">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -1236,7 +1792,10 @@ function StepReview() {
                 <div className="space-y-2">
                   {[
                     { col: t("matching.review.name"), score: selected.score },
-                    { col: t("matching.review.identifier"), score: Math.min(100, selected.score + 4) },
+                    {
+                      col: t("matching.review.identifier"),
+                      score: Math.min(100, selected.score + 4),
+                    },
                     { col: t("matching.review.address"), score: Math.max(0, selected.score - 10) },
                   ].map((c) => (
                     <div key={c.col} className="grid grid-cols-[100px_1fr_50px] items-center gap-3">
@@ -1280,8 +1839,6 @@ function StepReview() {
   );
 }
 
-
-
 function StepSynchronize() {
   const { t } = usePreferences();
   const [matchedAction, setMatchedAction] = useState("Drop / Skip matched input records");
@@ -1291,10 +1848,7 @@ function StepSynchronize() {
 
   return (
     <>
-      <SectionTitle
-        title={t("matching.sync.title")}
-        desc={t("matching.sync.desc")}
-      />
+      <SectionTitle title={t("matching.sync.title")} desc={t("matching.sync.desc")} />
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
         <div className="space-y-4">
@@ -1347,14 +1901,21 @@ function StepSynchronize() {
         <aside className="h-fit rounded-lg border border-border bg-secondary/20 p-5">
           <div className="mb-4">
             <p className="text-sm font-semibold">{t("matching.sync.summaryPreview")}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {t("matching.sync.summaryDesc")}
-            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t("matching.sync.summaryDesc")}</p>
           </div>
           <div className="space-y-3">
-            <SyncMetric label={t("matching.sync.drop")} value={synchronizationSummary.droppedMatched} />
-            <SyncMetric label={t("matching.sync.append")} value={synchronizationSummary.appendedUnmatched} />
-            <SyncMetric label={t("matching.sync.conflictReview")} value={synchronizationSummary.conflictsToReview} />
+            <SyncMetric
+              label={t("matching.sync.drop")}
+              value={synchronizationSummary.droppedMatched}
+            />
+            <SyncMetric
+              label={t("matching.sync.append")}
+              value={synchronizationSummary.appendedUnmatched}
+            />
+            <SyncMetric
+              label={t("matching.sync.conflictReview")}
+              value={synchronizationSummary.conflictsToReview}
+            />
             <div className="border-t border-border pt-3">
               <SyncMetric
                 label={t("matching.sync.finalSize")}
@@ -1369,10 +1930,18 @@ function StepSynchronize() {
               {t("matching.sync.selectedPlan")}
             </p>
             <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-              <li>{t("matching.sync.matched")}: {syncLabel(matchedAction, t)}</li>
-              <li>{t("matching.sync.unmatched")}: {syncLabel(unmatchedAction, t)}</li>
-              <li>{t("matching.sync.possible")}: {syncLabel(possibleAction, t)}</li>
-              <li>{t("matching.sync.conflicts")}: {syncLabel(conflictAction, t)}</li>
+              <li>
+                {t("matching.sync.matched")}: {syncLabel(matchedAction, t)}
+              </li>
+              <li>
+                {t("matching.sync.unmatched")}: {syncLabel(unmatchedAction, t)}
+              </li>
+              <li>
+                {t("matching.sync.possible")}: {syncLabel(possibleAction, t)}
+              </li>
+              <li>
+                {t("matching.sync.conflicts")}: {syncLabel(conflictAction, t)}
+              </li>
             </ul>
           </div>
         </aside>
@@ -1448,25 +2017,18 @@ function syncLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
   return labels[value] ? t(labels[value]) : value;
 }
 
-function SyncMetric({
-  label,
-  value,
-  strong,
-}: {
-  label: string;
-  value: string;
-  strong?: boolean;
-}) {
+function SyncMetric({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={`tabular-nums ${strong ? "text-lg font-semibold" : "text-sm font-semibold"}`}>
+      <span
+        className={`tabular-nums ${strong ? "text-lg font-semibold" : "text-sm font-semibold"}`}
+      >
         {value}
       </span>
     </div>
   );
 }
-
 
 function StepExport() {
   const { t } = usePreferences();

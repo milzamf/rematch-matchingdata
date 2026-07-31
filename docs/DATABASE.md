@@ -1,6 +1,6 @@
 # BatchMatch Database Design
 
-Status: Initial database design draft. Do not create Laravel migrations from this document yet.
+Status: Initial database design draft. The first vertical slice has implemented only `datasets` and `dataset_columns`.
 
 ## 1. Database Overview
 
@@ -140,3 +140,9 @@ Every job, dataset, result, export, and audit log belongs to a workspace and is 
 14. `audit_logs`
 
 This order creates parent records before dependent records. `audit_logs` should be last because it references activity across multiple domain entities.
+
+## Implemented Vertical Slice
+
+- `datasets` stores inspected CSV/XLSX upload metadata, selected sheet/delimiter/header row, row/column counts, preview rows, and profiling summary.
+- `dataset_columns` stores detected column type, position, null count/percentage, unique count, duplicate percentage, and sample values.
+- Workspace/user ownership columns are deferred until Auth API and Workspace implementation are added.
