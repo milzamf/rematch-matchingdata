@@ -72,7 +72,38 @@ Perbarui dokumentasi hanya jika perubahan memang relevan:
 
 Perubahan styling kecil, typo, atau refactor internal tidak wajib memperbarui seluruh dokumentasi.
 
-## 9. Completion Report
+## 9. Session Management
+
+At the end of every completed milestone:
+
+1. Update `docs/SESSION.md`
+2. Update `docs/CHANGELOG.md`
+3. Update `docs/IMPLEMENTATION_STATUS.md`
+
+`docs/SESSION.md` is the primary compact context for continuing development in the next coding session.
+
+Keep `docs/SESSION.md` concise.
+
+Maximum around 150 lines.
+
+Do not include implementation details or code snippets.
+
+## 10. Milestone Policy
+
+One task = One milestone.
+
+Do not implement features outside the current milestone.
+
+Every completed milestone must:
+
+- Build successfully
+- Pass relevant tests
+- Update documentation
+- Be ready to commit
+
+Only after that continue to the next milestone.
+
+## 11. Completion Report
 
 Pada akhir task, laporkan:
 

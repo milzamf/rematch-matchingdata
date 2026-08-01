@@ -1,6 +1,6 @@
 # BatchMatch - Implementation Status
 
-Last Updated: 2026-07-30
+Last Updated: 2026-08-01
 Version: MVP v0.1.0
 
 ## Overall Progress
@@ -25,7 +25,7 @@ Version: MVP v0.1.0
 | Dashboard | UI complete, still uses mock data.                                                                     |
 | Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                          |
 | Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                        |
-| Mapping   | Uses inspected reference/input columns with frontend state only.                                       |
+| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
 | Configure | UI complete, still uses mock/local state.                                                              |
 | Run       | UI simulation only.                                                                                    |
 | Review    | UI complete, still uses mock data.                                                                     |
@@ -72,23 +72,26 @@ Version: MVP v0.1.0
 
 Milestone 2: Real Column Mapping
 
-| Requirement                                  | Status   |
-| -------------------------------------------- | -------- |
-| Health endpoint                              | Complete |
-| CSV inspect                                  | Complete |
-| XLSX inspect                                 | Complete |
-| Basic profiling metadata                     | Complete |
-| Persist dataset metadata                     | Complete |
-| Persist dataset column metadata              | Complete |
-| Frontend Upload integration                  | Complete |
-| Frontend Profiling integration               | Complete |
-| Real reference/input columns in Mapping      | Complete |
-| Manual column mapping state                  | Complete |
-| Simple non-AI auto-suggest by column name    | Complete |
-| Unmatched reference columns shown in Mapping | Complete |
-| Duplicate reference-column validation        | Complete |
-| Backend tests                                | Added    |
-| Frontend tests                               | Added    |
+| Requirement                                   | Status   |
+| --------------------------------------------- | -------- |
+| Health endpoint                               | Complete |
+| CSV inspect                                   | Complete |
+| XLSX inspect                                  | Complete |
+| Basic profiling metadata                      | Complete |
+| Persist dataset metadata                      | Complete |
+| Persist dataset column metadata               | Complete |
+| Frontend Upload integration                   | Complete |
+| Frontend Profiling integration                | Complete |
+| Real reference/input columns in Mapping       | Complete |
+| Manual column mapping state                   | Complete |
+| Simple non-AI auto-suggest by column name     | Complete |
+| Unmatched reference columns shown in Mapping  | Complete |
+| Duplicate reference-column validation         | Complete |
+| Mapping simplified to reference/input pairing | Complete |
+| Column type badges in Mapping                 | Complete |
+| Algorithm selection moved out of Mapping      | Complete |
+| Backend tests                                 | Added    |
+| Frontend tests                                | Added    |
 
 ## Next Milestone
 

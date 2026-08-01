@@ -11,7 +11,7 @@ type MockColumn = {
   id: string;
   name: string;
   normalized_name: string;
-  data_type: "text" | "number" | "date" | "boolean";
+  data_type: "text" | "number" | "date" | "boolean" | "empty" | "unknown";
   position: number;
   null_count: number;
   null_percentage: number;
@@ -227,15 +227,15 @@ test("mapping auto-suggests inspected columns with simple name matching rules", 
     "column-input-kabupaten-kota",
   );
   await expect(page.getByTestId("mapping-input-select").nth(8)).toHaveValue("");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(0)).toHaveValue("Normalized Exact");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(5)).toHaveValue("Exact");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(6)).toHaveValue("Exact");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(7)).toHaveValue("Exact");
+  await expect(page.getByTestId("mapping-algorithm-select")).toHaveCount(0);
+  await expect(page.getByTestId("mapping-reference-type").first()).toHaveText("Text");
+  await expect(page.getByTestId("mapping-input-type").first()).toHaveText("Text");
+  await expect(page.getByTestId("mapping-reference-type").nth(5)).toHaveText("Date");
+  await expect(page.getByTestId("mapping-reference-type").nth(6)).toHaveText("Number");
+  await expect(page.getByTestId("mapping-reference-type").nth(7)).toHaveText("Boolean");
 });
 
-test("mapping supports replace, algorithm changes, duplicate validation, remove, and add", async ({
-  page,
-}) => {
+test("mapping supports replace, duplicate validation, remove, and add", async ({ page }) => {
   const referenceColumns = [
     mockColumn("reference", "external_id", "text", 1),
     mockColumn("reference", "city", "text", 2),
@@ -261,14 +261,7 @@ test("mapping supports replace, algorithm changes, duplicate validation, remove,
       .locator('option[value="column-reference-external-id"]'),
   ).toBeDisabled();
 
-  await page.getByTestId("mapping-algorithm-select").nth(1).selectOption("Contains");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(1)).toHaveValue("Contains");
-  await page.getByTestId("mapping-algorithm-select").nth(1).selectOption("Starts With");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(1)).toHaveValue("Starts With");
-  await page.getByTestId("mapping-algorithm-select").nth(1).selectOption("Ends With");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(1)).toHaveValue("Ends With");
-  await page.getByTestId("mapping-algorithm-select").nth(1).selectOption("Fuzzy");
-  await expect(page.getByTestId("mapping-algorithm-select").nth(1)).toHaveValue("Fuzzy");
+  await expect(page.getByTestId("mapping-algorithm-select")).toHaveCount(0);
 
   await page.getByTestId("mapping-remove-button").nth(1).click();
   await expect(page.getByTestId("mapping-row")).toHaveCount(2);
@@ -278,6 +271,25 @@ test("mapping supports replace, algorithm changes, duplicate validation, remove,
     "column-reference-city",
   );
   await expect(page.getByTestId("mapping-input-select").nth(2)).toHaveValue("");
+});
+
+test("mapping requires at least one valid pair before continuing", async ({ page }) => {
+  const referenceColumns = [
+    mockColumn("reference", "reference_only", "text", 1),
+    mockColumn("reference", "mystery", "unknown", 2),
+  ];
+  const inputColumns = [mockColumn("input", "input_only", "text", 1)];
+
+  await uploadDatasetsAndOpenMapping(page, referenceColumns, inputColumns);
+
+  const continueButton = page.getByRole("button", { name: /continue/i });
+  await expect(page.getByTestId("mapping-row")).toHaveCount(2);
+  await expect(page.getByTestId("mapping-input-select").nth(0)).toHaveValue("");
+  await expect(page.getByTestId("mapping-reference-type").nth(1)).toHaveText("Unknown");
+  await expect(continueButton).toBeDisabled();
+
+  await page.getByTestId("mapping-input-select").nth(0).selectOption("column-input-input-only");
+  await expect(continueButton).toBeEnabled();
 });
 
 test("mapping shows empty state when inspected columns are unavailable", async ({ page }) => {

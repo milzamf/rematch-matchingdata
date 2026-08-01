@@ -18,6 +18,7 @@
 - Real Column Mapping frontend slice using inspected reference/input columns.
 - Non-AI auto-suggest for matching columns with the same or simply similar names.
 - Mapping rows for unmatched reference columns with empty input selection.
+- Mapping type badges and suggestion source metadata.
 
 ### Improved
 
@@ -25,8 +26,8 @@
 - Results experience with Overview, Matched, Possible Match, Unmatched, Statistics, Audit Trail, and Export History tabs.
 - Settings page with profile, matching defaults, AI preferences, data privacy, and about sections.
 - Documentation alignment with `PRD.md`, `.codex/PROJECT_RULES.md`, and the BatchMatch workflow.
-- Mapping workflow now supports manual add, remove, pair changes, algorithm changes, and duplicate reference-column prevention.
-- Mapping algorithm choices now include Exact, Normalized Exact, Contains, Starts With, Ends With, and Fuzzy.
+- Mapping workflow now supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference-column prevention.
+- Mapping page now focuses only on reference/input column pairing; matching algorithm selection is deferred to Configure.
 
 ### Notes
 

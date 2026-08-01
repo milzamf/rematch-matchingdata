@@ -60,24 +60,24 @@ type UploadedFile = {
 type RunState = "idle" | "running" | "success" | "failed";
 type MatchingAlgorithm =
   "Exact" | "Normalized Exact" | "Contains" | "Starts With" | "Ends With" | "Fuzzy";
+type MappingSuggestionSource =
+  "exact_name" | "case_insensitive" | "normalized_name" | "similarity" | "manual" | "none";
 type ColumnMappingDraft = {
   id: string;
   referenceColumnId: string;
   inputColumnId: string;
   algorithm: MatchingAlgorithm;
   suggested: boolean;
+  suggestionSource: MappingSuggestionSource;
+  suggestionScore: number | null;
+  referenceColumnName: string;
+  inputColumnName: string;
+  referenceDataType: string;
+  inputDataType: string;
 };
 
 const ALLOWED = [".csv", ".xlsx"];
 const MAX_MB = 50;
-const MATCHING_ALGORITHMS: MatchingAlgorithm[] = [
-  "Exact",
-  "Normalized Exact",
-  "Contains",
-  "Starts With",
-  "Ends With",
-  "Fuzzy",
-];
 
 function MatchingPage() {
   const { t } = usePreferences();
@@ -610,6 +610,12 @@ function StepColumnMapping({
             inputColumn && patch.algorithm === undefined
               ? defaultMappingAlgorithm(referenceColumn, inputColumn)
               : defaultAlgorithmForColumn(referenceColumn);
+          next.suggestionSource = "manual";
+          next.suggestionScore = null;
+          next.referenceColumnName = referenceColumn.name;
+          next.referenceDataType = referenceColumn.data_type;
+          next.inputColumnName = inputColumn?.name ?? "";
+          next.inputDataType = inputColumn?.data_type ?? "";
         }
 
         return next;
@@ -638,6 +644,12 @@ function StepColumnMapping({
           ? defaultMappingAlgorithm(referenceColumn, inputColumn)
           : defaultAlgorithmForColumn(referenceColumn),
         suggested: false,
+        suggestionSource: inputColumn ? (suggestedInput?.source ?? "similarity") : "manual",
+        suggestionScore: inputColumn ? (suggestedInput?.score ?? null) : null,
+        referenceColumnName: referenceColumn.name,
+        inputColumnName: inputColumn?.name ?? "",
+        referenceDataType: referenceColumn.data_type,
+        inputDataType: inputColumn?.data_type ?? "",
       },
     ]);
     toast.success(t("matching.mapping.added"));
@@ -689,14 +701,22 @@ function StepColumnMapping({
           </div>
 
           <div className="space-y-2.5 overflow-x-auto">
-            <div className="grid min-w-[860px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px_44px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <div className="grid min-w-[720px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_44px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
               <span>{t("matching.mapping.reference")}</span>
+              <span className="text-center" aria-hidden="true">
+                &harr;
+              </span>
               <span>{t("matching.mapping.input")}</span>
-              <span>{t("matching.mapping.algorithm")}</span>
               <span className="sr-only">{t("common.action")}</span>
             </div>
 
             {mappings.map((mapping, index) => {
+              const referenceColumn = referenceColumns.find(
+                (column) => column.id === mapping.referenceColumnId,
+              );
+              const inputColumn = inputColumns.find(
+                (column) => column.id === mapping.inputColumnId,
+              );
               const usedByOtherRows = new Set(
                 mappings
                   .filter((item) => item.id !== mapping.id)
@@ -707,7 +727,7 @@ function StepColumnMapping({
                 <div
                   key={mapping.id}
                   data-testid="mapping-row"
-                  className="grid min-w-[860px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_220px_44px] items-center gap-4 rounded-lg border border-border px-4 py-3"
+                  className="grid min-w-[720px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_44px] items-center gap-4 rounded-lg border border-border px-4 py-3"
                 >
                   <div className="min-w-0">
                     <select
@@ -725,51 +745,56 @@ function StepColumnMapping({
                           value={column.id}
                           disabled={usedByOtherRows.has(column.id)}
                         >
-                          {columnLabel(column)}
+                          {column.name}
                         </option>
                       ))}
                     </select>
-                    {mapping.suggested && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {t("matching.mapping.autoSuggested")}
-                      </p>
-                    )}
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      {referenceColumn && (
+                        <ColumnTypeBadge column={referenceColumn} testId="mapping-reference-type" />
+                      )}
+                      {mapping.suggested && (
+                        <p className="text-[11px] text-muted-foreground">
+                          {t("matching.mapping.autoSuggested")}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
-                  <select
-                    aria-label={t("matching.mapping.inputSelect", { row: index + 1 })}
-                    data-testid="mapping-input-select"
-                    value={mapping.inputColumnId}
-                    onChange={(event) =>
-                      updateMapping(mapping.id, { inputColumnId: event.target.value })
-                    }
-                    className={selectClass}
+                  <span
+                    className="text-center text-sm font-medium text-muted-foreground"
+                    aria-hidden="true"
                   >
-                    <option value="">{t("matching.mapping.noInputSelected")}</option>
-                    {inputColumns.map((column) => (
-                      <option key={column.id} value={column.id}>
-                        {columnLabel(column)}
-                      </option>
-                    ))}
-                  </select>
+                    &harr;
+                  </span>
 
-                  <select
-                    aria-label={t("matching.mapping.algorithmSelect", { row: index + 1 })}
-                    data-testid="mapping-algorithm-select"
-                    value={mapping.algorithm}
-                    onChange={(event) =>
-                      updateMapping(mapping.id, {
-                        algorithm: event.target.value as MatchingAlgorithm,
-                      })
-                    }
-                    className={selectClass}
-                  >
-                    {MATCHING_ALGORITHMS.map((algorithm) => (
-                      <option key={algorithm} value={algorithm}>
-                        {algorithmLabel(algorithm, t)}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="min-w-0">
+                    <select
+                      aria-label={t("matching.mapping.inputSelect", { row: index + 1 })}
+                      data-testid="mapping-input-select"
+                      value={mapping.inputColumnId}
+                      onChange={(event) =>
+                        updateMapping(mapping.id, { inputColumnId: event.target.value })
+                      }
+                      className={selectClass}
+                    >
+                      <option value="">{t("matching.mapping.noInputSelected")}</option>
+                      {inputColumns.map((column) => (
+                        <option key={column.id} value={column.id}>
+                          {column.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
+                      {inputColumn ? (
+                        <ColumnTypeBadge column={inputColumn} testId="mapping-input-type" />
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">
+                          {t("matching.mapping.noInputSelected")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
                   <button
                     type="button"
@@ -819,6 +844,36 @@ function MappingStat({ label, value }: { label: string; value: number }) {
   );
 }
 
+function ColumnTypeBadge({
+  column,
+  testId,
+}: {
+  column: DatasetInspectResult["columns"][number];
+  testId: string;
+}) {
+  const { t } = usePreferences();
+  const type = normalizedDataType(column.data_type);
+  const tone =
+    type === "text"
+      ? "border-brand/20 bg-brand/10 text-brand"
+      : type === "number"
+        ? "border-success/20 bg-success/10 text-success"
+        : type === "date"
+          ? "border-warning/20 bg-warning/10 text-warning"
+          : type === "boolean"
+            ? "border-foreground/15 bg-foreground/5 text-foreground"
+            : "border-border bg-secondary text-muted-foreground";
+
+  return (
+    <span
+      data-testid={testId}
+      className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${tone}`}
+    >
+      {t(`matching.mapping.type.${type}`)}
+    </span>
+  );
+}
+
 function suggestColumnMappings(
   referenceColumns: DatasetInspectResult["columns"],
   inputColumns: DatasetInspectResult["columns"],
@@ -844,6 +899,12 @@ function suggestColumnMappings(
         ? defaultMappingAlgorithm(referenceColumn, inputColumn)
         : defaultAlgorithmForColumn(referenceColumn),
       suggested: hasSuggestion,
+      suggestionSource: hasSuggestion ? (match?.source ?? "similarity") : "none",
+      suggestionScore: hasSuggestion ? (match?.score ?? null) : null,
+      referenceColumnName: referenceColumn.name,
+      inputColumnName: inputColumn?.name ?? "",
+      referenceDataType: referenceColumn.data_type,
+      inputDataType: inputColumn?.data_type ?? "",
     };
   });
 }
@@ -852,15 +913,22 @@ function findBestInputColumn(
   referenceColumn: DatasetInspectResult["columns"][number],
   inputColumns: DatasetInspectResult["columns"],
   usedInputIds: Set<string>,
-): { column: DatasetInspectResult["columns"][number]; score: number } | null {
+): {
+  column: DatasetInspectResult["columns"][number];
+  score: number;
+  source: MappingSuggestionSource;
+} | null {
   return inputColumns.reduce<{
     column: DatasetInspectResult["columns"][number];
     score: number;
+    source: MappingSuggestionSource;
   } | null>((best, inputColumn) => {
     if (usedInputIds.has(inputColumn.id)) return best;
 
-    const score = columnNameSimilarity(referenceColumn.name, inputColumn.name);
-    if (!best || score > best.score) return { column: inputColumn, score };
+    const similarity = columnNameSimilarity(referenceColumn.name, inputColumn.name);
+    if (!best || similarity.score > best.score) {
+      return { column: inputColumn, score: similarity.score, source: similarity.source };
+    }
 
     return best;
   }, null);
@@ -889,18 +957,29 @@ function defaultAlgorithmForColumn(
     : "Normalized Exact";
 }
 
-function columnNameSimilarity(referenceName: string, inputName: string): number {
+function columnNameSimilarity(
+  referenceName: string,
+  inputName: string,
+): { score: number; source: MappingSuggestionSource } {
+  if (referenceName === inputName) return { score: 1, source: "exact_name" };
+  if (referenceName.toLowerCase() === inputName.toLowerCase()) {
+    return { score: 1, source: "case_insensitive" };
+  }
+
   const referenceNormalized = normalizeColumnName(referenceName);
   const inputNormalized = normalizeColumnName(inputName);
 
-  if (referenceNormalized.compact === inputNormalized.compact) return 1;
+  if (referenceNormalized.compact === inputNormalized.compact) {
+    return { score: 1, source: "normalized_name" };
+  }
+
   if (
     referenceNormalized.compact.length > 2 &&
     inputNormalized.compact.length > 2 &&
     (referenceNormalized.compact.includes(inputNormalized.compact) ||
       inputNormalized.compact.includes(referenceNormalized.compact))
   ) {
-    return 0.8;
+    return { score: 0.8, source: "similarity" };
   }
 
   const referenceTokens = new Set(referenceNormalized.tokens);
@@ -908,7 +987,10 @@ function columnNameSimilarity(referenceName: string, inputName: string): number 
   const shared = [...referenceTokens].filter((token) => inputTokens.has(token)).length;
   const total = new Set([...referenceTokens, ...inputTokens]).size;
 
-  return total === 0 ? 0 : shared / total;
+  return {
+    score: total === 0 ? 0 : shared / total,
+    source: "similarity",
+  };
 }
 
 function normalizeColumnName(name: string): { compact: string; tokens: string[] } {
@@ -935,20 +1017,11 @@ function expandColumnToken(token: string): string {
   return aliases[token] ?? token;
 }
 
-function columnLabel(column: DatasetInspectResult["columns"][number]): string {
-  return `${column.name} - ${column.data_type.toUpperCase()}`;
-}
-
-function algorithmLabel(
-  algorithm: MatchingAlgorithm,
-  t: ReturnType<typeof usePreferences>["t"],
-): string {
-  if (algorithm === "Exact") return t("matching.mapping.algorithm.exact");
-  if (algorithm === "Normalized Exact") return t("matching.mapping.algorithm.normalizedExact");
-  if (algorithm === "Contains") return t("matching.mapping.algorithm.contains");
-  if (algorithm === "Starts With") return t("matching.mapping.algorithm.startsWith");
-  if (algorithm === "Ends With") return t("matching.mapping.algorithm.endsWith");
-  return t("matching.mapping.algorithm.fuzzy");
+function normalizedDataType(dataType: string): "text" | "number" | "date" | "boolean" | "unknown" {
+  const normalized = dataType.toLowerCase();
+  return ["text", "number", "date", "boolean"].includes(normalized)
+    ? (normalized as "text" | "number" | "date" | "boolean")
+    : "unknown";
 }
 
 type Preset = "Balanced" | "Strict" | "Exploratory" | "Custom";
