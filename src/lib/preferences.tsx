@@ -245,7 +245,7 @@ const translations = {
     "matching.profile.flag.exact": "Exact match preferred",
     "matching.mapping.title": "Column Mapping",
     "matching.mapping.desc":
-      "Link reference columns to input columns and choose a comparison method for each pair.",
+      "Link reference columns to input columns. Matching methods are configured in the next step.",
     "matching.mapping.reference": "Reference Column",
     "matching.mapping.input": "Input Column",
     "matching.mapping.algorithm": "Matching Algorithm",
@@ -279,6 +279,11 @@ const translations = {
     "matching.mapping.algorithm.startsWith": "Starts With",
     "matching.mapping.algorithm.endsWith": "Ends With",
     "matching.mapping.algorithm.fuzzy": "Fuzzy",
+    "matching.mapping.type.text": "Text",
+    "matching.mapping.type.number": "Number",
+    "matching.mapping.type.date": "Date",
+    "matching.mapping.type.boolean": "Boolean",
+    "matching.mapping.type.unknown": "Unknown",
     "matching.config.title": "Matching Configuration",
     "matching.config.desc":
       "Tune presets, strategy, thresholds, search optimization and outputs. Advanced controls are collapsed.",
@@ -756,7 +761,7 @@ const translations = {
     "matching.profile.flag.exact": "Exact match disarankan",
     "matching.mapping.title": "Mapping Kolom",
     "matching.mapping.desc":
-      "Hubungkan kolom rujukan ke kolom input dan pilih metode pembanding untuk tiap pasangan.",
+      "Hubungkan kolom rujukan ke kolom input. Metode matching diatur pada langkah berikutnya.",
     "matching.mapping.reference": "Kolom Rujukan",
     "matching.mapping.input": "Kolom Input",
     "matching.mapping.algorithm": "Algoritma Matching",
@@ -791,6 +796,11 @@ const translations = {
     "matching.mapping.algorithm.startsWith": "Diawali dengan",
     "matching.mapping.algorithm.endsWith": "Diakhiri dengan",
     "matching.mapping.algorithm.fuzzy": "Fuzzy",
+    "matching.mapping.type.text": "Teks",
+    "matching.mapping.type.number": "Angka",
+    "matching.mapping.type.date": "Tanggal",
+    "matching.mapping.type.boolean": "Boolean",
+    "matching.mapping.type.unknown": "Tidak diketahui",
     "matching.config.title": "Konfigurasi Matching",
     "matching.config.desc":
       "Atur preset, strategi, threshold, optimasi pencarian, dan output. Kontrol lanjutan disembunyikan.",
