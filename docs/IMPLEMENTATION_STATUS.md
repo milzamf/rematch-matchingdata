@@ -8,7 +8,7 @@ Version: MVP v0.1.0
 | Area                 | Progress | Status                                         |
 | -------------------- | -------: | ---------------------------------------------- |
 | Documentation        |      96% | In progress                                    |
-| Frontend UI          |      95% | Mostly complete                                |
+| Frontend UI          |      96% | Mostly complete                                |
 | Frontend Integration |      30% | Upload, Profiling, and Mapping slices complete |
 | Backend API          |      15% | First slice complete                           |
 | Database             |      10% | Partial                                        |
@@ -20,19 +20,19 @@ Version: MVP v0.1.0
 
 ## Frontend
 
-| Area      | Status                                                                                                 |
-| --------- | ------------------------------------------------------------------------------------------------------ |
-| Dashboard | UI complete, still uses mock data.                                                                     |
-| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                          |
-| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                        |
-| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
-| Configure | UI complete, still uses mock/local state.                                                              |
-| Run       | UI simulation only.                                                                                    |
-| Review    | UI complete, still uses mock data.                                                                     |
-| Sync      | UI complete, still uses mock/local state.                                                              |
-| Export    | UI complete, still uses mock data.                                                                     |
-| Results   | UI complete, still uses mock data.                                                                     |
-| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete. |
+| Area      | Status                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------- |
+| Dashboard | UI complete, still uses mock data.                                                                       |
+| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                            |
+| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                          |
+| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.    |
+| Configure | UX complete with Quick Setup, Summary Configuration, conditional Advanced Settings, and local state. |
+| Run       | UI simulation only.                                                                                      |
+| Review    | UI complete, still uses mock data.                                                                       |
+| Sync      | UI complete, still uses mock/local state.                                                                |
+| Export    | UI complete, still uses mock data.                                                                       |
+| Results   | UI complete, still uses mock data.                                                                       |
+| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.   |
 
 ## Backend
 
@@ -68,7 +68,7 @@ Version: MVP v0.1.0
 | `audit_logs`              | Not started.                      |
 | `ai_recommendations`      | Not started.                      |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 2: Real Column Mapping
 
@@ -90,12 +90,33 @@ Milestone 2: Real Column Mapping
 | Mapping simplified to reference/input pairing | Complete |
 | Column type badges in Mapping                 | Complete |
 | Algorithm selection moved out of Mapping      | Complete |
+| Post-milestone generated artifact cleanup     | Complete |
 | Backend tests                                 | Added    |
 | Frontend tests                                | Added    |
 
+## Current Milestone
+
+Milestone 3A: Configure UX
+
+| Requirement                                   | Status   |
+| --------------------------------------------- | -------- |
+| Quick Setup presets                           | Complete |
+| Balanced, Strict, Exploratory, Custom modes   | Complete |
+| Summary Configuration                         | Complete |
+| Technical controls moved to Advanced Settings | Complete |
+| Advanced Settings collapsed by default        | Complete |
+| Beginner friendly progressive disclosure      | Complete |
+| Conditional strategy UI                       | Complete |
+| Exact/Fuzzy/Hybrid/Rule-Based active controls | Complete |
+| Default field algorithm recommendation        | Complete |
+| Relevant Configure validation                 | Complete |
+| English and Indonesian Configure labels       | Complete |
+| Configure state remains local/engine-ready    | Complete |
+| Backend/API/database changes                  | None     |
+
 ## Next Milestone
 
-Milestone 3: Matching Configuration Integration
+Milestone 3B: Configure Integration Preparation
 
 - Use frontend mapping state in Configure.
 - Persist matching job and mapping after Auth/Workspace scope is ready.

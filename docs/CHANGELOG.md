@@ -19,6 +19,12 @@
 - Non-AI auto-suggest for matching columns with the same or simply similar names.
 - Mapping rows for unmatched reference columns with empty input selection.
 - Mapping type badges and suggestion source metadata.
+- Configure Quick Setup with Balanced, Strict, Exploratory, and Custom presets.
+- Configure Summary Configuration for the selected preset, thresholds, search mode, candidates, output count, and normalization preset.
+- Configure e2e coverage for Quick Setup, Summary Configuration, and collapsed Advanced Settings.
+- Conditional Configure flow for Exact, Fuzzy, Composite / Hybrid, and Rule-Based strategies.
+- Default algorithm recommendations per mapped field type/name, with advanced algorithms hidden behind More Algorithms.
+- Configure validation for active fields, thresholds, candidate count, manual weights, and rule text.
 
 ### Improved
 
@@ -28,6 +34,10 @@
 - Documentation alignment with `PRD.md`, `.codex/PROJECT_RULES.md`, and the BatchMatch workflow.
 - Mapping workflow now supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference-column prevention.
 - Mapping page now focuses only on reference/input column pairing; matching algorithm selection is deferred to Configure.
+- Configure technical controls are now grouped under collapsed Advanced Settings for progressive disclosure.
+- Configure now shows only controls relevant to the selected strategy.
+- Encoding artifacts in Matching UI labels were corrected.
+- Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 
 ### Notes
 

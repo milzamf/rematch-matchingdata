@@ -292,6 +292,65 @@ test("mapping requires at least one valid pair before continuing", async ({ page
   await expect(continueButton).toBeEnabled();
 });
 
+test("configure uses quick setup, summary, and collapsed advanced settings", async ({ page }) => {
+  await uploadDatasetsAndOpenMapping(page, defaultColumns("reference"), defaultColumns("input"));
+
+  await page.getByRole("button", { name: /continue/i }).click();
+
+  await expect(page.getByText("Quick Setup", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("config-summary")).toContainText("Balanced");
+  await expect(page.getByTestId("config-summary")).toContainText("Managed by preset");
+  await expect(page.getByTestId("config-advanced-panel")).toHaveCount(0);
+
+  await page.getByTestId("config-preset-strict").click();
+  await expect(page.getByTestId("config-summary")).toContainText("Strict");
+  await expect(page.getByTestId("config-summary")).toContainText("Managed by preset");
+  await expect(page.getByTestId("config-summary")).toContainText("Identifier Strict");
+  await expect(page.getByTestId("config-advanced-panel")).toHaveCount(0);
+
+  await page.getByTestId("config-preset-custom").click();
+  const advancedPanel = page.getByTestId("config-advanced-panel");
+  await expect(advancedPanel).toBeVisible();
+  await expect(advancedPanel.getByText("Strategy", { exact: true })).toBeVisible();
+  await expect(advancedPanel.getByText("Algorithm per Field")).toBeVisible();
+  await expect(advancedPanel.getByText("Field Weights")).toHaveCount(0);
+});
+
+test("configure shows conditional controls for each strategy", async ({ page }) => {
+  await uploadDatasetsAndOpenMapping(page, defaultColumns("reference"), defaultColumns("input"));
+
+  await page.getByRole("button", { name: /continue/i }).click();
+  await page.getByTestId("config-preset-custom").click();
+  const advancedPanel = page.getByTestId("config-advanced-panel");
+
+  await page.getByTestId("config-strategy-exact").click();
+  await expect(advancedPanel.getByText("Fields to match")).toBeVisible();
+  await expect(advancedPanel.getByText("Similarity Threshold")).toHaveCount(0);
+  await expect(advancedPanel.getByText("Candidate Generation")).toHaveCount(0);
+  await expect(advancedPanel.getByText("Algorithm per Field")).toHaveCount(0);
+
+  await page.getByTestId("config-strategy-fuzzy").click();
+  await expect(advancedPanel.getByText("Algorithm per Field")).toBeVisible();
+  await expect(advancedPanel.getByText("Similarity Threshold")).toBeVisible();
+  await expect(advancedPanel.getByText("Candidate Generation")).toBeVisible();
+  await expect(advancedPanel.getByText("Field Weights")).toHaveCount(0);
+
+  await page.getByTestId("config-candidate-custom").click();
+  await page.getByTestId("config-custom-candidate-input").fill("0");
+  await expect(page.getByRole("button", { name: /continue/i })).toBeDisabled();
+  await page.getByTestId("config-custom-candidate-input").fill("5");
+  await expect(page.getByRole("button", { name: /continue/i })).toBeEnabled();
+
+  await page.getByTestId("config-strategy-hybrid").click();
+  await expect(advancedPanel.getByRole("button", { name: "Automatic weights" })).toBeVisible();
+  await page.getByTestId("config-manual-weights").click();
+  await expect(page.getByTestId("config-field-weights")).toBeVisible();
+
+  await page.getByTestId("config-strategy-rule-based").click();
+  await expect(advancedPanel.getByText("Rule Builder")).toBeVisible();
+  await expect(advancedPanel.getByText("Similarity Threshold")).toHaveCount(0);
+});
+
 test("mapping shows empty state when inspected columns are unavailable", async ({ page }) => {
   await page.goto("/matching");
   await page.getByRole("button", { name: /mapping/i }).click();

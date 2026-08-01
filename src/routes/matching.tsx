@@ -1,6 +1,6 @@
 ﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import type { Dispatch, SetStateAction } from "react";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
@@ -39,7 +39,7 @@ import {
 export const Route = createFileRoute("/matching")({
   head: () => ({
     meta: [
-      { title: "Matching Workflow â€” BatchMatch" },
+      { title: "Matching Workflow - BatchMatch" },
       {
         name: "description",
         content:
@@ -89,13 +89,15 @@ function MatchingPage() {
   const [progress, setProgress] = useState(0);
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
   const [columnMappings, setColumnMappings] = useState<ColumnMappingDraft[]>([]);
+  const [configureValid, setConfigureValid] = useState(true);
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
   const hasCompletedMapping = columnMappings.some((mapping) => mapping.inputColumnId);
   const canAdvance =
     (step !== 1 || (reference?.status === "success" && input?.status === "success")) &&
-    (step !== 3 || hasCompletedMapping);
+    (step !== 3 || hasCompletedMapping) &&
+    (step !== 4 || configureValid);
   const localizedSteps = wizardSteps.map((s) => ({
     ...s,
     title: t(`step.${stepKey(s.id)}`),
@@ -200,7 +202,9 @@ function MatchingPage() {
               setMappings={setColumnMappings}
             />
           )}
-          {step === 4 && <StepConfig />}
+          {step === 4 && (
+            <StepConfig mappings={columnMappings} onValidityChange={setConfigureValid} />
+          )}
           {step === 5 && (
             <StepRun
               state={runState}
@@ -385,7 +389,7 @@ function FileSlot({
           {file ? (
             <div className="mt-0.5 space-y-1">
               <p className="text-xs text-muted-foreground truncate">
-                {file.name} Â· {(file.size / 1024 / 1024).toFixed(2)} MB
+                {file.name} · {(file.size / 1024 / 1024).toFixed(2)} MB
               </p>
               {isLoading && (
                 <p className="text-xs text-accent">{t("matching.upload.inspecting")}</p>
@@ -1024,8 +1028,48 @@ function normalizedDataType(dataType: string): "text" | "number" | "date" | "boo
     : "unknown";
 }
 
+function defaultAlgorithmForField(referenceName: string, inputName: string, type: FieldType) {
+  const combinedName = `${referenceName} ${inputName}`.toLowerCase();
+  if (type === "number") return "Numeric Exact";
+  if (type === "date") return "Date Exact";
+  if (type === "boolean") return "Exact";
+  if (/(npwp|nik|id|kode|code|email)/.test(combinedName)) return "Normalized Exact";
+  if (/(alamat|address)/.test(combinedName)) return "Token Set Ratio";
+  if (/(perusahaan|company|entity|entitas|nama|name|vendor|customer)/.test(combinedName)) {
+    return "Jaro-Winkler";
+  }
+  if (/[_\s-]/.test(combinedName)) return "Token Set Ratio";
+  return "Jaro-Winkler";
+}
+
 type Preset = "Balanced" | "Strict" | "Exploratory" | "Custom";
 type Strategy = "Hybrid" | "Exact" | "Fuzzy" | "Composite" | "Rule-Based";
+type FieldType = "text" | "number" | "date" | "boolean" | "unknown";
+
+const RECOMMENDED_ALGORITHMS = [
+  "Jaro-Winkler",
+  "Levenshtein",
+  "Token Sort Ratio",
+  "Token Set Ratio",
+];
+
+const MORE_ALGORITHMS = [
+  "Exact",
+  "Normalized Exact",
+  "Case-Insensitive Exact",
+  "Numeric Exact",
+  "Date Exact",
+  "Damerau-Levenshtein",
+  "Jaccard Similarity",
+  "Cosine Similarity",
+  "Sørensen-Dice",
+  "Ratcliff-Obershelp",
+  "Monge-Elkan",
+  "Smith-Waterman",
+  "Partial Ratio",
+  "Partial Token Sort",
+  "Partial Token Set",
+];
 
 const PRESET_DEFAULTS: Record<
   Preset,
@@ -1037,7 +1081,13 @@ const PRESET_DEFAULTS: Record<
   Custom: { autoMatch: 90, review: 75, noMatch: 60, strategy: "Hybrid" },
 };
 
-function StepConfig() {
+function StepConfig({
+  mappings,
+  onValidityChange,
+}: {
+  mappings: ColumnMappingDraft[];
+  onValidityChange: (valid: boolean) => void;
+}) {
   const { t } = usePreferences();
   const [preset, setPreset] = useState<Preset>("Balanced");
   const [strategy, setStrategy] = useState<Strategy>("Hybrid");
@@ -1045,34 +1095,114 @@ function StepConfig() {
   const [review, setReview] = useState(75);
   const [noMatch, setNoMatch] = useState(60);
   const [searchMode, setSearchMode] = useState<"auto" | "manual">("auto");
-  const [manualBlocks, setManualBlocks] = useState<string[]>(["company_name", "npwp"]);
-  const [candidates, setCandidates] = useState<1 | 3 | 5 | 10>(3);
+  const [manualBlocks, setManualBlocks] = useState<string[]>(["City", "Postal Code"]);
+  const [candidates, setCandidates] = useState<1 | 3 | 5 | 10 | "custom">(3);
+  const [customCandidateCount, setCustomCandidateCount] = useState("15");
+  const [normalizationPreset, setNormalizationPreset] = useState("Entity Name");
+  const [normalizationMode, setNormalizationMode] = useState<"auto" | "manual">("auto");
+  const [outputMode, setOutputMode] = useState<"standard" | "custom">("standard");
+  const [manualWeights, setManualWeights] = useState(false);
+  const [combinedScoring, setCombinedScoring] = useState(false);
+  const [showFormula, setShowFormula] = useState(false);
+  const [showMoreAlgorithms, setShowMoreAlgorithms] = useState(false);
   const [outputs, setOutputs] = useState<string[]>([
     "Matched",
     "Possible Match",
     "Unmatched",
-    "Synchronization Summary",
     "Summary Report",
   ]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [weights, setWeights] = useState([
-    { field: "company_name", weight: 45, method: "Token Sort Ratio" },
-    { field: "npwp", weight: 30, method: "Exact Strict" },
-    { field: "address", weight: 15, method: "TF-IDF Cosine" },
-    { field: "email", weight: 10, method: "Normalized Exact" },
-  ]);
-  const [norm, setNorm] = useState<Record<string, boolean>>({
-    Lowercase: true,
-    "Trim Spaces": true,
-    "Remove Punctuation": true,
-    "Ignore Legal Entity (PT, CV, Ltd, Inc)": true,
-    "Normalize Address": true,
-    "Normalize Phone Number": false,
-    "Normalize Date Format": false,
-  });
+  const [weights, setWeights] = useState<{ field: string; weight: number; method: string }[]>([]);
+  const [selectedFields, setSelectedFields] = useState<string[]>([]);
+  const [fieldAlgorithms, setFieldAlgorithms] = useState<Record<string, string>>({});
+  const [ruleText, setRuleText] = useState("NPWP must match exactly when present");
 
   const isCustom = preset === "Custom";
+  const mappedFields = useMemo(
+    () =>
+      mappings
+        .filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
+        .map((mapping) => {
+          const type = normalizedDataType(mapping.referenceDataType || mapping.inputDataType);
+          return {
+            id: mapping.id,
+            label: `${mapping.referenceColumnName} ↔ ${mapping.inputColumnName}`,
+            reference: mapping.referenceColumnName,
+            input: mapping.inputColumnName,
+            type,
+            algorithm: defaultAlgorithmForField(
+              mapping.referenceColumnName,
+              mapping.inputColumnName,
+              type,
+            ),
+          };
+        }),
+    [mappings],
+  );
+  const activeFields = useMemo(
+    () => mappedFields.filter((field) => selectedFields.includes(field.id)),
+    [mappedFields, selectedFields],
+  );
   const totalWeight = weights.reduce((s, w) => s + w.weight, 0);
+  const hasNumberField = activeFields.some((field) => field.type === "number");
+  const hasDateField = activeFields.some((field) => field.type === "date");
+  const needsThreshold = isCustom && (strategy === "Fuzzy" || strategy === "Hybrid");
+  const needsCandidates = isCustom && (strategy === "Fuzzy" || strategy === "Hybrid");
+  const needsAlgorithms = isCustom && (strategy === "Fuzzy" || strategy === "Hybrid");
+  const canUseWeights = isCustom && strategy === "Hybrid";
+  const needsManualWeights = isCustom && strategy === "Hybrid" && manualWeights;
+  const needsRuleScoring = isCustom && strategy === "Rule-Based" && combinedScoring;
+  const candidateCountValid =
+    candidates !== "custom" ||
+    (Number(customCandidateCount) > 0 && Number.isInteger(Number(customCandidateCount)));
+  const thresholdValid = !needsThreshold || (autoMatch > review && review > noMatch);
+  const fieldSelectionValid =
+    strategy === "Hybrid" ? activeFields.length >= 2 : activeFields.length >= 1;
+  const algorithmValid =
+    !needsAlgorithms || activeFields.every((field) => Boolean(fieldAlgorithms[field.id]));
+  const weightsValid = !(needsManualWeights || needsRuleScoring) || totalWeight === 100;
+  const ruleValid = strategy !== "Rule-Based" || ruleText.trim().length > 0;
+  const configValid =
+    !isCustom ||
+    (fieldSelectionValid &&
+      thresholdValid &&
+      algorithmValid &&
+      candidateCountValid &&
+      weightsValid &&
+      ruleValid);
+  const summaryItems = [
+    [t("matching.config.summaryPreset"), presetLabel(preset, t)],
+    [t("matching.config.summaryStrategy"), strategyLabel(strategy, t)],
+    [
+      t("matching.config.summaryThreshold"),
+      !isCustom
+        ? t("matching.config.presetManaged")
+        : needsThreshold
+          ? `${autoMatch}% / ${review}%`
+          : t("matching.config.notRequired"),
+    ],
+    [
+      t("matching.config.summarySearch"),
+      searchMode === "auto"
+        ? t("matching.config.autoRecommend")
+        : t("matching.config.manualCandidate"),
+    ],
+    [
+      t("matching.config.summaryCandidates"),
+      !isCustom
+        ? t("matching.config.presetManaged")
+        : needsCandidates
+          ? candidates === "custom"
+            ? customCandidateCount
+            : t("matching.config.topN", { count: candidates })
+          : t("matching.config.notRequired"),
+    ],
+    [t("matching.config.summaryFields"), String(activeFields.length)],
+    [
+      t("matching.config.summaryOutputs"),
+      outputMode === "standard" ? t("matching.config.standardOutput") : String(outputs.length),
+    ],
+  ];
 
   const applyPreset = (p: Preset) => {
     setPreset(p);
@@ -1081,24 +1211,83 @@ function StepConfig() {
     setReview(d.review);
     setNoMatch(d.noMatch);
     setStrategy(d.strategy);
+    if (p === "Strict") {
+      setNormalizationPreset("Identifier Strict");
+      setSearchMode("manual");
+      setCandidates(1);
+      setManualBlocks(["City", "Postal Code"]);
+    } else if (p === "Exploratory") {
+      setNormalizationPreset("Text Standardization");
+      setSearchMode("auto");
+      setCandidates(10);
+    } else {
+      setNormalizationPreset("Entity Name");
+      setSearchMode("auto");
+      setCandidates(3);
+    }
+    setOutputMode("standard");
+    setManualWeights(false);
+    setCombinedScoring(false);
+    setShowFormula(false);
+    if (p === "Custom") {
+      setAdvancedOpen(true);
+    }
   };
 
-  const AUTO_RECOMMEND_KEYS = ["Company Name Prefix", "NPWP", "Email Domain", "Postal Code"];
-  const AVAILABLE_COLUMNS = [
-    "customer_id",
-    "company_name",
-    "npwp",
-    "address",
-    "phone",
-    "email",
-    "city",
-    "postal_code",
+  const AUTO_RECOMMEND_KEYS = ["Province", "City", "Postal Code"];
+  const AVAILABLE_COLUMNS = ["Province", "City", "Postal Code", "Industry", "Business Type"];
+  const NORMALIZATION_PRESETS = [
+    "Basic",
+    "Text Standardization",
+    "Entity Name",
+    "Address",
+    "Identifier Strict",
   ];
 
+  useEffect(() => {
+    if (mappedFields.length === 0) return;
+    setSelectedFields((current) => {
+      const validIds = new Set(mappedFields.map((field) => field.id));
+      const next = current.filter((id) => validIds.has(id));
+      return next.length > 0 ? next : mappedFields.map((field) => field.id);
+    });
+    setFieldAlgorithms((current) => {
+      const next = { ...current };
+      mappedFields.forEach((field) => {
+        if (!next[field.id]) next[field.id] = field.algorithm;
+      });
+      return next;
+    });
+  }, [mappedFields]);
+
+  useEffect(() => {
+    const fields = activeFields.length > 0 ? activeFields : mappedFields;
+    if (fields.length === 0) {
+      setWeights([]);
+      return;
+    }
+    const baseWeight = Math.floor(100 / fields.length);
+    const remainder = 100 - baseWeight * fields.length;
+    setWeights((current) =>
+      fields.map((field, index) => {
+        const existing = current.find((item) => item.field === field.label);
+        return {
+          field: field.label,
+          weight: existing?.weight ?? baseWeight + (index === 0 ? remainder : 0),
+          method: fieldAlgorithms[field.id] ?? field.algorithm,
+        };
+      }),
+    );
+  }, [activeFields, fieldAlgorithms, mappedFields]);
+
+  useEffect(() => {
+    onValidityChange(configValid);
+  }, [configValid, onValidityChange]);
+
   const applyRecommendation = () => {
-    setStrategy("Hybrid");
     applyPreset("Balanced");
     setSearchMode("auto");
+    setNormalizationPreset("Entity Name");
     toast.success(t("feedback.toast.recommendationApplied"));
   };
 
@@ -1106,347 +1295,782 @@ function StepConfig() {
     <>
       <SectionTitle title={t("matching.config.title")} desc={t("matching.config.desc")} />
 
-      {/* Smart Recommendation */}
-      <div className="border border-accent/30 bg-accent/5 rounded-lg p-5 mb-6">
-        <div className="flex items-start gap-3">
-          <div className="size-9 rounded-lg bg-accent/15 text-accent grid place-items-center shrink-0">
-            <Sparkles className="size-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold">{t("matching.config.recommended")}</p>
-              <span className="text-[10px] font-semibold bg-accent/15 text-accent rounded-full px-1.5 py-0.5">
-                {t("matching.config.confidence")}
-              </span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                [t("matching.config.strategy"), "Hybrid"],
-                [t("matching.config.preset"), "Balanced"],
-                [t("matching.config.search"), "Company Name Prefix"],
-                [t("matching.config.normalization"), "Entity Name"],
-              ].map(([k, v]) => (
-                <div key={k}>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{k}</p>
-                  <p className="text-sm font-medium mt-0.5">{v}</p>
-                </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-5">
+          <ConfigSection
+            title={t("matching.config.quickSetup")}
+            desc={t("matching.config.quickSetupDesc")}
+          >
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {(["Balanced", "Strict", "Exploratory", "Custom"] as Preset[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => applyPreset(p)}
+                  className={[
+                    "min-h-28 rounded-lg border p-4 text-left transition-colors",
+                    preset === p
+                      ? "border-brand bg-brand/10 text-foreground shadow-sm"
+                      : "border-border text-muted-foreground hover:bg-secondary/50",
+                  ].join(" ")}
+                  aria-pressed={preset === p}
+                  data-testid={`config-preset-${p.toLowerCase()}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">{presetLabel(p, t)}</p>
+                    {p === "Balanced" && (
+                      <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                        {t("matching.config.recommendedLabel")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-xs leading-relaxed">{presetDescription(p, t)}</p>
+                </button>
               ))}
             </div>
+          </ConfigSection>
+
+          <div className="rounded-lg border border-accent/30 bg-accent/5 p-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent">
+                  <Sparkles className="size-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{t("matching.config.recommended")}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {t("matching.config.recommendedDesc")}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={applyRecommendation}
+                className="shrink-0 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90"
+              >
+                {t("matching.config.applyRecommendation")}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={applyRecommendation}
-            className="shrink-0 px-3 py-2 rounded-md bg-accent text-accent-foreground text-xs font-semibold hover:opacity-90"
-          >
-            {t("matching.config.applyRecommendation")}
-          </button>
         </div>
+
+        <aside className="rounded-lg border border-border bg-card p-5" data-testid="config-summary">
+          <p className="text-sm font-semibold">{t("matching.config.summaryTitle")}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {t("matching.config.summaryDesc")}
+          </p>
+          <div className="mt-4 space-y-3">
+            {summaryItems.map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-4">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="max-w-44 text-right text-xs font-semibold text-foreground">{value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 rounded-md border border-border bg-secondary/30 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {t("matching.config.normalization")}
+            </p>
+            <p className="mt-1 text-xs font-medium">{normalizationPreset}</p>
+          </div>
+        </aside>
       </div>
 
-      {/* 1. Preset */}
-      <ConfigSection title={t("matching.config.preset")} desc={t("matching.config.presetDesc")}>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {(["Balanced", "Strict", "Exploratory", "Custom"] as Preset[]).map((p) => (
-            <button
-              key={p}
-              onClick={() => applyPreset(p)}
-              className={[
-                "px-3 py-2 rounded-md border text-sm font-medium",
-                preset === p
-                  ? "border-brand bg-brand/10 text-foreground"
-                  : "border-border text-muted-foreground hover:bg-secondary",
-              ].join(" ")}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-      </ConfigSection>
-
-      {/* 2. Strategy */}
-      <ConfigSection title={t("matching.config.strategy")} desc={t("matching.config.strategyDesc")}>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          {(
-            [
-              ["Hybrid", t("matching.config.recommendedLabel")],
-              ["Exact", t("matching.config.exactMatch")],
-              ["Fuzzy", t("matching.config.fuzzyMatch")],
-              ["Composite", "Composite"],
-              ["Rule-Based", "Rule-Based"],
-            ] as [Strategy, string][]
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => {
-                setStrategy(key);
-                if (!isCustom) setPreset("Custom");
-              }}
-              className={[
-                "px-3 py-2 rounded-md border text-sm font-medium",
-                strategy === key
-                  ? "border-brand bg-brand/10 text-foreground"
-                  : "border-border text-muted-foreground hover:bg-secondary",
-              ].join(" ")}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </ConfigSection>
-
-      {/* 3. Similarity Threshold */}
-      <ConfigSection
-        title={t("matching.config.threshold")}
-        desc={t("matching.config.thresholdDesc", { preset })}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ThresholdInput
-            label={t("matching.config.autoMatch")}
-            tone="success"
-            value={autoMatch}
-            onChange={setAutoMatch}
-          />
-          <ThresholdInput
-            label={t("matching.config.manualReview")}
-            tone="warning"
-            value={review}
-            onChange={setReview}
-          />
-          <ThresholdInput
-            label={t("matching.config.noMatch")}
-            tone="muted"
-            value={noMatch}
-            onChange={setNoMatch}
-          />
-        </div>
-      </ConfigSection>
-
-      {/* 4. Search Optimization */}
-      <ConfigSection title={t("matching.config.search")} desc={t("matching.config.searchDesc")}>
-        <div className="flex gap-2 mb-3">
-          {(["auto", "manual"] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setSearchMode(m)}
-              className={[
-                "px-3 py-1.5 rounded-md border text-xs font-medium",
-                searchMode === m
-                  ? "border-brand bg-brand/10 text-foreground"
-                  : "border-border text-muted-foreground hover:bg-secondary",
-              ].join(" ")}
-            >
-              {m === "auto"
-                ? t("matching.config.autoRecommend")
-                : t("matching.config.manualCandidate")}
-            </button>
-          ))}
-        </div>
-        {searchMode === "auto" ? (
-          <div className="border border-border rounded-lg p-4 bg-secondary/30">
-            <p className="text-xs text-muted-foreground mb-2">{t("matching.config.recommends")}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {AUTO_RECOMMEND_KEYS.map((k) => (
-                <span
-                  key={k}
-                  className="inline-flex items-center gap-1 rounded-md bg-accent/10 text-accent px-2 py-1 text-xs font-medium"
-                >
-                  <Sparkles className="size-3" />
-                  {k}
-                </span>
-              ))}
-            </div>
+      <section className="mt-5 rounded-lg border border-border px-5 py-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold">{t("matching.config.useStandardOutput")}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {t("matching.config.useStandardOutputDesc")}
+            </p>
           </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {AVAILABLE_COLUMNS.map((c) => {
-              const on = manualBlocks.includes(c);
+          <div className="inline-flex rounded-md border border-border bg-secondary/30 p-1">
+            {(["standard", "custom"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setOutputMode(mode)}
+                className={[
+                  "rounded px-3 py-1.5 text-xs font-semibold transition-colors",
+                  outputMode === mode
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+                data-testid={`config-output-${mode}`}
+              >
+                {mode === "standard"
+                  ? t("matching.config.standardOutput")
+                  : t("matching.config.customOutput")}
+              </button>
+            ))}
+          </div>
+        </div>
+        {outputMode === "custom" && (
+          <div
+            className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4"
+            data-testid="config-output-options"
+          >
+            {[
+              "Matched",
+              "Possible Match",
+              "Unmatched",
+              "Synchronization Summary",
+              "Mapping Table",
+              "Foreign Key",
+              "Audit Trail",
+              "Summary Report",
+            ].map((o) => {
+              const on = outputs.includes(o);
               return (
-                <button
-                  key={c}
-                  onClick={() =>
-                    setManualBlocks((prev) => (on ? prev.filter((x) => x !== c) : [...prev, c]))
-                  }
-                  className={[
-                    "px-3 py-1.5 rounded-md border text-xs font-mono text-left",
-                    on
-                      ? "border-brand bg-brand/10 text-foreground"
-                      : "border-border text-muted-foreground hover:bg-secondary",
-                  ].join(" ")}
+                <label
+                  key={o}
+                  className="flex cursor-pointer items-center gap-2.5 rounded-md border border-border px-3 py-2 hover:bg-secondary/30"
                 >
-                  {c}
-                </button>
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() =>
+                      setOutputs((prev) => (on ? prev.filter((x) => x !== o) : [...prev, o]))
+                    }
+                    className="size-3.5 accent-brand"
+                  />
+                  <span className="text-xs">{outputLabel(o, t)}</span>
+                </label>
               );
             })}
           </div>
         )}
-      </ConfigSection>
+      </section>
 
-      {/* 5. Data Normalization */}
-      <ConfigSection
-        title={t("matching.config.normalizationTitle")}
-        desc={t("matching.config.normalizationDesc")}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {Object.keys(norm).map((k) => (
-            <label
-              key={k}
-              className="flex items-center gap-2.5 border border-border rounded-md px-3 py-2 cursor-pointer hover:bg-secondary/30"
-            >
-              <input
-                type="checkbox"
-                checked={norm[k]}
-                onChange={(e) => setNorm((prev) => ({ ...prev, [k]: e.target.checked }))}
-                className="size-3.5 accent-brand"
-              />
-              <span className="text-xs">{normalizationLabel(k, t)}</span>
-            </label>
-          ))}
-        </div>
-      </ConfigSection>
-
-      {/* 6. Candidate Generation */}
-      <ConfigSection
-        title={t("matching.config.candidateTitle")}
-        desc={t("matching.config.candidateDesc")}
-      >
-        <div className="grid grid-cols-4 gap-2 max-w-md">
-          {([1, 3, 5, 10] as const).map((n) => (
-            <button
-              key={n}
-              onClick={() => setCandidates(n)}
-              className={[
-                "px-3 py-2 rounded-md border text-sm font-medium tabular-nums",
-                candidates === n
-                  ? "border-brand bg-brand/10 text-foreground"
-                  : "border-border text-muted-foreground hover:bg-secondary",
-              ].join(" ")}
-            >
-              {t("matching.config.topN", { count: n })}
-            </button>
-          ))}
-        </div>
-      </ConfigSection>
-
-      {/* 7. Output Configuration */}
-      <ConfigSection
-        title={t("matching.config.outputTitle")}
-        desc={t("matching.config.outputDesc")}
-      >
-        <div className="mb-4 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
-          <div className="flex items-start gap-3">
-            <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
-            <div>
-              <p className="text-sm font-semibold">{t("matching.config.mergeIncluded")}</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                {t("matching.config.mergeIncludedDesc")}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {[
-            "Matched",
-            "Possible Match",
-            "Unmatched",
-            "Synchronization Summary",
-            "Mapping Table",
-            "Foreign Key",
-            "Audit Trail",
-            "Summary Report",
-          ].map((o) => {
-            const on = outputs.includes(o);
-            return (
-              <label
-                key={o}
-                className="flex items-center gap-2.5 border border-border rounded-md px-3 py-2 cursor-pointer hover:bg-secondary/30"
-              >
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() =>
-                    setOutputs((prev) => (on ? prev.filter((x) => x !== o) : [...prev, o]))
-                  }
-                  className="size-3.5 accent-brand"
-                />
-                <span className="text-xs">{outputLabel(o, t)}</span>
-              </label>
-            );
-          })}
-        </div>
-      </ConfigSection>
-
-      {/* 8. Advanced */}
-      <div className="border border-border rounded-lg mb-2">
+      <div className="mt-5 rounded-lg border border-border">
         <button
+          type="button"
           onClick={() => setAdvancedOpen((v) => !v)}
-          className="w-full flex items-center justify-between px-5 py-4 text-left"
+          className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+          aria-expanded={advancedOpen}
+          data-testid="config-advanced-toggle"
         >
           <div>
             <p className="text-sm font-semibold">{t("matching.config.advanced")}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="mt-0.5 text-xs text-muted-foreground">
               {t("matching.config.advancedDesc")}
             </p>
           </div>
           <ChevronDown
-            className={`size-4 text-muted-foreground transition-transform ${advancedOpen ? "rotate-180" : ""}`}
+            className={`size-4 shrink-0 text-muted-foreground transition-transform ${advancedOpen ? "rotate-180" : ""}`}
           />
         </button>
+
         {advancedOpen && (
-          <div className="border-t border-border px-5 py-5 space-y-5">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold">{t("matching.config.fieldWeights")}</p>
-                <p
-                  className={`text-xs font-medium tabular-nums ${
-                    totalWeight === 100 ? "text-success" : "text-destructive"
-                  }`}
-                >
-                  {t("matching.config.total", { value: totalWeight })}
-                </p>
-              </div>
-              <div className="space-y-3">
-                {weights.map((w, i) => (
-                  <div key={w.field} className="grid grid-cols-[160px_1fr_50px] items-center gap-4">
-                    <div>
-                      <p className="text-sm font-mono truncate">{w.field}</p>
-                      <p className="text-[10px] text-muted-foreground truncate">{w.method}</p>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={w.weight}
-                      onChange={(e) =>
-                        setWeights((prev) => {
-                          const next = [...prev];
-                          next[i] = { ...next[i], weight: Number(e.target.value) };
-                          return next;
-                        })
-                      }
-                      className="w-full accent-brand"
-                    />
-                    <p className="text-sm font-semibold tabular-nums text-right">{w.weight}%</p>
-                  </div>
+          <div
+            className="space-y-4 border-t border-border px-5 py-5"
+            data-testid="config-advanced-panel"
+          >
+            {/* 2. Strategy */}
+            <ConfigSection
+              title={t("matching.config.strategy")}
+              desc={t("matching.config.strategyDesc")}
+            >
+              <div className="inline-grid w-full grid-cols-2 rounded-md border border-border bg-secondary/30 p-1 md:grid-cols-4">
+                {(
+                  [
+                    ["Exact", t("matching.config.exactMatch")],
+                    ["Fuzzy", t("matching.config.fuzzyMatch")],
+                    ["Hybrid", t("matching.config.compositeHybrid")],
+                    ["Rule-Based", t("matching.config.ruleBased")],
+                  ] as [Strategy, string][]
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setStrategy(key);
+                      if (!isCustom) setPreset("Custom");
+                      setManualWeights(false);
+                      setCombinedScoring(false);
+                      setShowFormula(false);
+                      setShowMoreAlgorithms(false);
+                    }}
+                    className={[
+                      "rounded px-3 py-2 text-sm font-medium transition-colors",
+                      strategy === key
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    ].join(" ")}
+                    data-testid={`config-strategy-${key.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+                  >
+                    {label}
+                  </button>
                 ))}
               </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                [t("matching.config.mandatoryRules"), t("matching.config.mandatoryRulesValue")],
-                [t("matching.config.numericTolerance"), "+/- 0.5%"],
-                [t("matching.config.dateTolerance"), "+/- 3 days"],
-                [t("matching.config.similarityFormula"), t("matching.config.weightedAverage")],
-              ].map(([k, v]) => (
-                <div key={k} className="border border-border rounded-md px-3 py-2">
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{k}</p>
-                  <p className="text-xs font-medium mt-0.5">{v}</p>
+            </ConfigSection>
+
+            <ConfigSection
+              title={t("matching.config.fieldSelection")}
+              desc={fieldSelectionDescription(strategy, t)}
+            >
+              <div className="flex flex-wrap gap-2" data-testid="config-field-selection">
+                {mappedFields.map((field) => {
+                  const selected = selectedFields.includes(field.id);
+                  return (
+                    <button
+                      key={field.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedFields((current) =>
+                          selected
+                            ? current.filter((id) => id !== field.id)
+                            : [...current, field.id],
+                        )
+                      }
+                      className={[
+                        "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                        selected
+                          ? "border-brand bg-brand/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-secondary",
+                      ].join(" ")}
+                    >
+                      {field.label}
+                      <span className="ml-2 text-[10px] uppercase text-muted-foreground">
+                        {field.type}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {!fieldSelectionValid && (
+                <p
+                  className="mt-3 text-xs font-medium text-destructive"
+                  data-testid="config-validation"
+                >
+                  {strategy === "Hybrid"
+                    ? t("matching.config.validationTwoFields")
+                    : t("matching.config.validationOneField")}
+                </p>
+              )}
+            </ConfigSection>
+
+            {needsAlgorithms && (
+              <ConfigSection
+                title={t("matching.config.algorithmPerField")}
+                desc={t("matching.config.algorithmPerFieldDesc")}
+              >
+                <div className="space-y-3" data-testid="config-algorithm-section">
+                  {activeFields.map((field) => {
+                    const visibleAlgorithms = Array.from(
+                      new Set(
+                        showMoreAlgorithms
+                          ? [...RECOMMENDED_ALGORITHMS, ...MORE_ALGORITHMS]
+                          : [field.algorithm, ...RECOMMENDED_ALGORITHMS],
+                      ),
+                    );
+                    return (
+                      <div
+                        key={field.id}
+                        className="grid gap-2 border-b border-border/70 pb-3 last:border-b-0 last:pb-0 lg:grid-cols-[190px_1fr]"
+                      >
+                        <div>
+                          <p className="truncate text-sm font-medium">{field.label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {t("matching.config.defaultAlgorithm", {
+                              algorithm: field.algorithm,
+                            })}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {visibleAlgorithms.map((algorithm) => {
+                            const active = fieldAlgorithms[field.id] === algorithm;
+                            const recommended =
+                              algorithm === field.algorithm ||
+                              algorithm === "Jaro-Winkler" ||
+                              algorithm === "Levenshtein" ||
+                              algorithm === "Token Sort Ratio" ||
+                              algorithm === "Token Set Ratio";
+                            return (
+                              <button
+                                key={algorithm}
+                                type="button"
+                                onClick={() =>
+                                  setFieldAlgorithms((current) => ({
+                                    ...current,
+                                    [field.id]: algorithm,
+                                  }))
+                                }
+                                className={[
+                                  "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                                  active
+                                    ? "border-brand bg-brand/10 text-foreground"
+                                    : "border-border text-muted-foreground hover:bg-secondary",
+                                ].join(" ")}
+                              >
+                                {algorithm}
+                                {recommended && (
+                                  <span className="ml-1 text-[10px] text-accent">
+                                    {t("matching.config.recommendedShort")}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMoreAlgorithms((value) => !value)}
+                  className="mt-4 text-xs font-semibold text-accent hover:underline"
+                >
+                  {showMoreAlgorithms
+                    ? t("matching.config.hideMoreAlgorithms")
+                    : t("matching.config.moreAlgorithms")}
+                </button>
+              </ConfigSection>
+            )}
+
+            {needsThreshold && (
+              <ConfigSection
+                title={t("matching.config.threshold")}
+                desc={t("matching.config.thresholdDesc", { preset })}
+              >
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <ThresholdInput
+                    label={t("matching.config.autoMatch")}
+                    tone="success"
+                    value={autoMatch}
+                    onChange={setAutoMatch}
+                  />
+                  <ThresholdInput
+                    label={t("matching.config.manualReview")}
+                    tone="warning"
+                    value={review}
+                    onChange={setReview}
+                  />
+                  <ThresholdInput
+                    label={t("matching.config.noMatch")}
+                    tone="muted"
+                    value={noMatch}
+                    onChange={setNoMatch}
+                  />
+                </div>
+                {!thresholdValid && (
+                  <p className="mt-3 text-xs font-medium text-destructive">
+                    {t("matching.config.validationThreshold")}
+                  </p>
+                )}
+              </ConfigSection>
+            )}
+
+            {needsCandidates && (
+              <ConfigSection
+                title={t("matching.config.candidateFiltering")}
+                desc={t("matching.config.candidateFilteringDesc")}
+              >
+                <div className="mb-3 inline-flex rounded-md border border-border bg-secondary/30 p-1">
+                  {(["auto", "manual"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setSearchMode(m)}
+                      className={[
+                        "rounded px-3 py-1.5 text-xs font-semibold transition-colors",
+                        searchMode === m
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      ].join(" ")}
+                    >
+                      {m === "auto"
+                        ? t("matching.config.autoFiltering")
+                        : t("matching.config.manualFiltering")}
+                    </button>
+                  ))}
+                </div>
+                {searchMode === "auto" ? (
+                  <div className="rounded-lg border border-accent/20 bg-accent/5 p-4">
+                    <p className="mb-2 text-xs text-muted-foreground">
+                      {t("matching.config.autoFilteringDesc")}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {AUTO_RECOMMEND_KEYS.map((k) => (
+                        <span
+                          key={k}
+                          className="inline-flex items-center gap-1 rounded-md bg-accent/10 px-2 py-1 text-xs font-medium text-accent"
+                        >
+                          <Sparkles className="size-3" />
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {AVAILABLE_COLUMNS.map((c) => {
+                      const on = manualBlocks.includes(c);
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() =>
+                            setManualBlocks((prev) =>
+                              on ? prev.filter((x) => x !== c) : [...prev, c],
+                            )
+                          }
+                          className={[
+                            "rounded-full border px-3 py-1.5 text-xs font-medium",
+                            on
+                              ? "border-brand bg-brand/10 text-foreground"
+                              : "border-border text-muted-foreground hover:bg-secondary",
+                          ].join(" ")}
+                        >
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </ConfigSection>
+            )}
+
+            {/* 5. Data Normalization */}
+            <ConfigSection
+              title={t("matching.config.normalizationTitle")}
+              desc={t("matching.config.normalizationDesc")}
+            >
+              <div className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {t("matching.config.autoNormalization")}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {normalizationProfileDescription(normalizationPreset, t)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setNormalizationMode((mode) => (mode === "auto" ? "manual" : "auto"))
+                    }
+                    className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+                  >
+                    {normalizationMode === "auto"
+                      ? t("matching.config.manualNormalization")
+                      : t("matching.config.useAutoNormalization")}
+                  </button>
+                </div>
+              </div>
+              {normalizationMode === "manual" && (
+                <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-5">
+                  {NORMALIZATION_PRESETS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      title={normalizationProfileDescription(option, t)}
+                      onClick={() => setNormalizationPreset(option)}
+                      className={[
+                        "rounded-md border px-3 py-2 text-left text-xs font-medium",
+                        normalizationPreset === option
+                          ? "border-brand bg-brand/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-secondary",
+                      ].join(" ")}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {normalizationMode === "manual" && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {normalizationProfileDescription(normalizationPreset, t)}
+                </p>
+              )}
+            </ConfigSection>
+
+            {needsCandidates && (
+              <ConfigSection
+                title={t("matching.config.candidateTitle")}
+                desc={t("matching.config.candidateDesc")}
+              >
+                <div className="flex flex-wrap gap-2">
+                  {([1, 3, 5, 10, "custom"] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setCandidates(n)}
+                      className={[
+                        "rounded-md border px-3 py-2 text-sm font-medium tabular-nums",
+                        candidates === n
+                          ? "border-brand bg-brand/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-secondary",
+                      ].join(" ")}
+                      data-testid={`config-candidate-${n}`}
+                    >
+                      {n === "custom"
+                        ? t("matching.config.customCandidate")
+                        : t("matching.config.topN", { count: n })}
+                    </button>
+                  ))}
+                </div>
+                {candidates === "custom" && (
+                  <div className="mt-3 max-w-xs">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      {t("matching.config.customCandidateLabel")}
+                    </label>
+                    <input
+                      value={customCandidateCount}
+                      onChange={(event) => setCustomCandidateCount(event.target.value)}
+                      className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-brand"
+                      inputMode="numeric"
+                      data-testid="config-custom-candidate-input"
+                    />
+                    {!candidateCountValid && (
+                      <p className="mt-1 text-xs font-medium text-destructive">
+                        {t("matching.config.validationCandidate")}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </ConfigSection>
+            )}
+
+            {canUseWeights && (
+              <ConfigSection
+                title={t("matching.config.weightMode")}
+                desc={t("matching.config.weightModeDesc")}
+              >
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setManualWeights(false)}
+                    className={[
+                      "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                      !manualWeights
+                        ? "border-brand bg-brand/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-secondary",
+                    ].join(" ")}
+                  >
+                    {t("matching.config.autoWeights")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setManualWeights(true)}
+                    className={[
+                      "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                      manualWeights
+                        ? "border-brand bg-brand/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-secondary",
+                    ].join(" ")}
+                    data-testid="config-manual-weights"
+                  >
+                    {t("matching.config.manualWeights")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowFormula((value) => !value)}
+                    className={[
+                      "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                      showFormula
+                        ? "border-accent bg-accent/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-secondary",
+                    ].join(" ")}
+                  >
+                    {t("matching.config.showFormula")}
+                  </button>
+                </div>
+                {!manualWeights && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {t("matching.config.autoWeightsDesc")}
+                  </p>
+                )}
+              </ConfigSection>
+            )}
+
+            {isCustom && strategy === "Rule-Based" && (
+              <ConfigSection
+                title={t("matching.config.ruleBuilder")}
+                desc={t("matching.config.ruleBuilderDesc")}
+              >
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t("matching.config.mandatoryRules")}
+                </label>
+                <textarea
+                  value={ruleText}
+                  onChange={(event) => setRuleText(event.target.value)}
+                  rows={3}
+                  className="mt-1 w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-brand"
+                  data-testid="config-rule-text"
+                />
+                {!ruleValid && (
+                  <p className="mt-1 text-xs font-medium text-destructive">
+                    {t("matching.config.validationRule")}
+                  </p>
+                )}
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {hasNumberField && (
+                    <div className="rounded-md border border-border px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {t("matching.config.numericTolerance")}
+                      </p>
+                      <p className="mt-0.5 text-xs font-medium">+/- 0.5%</p>
+                    </div>
+                  )}
+                  {hasDateField && (
+                    <div className="rounded-md border border-border px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        {t("matching.config.dateTolerance")}
+                      </p>
+                      <p className="mt-0.5 text-xs font-medium">+/- 3 days</p>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCombinedScoring((value) => !value)}
+                    className={[
+                      "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                      combinedScoring
+                        ? "border-brand bg-brand/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-secondary",
+                    ].join(" ")}
+                    data-testid="config-combined-scoring"
+                  >
+                    {t("matching.config.combinedScoring")}
+                  </button>
+                  {combinedScoring && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFormula((value) => !value)}
+                      className={[
+                        "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                        showFormula
+                          ? "border-accent bg-accent/10 text-foreground"
+                          : "border-border text-muted-foreground hover:bg-secondary",
+                      ].join(" ")}
+                    >
+                      {t("matching.config.showFormula")}
+                    </button>
+                  )}
+                </div>
+              </ConfigSection>
+            )}
+
+            {(needsManualWeights || needsRuleScoring) && (
+              <ConfigSection
+                title={t("matching.config.fieldWeights")}
+                desc={t("matching.config.fieldWeightsDesc")}
+              >
+                <div className="mb-3 flex items-center justify-between gap-4">
+                  <p className="text-xs text-muted-foreground">
+                    {t("matching.config.fieldWeightsHint")}
+                  </p>
+                  <p
+                    className={`text-xs font-medium tabular-nums ${
+                      totalWeight === 100 ? "text-success" : "text-destructive"
+                    }`}
+                    data-testid="config-total-weight"
+                  >
+                    {t("matching.config.total", { value: totalWeight })}
+                  </p>
+                </div>
+                <div className="space-y-3" data-testid="config-field-weights">
+                  {weights.map((w, i) => (
+                    <div
+                      key={w.field}
+                      className="grid grid-cols-[minmax(120px,180px)_1fr_50px] items-center gap-4"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-mono">{w.field}</p>
+                        <p className="truncate text-[10px] text-muted-foreground">{w.method}</p>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={w.weight}
+                        onChange={(e) =>
+                          setWeights((prev) => {
+                            const next = [...prev];
+                            next[i] = { ...next[i], weight: Number(e.target.value) };
+                            return next;
+                          })
+                        }
+                        className="w-full accent-brand"
+                      />
+                      <p className="text-right text-sm font-semibold tabular-nums">{w.weight}%</p>
+                    </div>
+                  ))}
+                </div>
+              </ConfigSection>
+            )}
+
+            {showFormula && (canUseWeights || needsRuleScoring) && (
+              <div className="rounded-lg border border-border px-4 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  {t("matching.config.similarityFormula")}
+                </p>
+                <p className="mt-1 text-xs font-medium">{t("matching.config.weightedAverage")}</p>
+              </div>
+            )}
           </div>
         )}
       </div>
     </>
   );
+}
+
+function presetLabel(preset: Preset, t: ReturnType<typeof usePreferences>["t"]) {
+  const labels: Record<Preset, Parameters<typeof t>[0]> = {
+    Balanced: "matching.config.presetBalanced",
+    Strict: "matching.config.presetStrict",
+    Exploratory: "matching.config.presetExploratory",
+    Custom: "matching.config.presetCustom",
+  };
+  return t(labels[preset]);
+}
+
+function presetDescription(preset: Preset, t: ReturnType<typeof usePreferences>["t"]) {
+  const labels: Record<Preset, Parameters<typeof t>[0]> = {
+    Balanced: "matching.config.presetBalancedDesc",
+    Strict: "matching.config.presetStrictDesc",
+    Exploratory: "matching.config.presetExploratoryDesc",
+    Custom: "matching.config.presetCustomDesc",
+  };
+  return t(labels[preset]);
+}
+
+function strategyLabel(strategy: Strategy, t: ReturnType<typeof usePreferences>["t"]) {
+  const labels: Record<Strategy, string> = {
+    Hybrid: t("matching.config.compositeHybrid"),
+    Exact: t("matching.config.exactMatch"),
+    Fuzzy: t("matching.config.fuzzyMatch"),
+    Composite: t("matching.config.compositeHybrid"),
+    "Rule-Based": t("matching.config.ruleBased"),
+  };
+  return labels[strategy];
+}
+
+function fieldSelectionDescription(strategy: Strategy, t: ReturnType<typeof usePreferences>["t"]) {
+  if (strategy === "Hybrid" || strategy === "Composite")
+    return t("matching.config.fieldSelectionHybridDesc");
+  if (strategy === "Rule-Based") return t("matching.config.fieldSelectionRuleDesc");
+  if (strategy === "Fuzzy") return t("matching.config.fieldSelectionFuzzyDesc");
+  return t("matching.config.fieldSelectionExactDesc");
+}
+
+function normalizationProfileDescription(
+  profile: string,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  const labels: Record<string, Parameters<typeof t>[0]> = {
+    Basic: "matching.config.normBasicDesc",
+    "Text Standardization": "matching.config.normTextDesc",
+    "Entity Name": "matching.config.normEntityDesc",
+    Address: "matching.config.normAddressDesc",
+    "Identifier Strict": "matching.config.normIdentifierDesc",
+  };
+  return labels[profile] ? t(labels[profile]) : profile;
 }
 
 function ConfigSection({
@@ -1468,19 +2092,6 @@ function ConfigSection({
       {children}
     </section>
   );
-}
-
-function normalizationLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
-  const labels: Record<string, Parameters<typeof t>[0]> = {
-    Lowercase: "matching.norm.lowercase",
-    "Trim Spaces": "matching.norm.trim",
-    "Remove Punctuation": "matching.norm.punctuation",
-    "Ignore Legal Entity (PT, CV, Ltd, Inc)": "matching.norm.legal",
-    "Normalize Address": "matching.norm.address",
-    "Normalize Phone Number": "matching.norm.phone",
-    "Normalize Date Format": "matching.norm.date",
-  };
-  return labels[value] ? t(labels[value]) : value;
 }
 
 function outputLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
@@ -1518,7 +2129,7 @@ function ThresholdInput({
     <div className="border border-border rounded-lg p-4">
       <div className="flex items-center justify-between mb-2">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-        <span className={`text-sm font-semibold tabular-nums ${color}`}>â‰¥ {value}%</span>
+        <span className={`text-sm font-semibold tabular-nums ${color}`}>≥ {value}%</span>
       </div>
       <input
         type="range"
@@ -1746,7 +2357,7 @@ function StepReview() {
                     className="text-right px-4 py-2.5 font-medium cursor-pointer select-none"
                     onClick={() => setSortDesc((v) => !v)}
                   >
-                    {t("matching.review.similarity")} {sortDesc ? "â†“" : "â†‘"}
+                    {t("matching.review.similarity")} {sortDesc ? "↓" : "↑"}
                   </th>
                   <th className="text-left px-4 py-2.5 font-medium">
                     {t("matching.review.recommendation")}

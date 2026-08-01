@@ -17,6 +17,7 @@ dist-ssr
 *.local
 test-results/
 playwright-report/
+coverage/
 
 # Wrangler / Cloudflare
 .wrangler/

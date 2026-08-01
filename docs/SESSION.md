@@ -2,18 +2,18 @@
 
 ## Current Milestone
 
-Milestone 2 refinement: Mapping Simplification completed.
+Milestone 3A: Configure UX conditional flow completed.
 
 ## Project Status
 
-- Upload ✅
-- Profiling ✅
-- Mapping ✅
-- Configure 🚧
-- Run ❌
-- Review ❌
-- Sync ❌
-- Export ❌
+- Upload: Done
+- Profiling: Done
+- Mapping: Done
+- Configure: Done for UX, local state only
+- Run: Not started
+- Review: Not started
+- Sync: Not started
+- Export: Not started
 
 ## Completed
 
@@ -26,13 +26,13 @@ Milestone 2 refinement: Mapping Simplification completed.
 - Dataset and dataset column metadata are persisted.
 - Mapping uses real inspected reference/input columns.
 - Mapping supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference validation.
-- Preferences, UI feedback states, DX automation, and architecture docs are in place.
+- Configure uses Quick Setup, Summary Configuration, conditional Advanced Settings, and local state.
 
 ## Next Milestone
 
-Milestone 3: Matching Configuration Integration.
+Milestone 3B: Configure Integration Preparation.
 
-Objective: use frontend mapping state in Configure and prepare matching configuration flow without implementing the matching engine yet.
+Objective: prepare Configure state handoff for the future Matching Engine without implementing Run or engine logic.
 
 ## Current Architecture
 
@@ -48,13 +48,13 @@ Development database uses MySQL. Implemented tables are `datasets` and `dataset_
 Workflow:
 
 Upload
-→ Profiling
-→ Mapping
-→ Configure
-→ Run
-→ Review
-→ Sync
-→ Export
+-> Profiling
+-> Mapping
+-> Configure
+-> Run
+-> Review
+-> Sync
+-> Export
 
 ## Known Limitations
 
@@ -64,7 +64,7 @@ Upload
 - AI Assistance belum dibuat.
 - Matching job persistence belum dibuat.
 - Column mapping persistence belum dibuat.
-- Configure masih mock/local state.
+- Configure masih local state; belum persist ke backend.
 - Run masih simulasi UI.
 - Review, Sync, Export, dan Results masih mock/local state.
 - Export generation dan audit trail persistence belum dibuat.
@@ -73,13 +73,19 @@ Upload
 
 - `PRD.md` adalah sumber utama fitur dan business rules.
 - `.codex/PROJECT_RULES.md` adalah standar kerja wajib untuk task berikutnya.
+- `docs/UX_GUIDELINES.md` adalah acuan UX untuk halaman baru atau perubahan UI.
 - Upload dan Profiling sudah real; jangan kembali ke dummy data untuk dua step ini.
 - Mapping hanya bertugas memasangkan kolom reference dan input.
 - Matching Algorithm dipindahkan dari Mapping ke Configure.
+- Configure menampilkan Quick Setup di permukaan utama; Custom membuka strategi Exact, Fuzzy, Composite / Hybrid, dan Rule-Based secara kondisional.
+- Exact tidak menampilkan threshold, Top N, bobot, atau formula; Fuzzy menampilkan algoritma, threshold, kandidat, dan normalisasi.
+- Composite / Hybrid memakai bobot otomatis default; bobot manual dan formula hanya muncul jika diaktifkan.
+- Rule-Based menampilkan rule builder; toleransi angka/tanggal hanya muncul untuk tipe field yang relevan.
 - Auto mapping saat ini rule-based sederhana, bukan AI.
 - Reference column tidak boleh dipakai dua kali; input column boleh dipakai ulang.
-- Jangan mengubah Configure, Run, Review, Sync, Export, AI, Auth, Workspace, atau Matching Engine kecuali milestone meminta.
+- Jangan mengubah Run, Review, Sync, Export, AI, Auth, Workspace, atau Matching Engine kecuali milestone meminta.
 - Jangan membuat ulang frontend atau backend.
+- Generated build/test artifacts are ignored and can be regenerated with build or test commands.
 
 ## Safe To Continue
 
