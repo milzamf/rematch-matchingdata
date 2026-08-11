@@ -5,18 +5,18 @@ Version: MVP v0.1.0
 
 ## Overall Progress
 
-| Area                 | Progress | Status                                         |
-| -------------------- | -------: | ---------------------------------------------- |
-| Documentation        |      96% | In progress                                    |
-| Frontend UI          |      96% | Mostly complete                                |
-| Frontend Integration |      30% | Upload, Profiling, and Mapping slices complete |
-| Backend API          |      25% | Upload/Profile and Matching run slices exist   |
-| Database             |      20% | Dataset and matching run tables implemented    |
-| Matching Engine      |      25% | MVP engine slice implemented                   |
-| AI Assistant         |       0% | Not started                                    |
-| Export Engine        |       0% | Not started                                    |
-| Authentication       |       0% | Not started                                    |
-| Testing              |      25% | In progress                                    |
+| Area                 | Progress | Status                                      |
+| -------------------- | -------: | ------------------------------------------- |
+| Documentation        |      97% | In progress                                 |
+| Frontend UI          |      96% | Mostly complete                             |
+| Frontend Integration |      40% | Upload through Review slices have real data |
+| Backend API          |      30% | Upload/Profile/Run/Review slices exist      |
+| Database             |      25% | Dataset, matching, and review tables exist  |
+| Matching Engine      |      25% | MVP engine slice implemented                |
+| AI Assistant         |       0% | Not started                                 |
+| Export Engine        |       0% | Not started                                 |
+| Authentication       |       0% | Not started                                 |
+| Testing              |      25% | In progress                                 |
 
 ## Frontend
 
@@ -28,7 +28,7 @@ Version: MVP v0.1.0
 | Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
 | Configure | Logic complete with conditional configuration state ready for the future Matching Engine.              |
 | Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                          |
-| Review    | UI complete, still uses mock data.                                                                     |
+| Review    | Uses real Matching Engine results with decision save and undo.                                         |
 | Sync      | UI complete, still uses mock/local state.                                                              |
 | Export    | UI complete, still uses mock data.                                                                     |
 | Results   | UI complete, still uses mock data.                                                                     |
@@ -62,7 +62,7 @@ Version: MVP v0.1.0
 | `column_mappings`         | Migration and model implemented.  |
 | `matching_configurations` | Migration and model implemented.  |
 | `matching_results`        | Migration and model implemented.  |
-| `review_decisions`        | Not started.                      |
+| `review_decisions`        | Migration and model implemented.  |
 | `sync_plans`              | Not started.                      |
 | `exports`                 | Not started.                      |
 | `audit_logs`              | Not started.                      |
@@ -131,7 +131,7 @@ Milestone 3B: Configure Logic
 | Run step reads saved configuration summary  | Complete |
 | Backend/API/database changes                | None     |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 4: Optimized Matching Engine MVP
 
@@ -149,18 +149,34 @@ Milestone 4: Optimized Matching Engine MVP
 | Frontend Run integration                     | Complete |
 | Review/Sync/Export execution                 | Deferred |
 
+## Current Milestone
+
+Milestone 5B: Review Matching Results
+
+| Requirement                                        | Status   |
+| -------------------------------------------------- | -------- |
+| Group results as Matched / Need Review / Unmatched | Complete |
+| Load persisted Matching Engine results             | Complete |
+| Show Input Record vs Reference candidate           | Complete |
+| Show score and supporting field highlights         | Complete |
+| Show Top N candidates when available               | Complete |
+| Accept / reject / mark unmatched                   | Complete |
+| Select alternative candidate                       | Complete |
+| Undo decision before final                         | Complete |
+| Persist review decisions                           | Complete |
+| Sync/Export/Auth/Workspace/AI                      | Deferred |
+
 ## Next Milestone
 
-Milestone 5: Review Data Integration
+Milestone 6: Sync Strategy Integration
 
-- Connect Review/Results pages to persisted matching results.
+- Connect Sync step to reviewed matching results.
 - Keep AI mapping suggestions deferred until AI Assistance milestone.
 
 ## Remaining MVP Work
 
 - Auth and workspace ownership.
 - Full-file matching beyond inspected preview rows.
-- Manual review persistence.
 - Sync execution.
 - Export generation.
 - Audit trail persistence.

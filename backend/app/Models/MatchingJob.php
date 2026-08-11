@@ -61,4 +61,9 @@ class MatchingJob extends Model
     {
         return $this->hasMany(MatchingResult::class);
     }
+
+    public function reviewDecisions(): HasMany
+    {
+        return $this->hasMany(ReviewDecision::class);
+    }
 }

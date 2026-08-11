@@ -30,6 +30,8 @@
 - Laravel Matching Engine MVP endpoint with job, mapping, configuration, and result persistence.
 - Matching pipeline with one-time normalization, index/candidate search, chunked processing, field scoring, Top N, and progress summary.
 - MVP scoring support for exact, normalized exact, case-insensitive exact, fuzzy, token-based, and composite-style weighted scoring.
+- Review results API for grouped matched, need-review, and unmatched records from persisted Matching Engine output.
+- Review decision persistence with accept, reject, select alternative candidate, mark unmatched, and undo support.
 
 ### Improved
 
@@ -43,11 +45,13 @@
 - Configure now shows only controls relevant to the selected strategy.
 - Configure now stores only relevant active settings for the selected preset or custom strategy.
 - Run step now calls the backend Matching Engine MVP instead of mock random progress.
+- Review step now prioritizes real Need Review records, shows Input vs Reference comparison, Top N candidates, and field similarity highlights.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 
 ### Notes
 
 - AI service integration, export generation, audit persistence, and authentication are not implemented yet.
-- Review, Sync, Export, and Results still use mock/local state.
+- Sync, Export, and Results still use mock/local state.
 - Matching Engine MVP currently runs against inspected preview rows, not full stored file contents.
+- Review decisions are stored without Auth/Workspace ownership until those milestones are implemented.

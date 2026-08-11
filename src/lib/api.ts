@@ -101,6 +101,61 @@ export type MatchingRunResult = {
   }[];
 };
 
+export type ReviewFieldScore = {
+  reference_column: string;
+  input_column: string;
+  score: number;
+  comparison: "same" | "similar" | "different" | string;
+};
+
+export type ReviewCandidate = {
+  id: string;
+  reference_record_key: string | null;
+  reference_record: Record<string, string | number | boolean | null>;
+  result_type: "matched" | "possible_match" | "unmatched" | string;
+  review_status: string;
+  score: number;
+  rank: number;
+  field_scores: ReviewFieldScore[];
+  decision_reason: string | null;
+};
+
+export type ReviewItem = {
+  input_record_key: string;
+  status: "matched" | "possible_match" | "unmatched" | string;
+  review_status: string;
+  decision: null | {
+    id: string;
+    decision: string;
+    selected_reference_record_key: string | null;
+    created_at: string | null;
+  };
+  input_record: Record<string, string | number | boolean | null>;
+  candidates: ReviewCandidate[];
+};
+
+export type ReviewResults = {
+  job: {
+    id: string;
+    name: string | null;
+    status: string;
+  };
+  summary: {
+    matched: number;
+    possible_match: number;
+    unmatched: number;
+    reviewed: number;
+  };
+  items: ReviewItem[];
+};
+
+type ReviewDecisionInput = {
+  inputRecordKey: string;
+  matchingResultId?: string;
+  decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched";
+  note?: string;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -173,4 +228,78 @@ export async function runMatching(input: RunMatchingInput): Promise<MatchingRunR
   }
 
   return payload.data;
+}
+
+export async function fetchReviewResults(jobId: string): Promise<ReviewResults> {
+  const response = await fetch(`${API_BASE_URL}/matching-jobs/${jobId}/review-results`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<ReviewResults> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Review results could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function saveReviewDecision(
+  jobId: string,
+  input: ReviewDecisionInput,
+): Promise<ReviewResults> {
+  const response = await fetch(`${API_BASE_URL}/matching-jobs/${jobId}/review-decisions`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      input_record_key: input.inputRecordKey,
+      matching_result_id: input.matchingResultId,
+      decision: input.decision,
+      note: input.note,
+    }),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<{ review: ReviewResults }> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Review decision could not be saved.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data.review;
+}
+
+export async function undoReviewDecision(
+  jobId: string,
+  decisionId: string,
+): Promise<ReviewResults> {
+  const response = await fetch(
+    `${API_BASE_URL}/matching-jobs/${jobId}/review-decisions/${decisionId}/undo`,
+    {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    },
+  );
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<{ review: ReviewResults }> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Review decision could not be undone.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data.review;
 }

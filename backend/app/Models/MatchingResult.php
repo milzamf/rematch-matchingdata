@@ -16,6 +16,9 @@ class MatchingResult extends Model
         'input_record_key',
         'reference_record_key',
         'result_type',
+        'review_status',
+        'review_decision',
+        'reviewed_at',
         'overall_score',
         'candidate_rank',
         'field_scores',
@@ -30,6 +33,7 @@ class MatchingResult extends Model
             'candidate_rank' => 'integer',
             'field_scores' => 'array',
             'candidate_metadata' => 'array',
+            'reviewed_at' => 'datetime',
         ];
     }
 
