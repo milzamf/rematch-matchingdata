@@ -1,0 +1,30 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Services\Matching\MatchingEngineService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\JsonResponse;
+
+class MatchingStatusController extends Controller
+{
+    public function __construct(private readonly MatchingEngineService $engine)
+    {
+    }
+
+    public function __invoke(string $job): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $this->engine->status($job),
+            ]);
+        } catch (ModelNotFoundException) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The requested matching job was not found.',
+            ], 404);
+        }
+    }
+}
