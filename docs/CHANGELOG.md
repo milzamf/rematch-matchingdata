@@ -32,6 +32,7 @@
 - MVP scoring support for exact, normalized exact, case-insensitive exact, fuzzy, token-based, and composite-style weighted scoring.
 - Review results API for grouped matched, need-review, and unmatched records from persisted Matching Engine output.
 - Review decision persistence with accept, reject, select alternative candidate, mark unmatched, and undo support.
+- Entity-aware company/name parser for Matching Engine metadata: raw name, core name, legal form, ownership/status qualifier, public status, unit type, and unit name.
 
 ### Improved
 
@@ -46,6 +47,8 @@
 - Configure now stores only relevant active settings for the selected preset or custom strategy.
 - Run step now calls the backend Matching Engine MVP instead of mock random progress.
 - Review step now prioritizes real Need Review records, shows Input vs Reference comparison, Top N candidates, and field similarity highlights.
+- Company/entity fuzzy matching now compares core names while preserving legal/status/unit metadata as validation constraints.
+- Explicit PT vs CV conflicts are downgraded to review instead of becoming Auto Match; missing legal form or missing Persero/Tbk is not treated as automatic conflict.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 

@@ -1,6 +1,6 @@
 # BatchMatch - Implementation Status
 
-Last Updated: 2026-08-11
+Last Updated: 2026-08-12
 Version: MVP v0.1.0
 
 ## Overall Progress
@@ -12,7 +12,7 @@ Version: MVP v0.1.0
 | Frontend Integration |      40% | Upload through Review slices have real data |
 | Backend API          |      30% | Upload/Profile/Run/Review slices exist      |
 | Database             |      25% | Dataset, matching, and review tables exist  |
-| Matching Engine      |      25% | MVP engine slice implemented                |
+| Matching Engine      |      30% | MVP engine slice with entity-aware names    |
 | AI Assistant         |       0% | Not started                                 |
 | Export Engine        |       0% | Not started                                 |
 | Authentication       |       0% | Not started                                 |
@@ -46,7 +46,7 @@ Version: MVP v0.1.0
 | XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing.                       |
 | Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                          |
 | Auth API                 | Not started.                                                                                              |
-| Matching Engine          | MVP service implemented with normalization, indexing, candidate generation, scoring, Top N, and progress. |
+| Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
 | Export Engine            | Not started.                                                                                              |
 
 ## Database
@@ -149,7 +149,7 @@ Milestone 4: Optimized Matching Engine MVP
 | Frontend Run integration                     | Complete |
 | Review/Sync/Export execution                 | Deferred |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 5B: Review Matching Results
 
@@ -165,6 +165,21 @@ Milestone 5B: Review Matching Results
 | Undo decision before final                         | Complete |
 | Persist review decisions                           | Complete |
 | Sync/Export/Auth/Workspace/AI                      | Deferred |
+
+## Current Milestone
+
+Milestone 5B.1: Entity-Aware Name Matching
+
+| Requirement                                      | Status   |
+| ------------------------------------------------ | -------- |
+| Parse raw and core company/entity names          | Complete |
+| Extract legal form, status qualifier, public status, and unit metadata | Complete |
+| Compare fuzzy/entity names using `core_name`     | Complete |
+| Preserve identity metadata for validation        | Complete |
+| Prevent explicit PT vs CV from becoming Auto Match | Complete |
+| Treat missing legal form or missing Persero/Tbk as non-conflict | Complete |
+| Separate branch/unit metadata from parent company | Complete |
+| Case clustering, Sync, Export, AI                | Deferred |
 
 ## Next Milestone
 

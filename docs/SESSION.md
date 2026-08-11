@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 5B: Review Matching Results completed.
+Milestone 5B.1: Entity-Aware Name Matching completed.
 
 ## Project Status
 
@@ -27,7 +27,7 @@ Milestone 5B: Review Matching Results completed.
 - Mapping uses real inspected reference/input columns.
 - Mapping supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference validation.
 - Configure uses Quick Setup, Summary Configuration, conditional Advanced Settings, validation, and workflow-level configuration state.
-- Matching Engine MVP runs in Laravel with normalization, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
+- Matching Engine MVP runs in Laravel with normalization, entity-aware name parsing, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
 - Review uses persisted matching results, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
 
 ## Next Milestone
@@ -84,6 +84,9 @@ Upload
 - Configure snapshot menyimpan preset, mode, strategy, fields, algorithms, thresholds, candidate generation, search optimization, normalization, weights, rules, dan output.
 - Run memanggil `/api/matching-jobs/run` dan status tersedia di `/api/matching-jobs/{job}/status`.
 - Engine memakai normalize once, exact/hash index, token candidate search, chunked bounded worker slots, scorer per field, Top N, dan incremental DB insert.
+- Entity-aware name matching memisahkan raw/core name, legal form, ownership/status qualifier, public status, unit type, dan unit name.
+- Fuzzy matching untuk nama entitas membandingkan `core_name`; metadata identitas dipakai sebagai constraint.
+- PT vs CV yang keduanya eksplisit tidak boleh menjadi auto match; missing legal form atau missing Persero/Tbk bukan conflict otomatis.
 - Review memanggil `/api/matching-jobs/{job}/review-results`, `/review-decisions`, dan `/review-decisions/{decision}/undo`.
 - Review memprioritaskan `possible_match` sebagai Need Review, menampilkan Input vs Reference, Top N kandidat, field highlight, dan audit decision lokal.
 - Auto mapping saat ini rule-based sederhana, bukan AI.

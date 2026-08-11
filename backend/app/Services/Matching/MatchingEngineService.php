@@ -18,6 +18,7 @@ class MatchingEngineService
     public function __construct(
         private readonly MatchingConfigResolver $configResolver,
         private readonly ValueNormalizer $normalizer,
+        private readonly EntityNameParser $entityNameParser,
         private readonly CandidateGenerator $candidateGenerator,
         private readonly SimilarityScorer $scorer,
     ) {
@@ -208,16 +209,30 @@ class MatchingEngineService
             ->values()
             ->map(function (array $row, int $index) use ($mappings, $columnKey, $preset) {
                 $normalized = [];
+                $identity = [];
 
                 foreach ($mappings as $mapping) {
                     $columnName = $mapping[$columnKey];
-                    $normalized[$columnName] = $this->normalizer->normalize($row[$columnName] ?? null, $preset);
+                    $rawValue = $row[$columnName] ?? null;
+                    $parsedEntity = $this->entityNameParser->parse($rawValue);
+                    $isEntityName = $this->entityNameParser->isEntityNameColumn($columnName)
+                        || $this->entityNameParser->hasEntityMetadata($parsedEntity);
+
+                    if ($isEntityName) {
+                        $normalized[$columnName] = $parsedEntity['core_name'];
+                        $identity[$columnName] = $parsedEntity;
+
+                        continue;
+                    }
+
+                    $normalized[$columnName] = $this->normalizer->normalize($rawValue, $preset);
                 }
 
                 return [
                     'key' => (string) ($index + 1),
                     'row' => $row,
                     'normalized' => $normalized,
+                    'identity' => $identity,
                 ];
             })
             ->all();
@@ -340,12 +355,20 @@ class MatchingEngineService
         $weightedScore = 0.0;
         $weightTotal = 0.0;
         $exactMiss = false;
+        $identityConflict = false;
 
         foreach ($mappings as $mapping) {
             $left = $referenceRecord['normalized'][$mapping['reference_column_name']] ?? '';
             $right = $inputRecord['normalized'][$mapping['input_column_name']] ?? '';
+            $referenceIdentity = $referenceRecord['identity'][$mapping['reference_column_name']] ?? null;
+            $inputIdentity = $inputRecord['identity'][$mapping['input_column_name']] ?? null;
+            $fieldIdentityConflict = $this->entityNameParser->hasStrictLegalConflict($referenceIdentity, $inputIdentity);
             $algorithm = $this->algorithmForStrategy($strategy, $mapping['algorithm']);
             $score = $this->scorer->score($algorithm, $left, $right);
+
+            if ($fieldIdentityConflict) {
+                $identityConflict = true;
+            }
 
             if ($strategy === 'Rule-Based' && $mapping['required_match'] && $score < 100) {
                 return null;
@@ -362,6 +385,14 @@ class MatchingEngineService
                 'score' => $score,
             ];
 
+            if (is_array($referenceIdentity) || is_array($inputIdentity)) {
+                $fieldScores[array_key_last($fieldScores)]['identity_metadata'] = [
+                    'reference' => $referenceIdentity,
+                    'input' => $inputIdentity,
+                ];
+                $fieldScores[array_key_last($fieldScores)]['identity_conflict'] = $fieldIdentityConflict;
+            }
+
             $weight = max(0.0, (float) $mapping['weight']);
             $weightedScore += $score * $weight;
             $weightTotal += $weight;
@@ -372,12 +403,23 @@ class MatchingEngineService
         }
 
         $finalScore = $weightTotal > 0 ? $weightedScore / $weightTotal : 0.0;
+        $reason = $strategy === 'Hybrid' ? 'Exact index with fuzzy fallback' : "{$strategy} candidate scored";
+
+        if ($identityConflict) {
+            $autoMatchThreshold = (float) ($configuration['thresholds']['autoMatch'] ?? 90);
+
+            if ($finalScore >= $autoMatchThreshold) {
+                $finalScore = max((float) ($configuration['thresholds']['review'] ?? 75), $autoMatchThreshold - 1);
+            }
+
+            $reason = 'Identity metadata conflict requires review';
+        }
 
         return [
             'record' => $referenceRecord,
             'score' => round($finalScore, 2),
             'field_scores' => $fieldScores,
-            'reason' => $strategy === 'Hybrid' ? 'Exact index with fuzzy fallback' : "{$strategy} candidate scored",
+            'reason' => $reason,
         ];
     }
 
