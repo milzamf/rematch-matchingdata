@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 3B: Configure Logic completed.
+Milestone 4: Optimized Matching Engine MVP completed.
 
 ## Project Status
 
@@ -10,7 +10,7 @@ Milestone 3B: Configure Logic completed.
 - Profiling: Done
 - Mapping: Done
 - Configure: Done for UX and workflow state, no backend persistence yet
-- Run: Not started
+- Run: Done for backend MVP execution against inspected preview rows
 - Review: Not started
 - Sync: Not started
 - Export: Not started
@@ -27,12 +27,13 @@ Milestone 3B: Configure Logic completed.
 - Mapping uses real inspected reference/input columns.
 - Mapping supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference validation.
 - Configure uses Quick Setup, Summary Configuration, conditional Advanced Settings, validation, and workflow-level configuration state.
+- Matching Engine MVP runs in Laravel with normalization, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
 
 ## Next Milestone
 
-Milestone 4: Matching Engine Preparation.
+Milestone 5: Review Data Integration.
 
-Objective: define and implement the first matching job/config handoff without adding AI, Review, Sync, or Export execution.
+Objective: connect Review/Results pages to persisted matching results without adding AI, Sync, or Export execution.
 
 ## Current Architecture
 
@@ -40,10 +41,10 @@ Frontend:
 React, Vite, TypeScript, Tailwind CSS. Handles UI state, workflow navigation, preferences, and API calls.
 
 Backend:
-Laravel REST API. Handles health check, dataset upload inspection, parsing, profiling, and dataset metadata persistence.
+Laravel REST API. Handles health check, dataset upload inspection, parsing, profiling, dataset metadata persistence, and Matching Engine MVP run/status.
 
 Database:
-Development database uses MySQL. Implemented tables are `datasets` and `dataset_columns`; Laravel default `users` table exists.
+Development database uses MySQL. Implemented tables include `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, and `matching_results`; Laravel default `users` table exists.
 
 Workflow:
 
@@ -58,14 +59,11 @@ Upload
 
 ## Known Limitations
 
-- Matching Engine belum dibuat.
 - Authentication belum dibuat.
 - Workspace ownership belum dibuat.
 - AI Assistance belum dibuat.
-- Matching job persistence belum dibuat.
-- Column mapping persistence belum dibuat.
-- Configure sudah tersimpan di workflow state; belum persist ke backend.
-- Run masih simulasi UI.
+- Matching Engine MVP baru berjalan dari inspected preview rows, belum full-file processing.
+- Configure dikirim ke backend saat Run, tetapi belum punya save/load configuration terpisah.
 - Review, Sync, Export, dan Results masih mock/local state.
 - Export generation dan audit trail persistence belum dibuat.
 
@@ -82,7 +80,8 @@ Upload
 - Composite / Hybrid memakai bobot otomatis default; bobot manual dan formula hanya muncul jika diaktifkan.
 - Rule-Based menampilkan rule builder; toleransi angka/tanggal hanya muncul untuk tipe field yang relevan.
 - Configure snapshot menyimpan preset, mode, strategy, fields, algorithms, thresholds, candidate generation, search optimization, normalization, weights, rules, dan output.
-- Run hanya membaca ringkasan konfigurasi tersimpan; Matching Engine belum dibuat.
+- Run memanggil `/api/matching-jobs/run` dan status tersedia di `/api/matching-jobs/{job}/status`.
+- Engine memakai normalize once, exact/hash index, token candidate search, chunked bounded worker slots, scorer per field, Top N, dan incremental DB insert.
 - Auto mapping saat ini rule-based sederhana, bukan AI.
 - Reference column tidak boleh dipakai dua kali; input column boleh dipakai ulang.
 - Jangan mengubah Run, Review, Sync, Export, AI, Auth, Workspace, atau Matching Engine kecuali milestone meminta.

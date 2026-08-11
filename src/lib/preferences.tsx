@@ -69,7 +69,7 @@ const translations = {
     "feedback.confirm.discardDesc": "This resets local mock changes on this page.",
     "feedback.confirm.runTitle": "Run matching now?",
     "feedback.confirm.runDesc":
-      "BatchMatch will use the current mock configuration to simulate a matching run.",
+      "BatchMatch will use the current configuration to run the matching engine.",
     "feedback.confirm.exportTitle": "Prepare export?",
     "feedback.confirm.exportDesc":
       "BatchMatch will generate a mock export using the selected scope and format.",
@@ -83,7 +83,7 @@ const translations = {
     "feedback.toast.invalidFile": "File could not be uploaded.",
     "feedback.toast.runStarted": "Matching run started.",
     "feedback.toast.runComplete": "Matching run completed.",
-    "feedback.toast.runFailed": "Matching run failed in mock mode.",
+    "feedback.toast.runFailed": "Matching run failed.",
     "feedback.toast.approved": "Record approved.",
     "feedback.toast.rejected": "Record rejected.",
     "feedback.toast.recommendationApplied": "AI recommendation applied.",
@@ -453,9 +453,13 @@ const translations = {
     "matching.run.complete": "Matching complete",
     "matching.run.completeDesc":
       "12,482 matched - 842 possible - 45 unmatched. Move to Manual Review next.",
+    "matching.run.completeSummary":
+      "{matched} matched, {possible} possible match, and {unmatched} unmatched results are ready.",
     "matching.run.failed": "Matching failed",
     "matching.run.failedDesc":
       "A worker error stopped the job at {progress}%. No results were written.",
+    "matching.run.failedGeneric": "Matching run failed. Please check your configuration.",
+    "matching.run.missingConfig": "Upload, mapping, and configuration must be completed first.",
     "matching.review.title": "Manual Review",
     "matching.review.desc":
       "Approve or reject possible matches. Click any row to inspect side-by-side.",
@@ -683,7 +687,7 @@ const translations = {
     "feedback.confirm.discardDesc": "Ini akan mereset perubahan mock lokal di halaman ini.",
     "feedback.confirm.runTitle": "Jalankan matching sekarang?",
     "feedback.confirm.runDesc":
-      "BatchMatch akan memakai konfigurasi mock saat ini untuk mensimulasikan proses matching.",
+      "BatchMatch akan memakai konfigurasi saat ini untuk menjalankan matching engine.",
     "feedback.confirm.exportTitle": "Siapkan export?",
     "feedback.confirm.exportDesc":
       "BatchMatch akan membuat export mock memakai scope dan format yang dipilih.",
@@ -697,7 +701,7 @@ const translations = {
     "feedback.toast.invalidFile": "File tidak dapat diunggah.",
     "feedback.toast.runStarted": "Proses matching dimulai.",
     "feedback.toast.runComplete": "Proses matching selesai.",
-    "feedback.toast.runFailed": "Proses matching gagal dalam mode mock.",
+    "feedback.toast.runFailed": "Proses matching gagal.",
     "feedback.toast.approved": "Record disetujui.",
     "feedback.toast.rejected": "Record ditolak.",
     "feedback.toast.recommendationApplied": "Rekomendasi AI diterapkan.",
@@ -1068,9 +1072,13 @@ const translations = {
     "matching.run.complete": "Matching selesai",
     "matching.run.completeDesc":
       "12,482 matched - 842 possible - 45 unmatched. Lanjut ke Review Manual.",
+    "matching.run.completeSummary":
+      "{matched} matched, {possible} possible match, dan {unmatched} unmatched siap diperiksa.",
     "matching.run.failed": "Matching gagal",
     "matching.run.failedDesc":
       "Worker error menghentikan job pada {progress}%. Tidak ada hasil yang ditulis.",
+    "matching.run.failedGeneric": "Proses matching gagal. Periksa konfigurasi Anda.",
+    "matching.run.missingConfig": "Upload, mapping, dan konfigurasi harus selesai terlebih dahulu.",
     "matching.review.title": "Review Manual",
     "matching.review.desc":
       "Setujui atau tolak possible match. Klik baris untuk membandingkan berdampingan.",

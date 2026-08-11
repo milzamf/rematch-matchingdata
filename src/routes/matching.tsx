@@ -7,7 +7,14 @@ import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog } from "@/components/feedback-states";
 import { wizardSteps, reviewQueue, synchronizationSummary } from "@/lib/dummy-data";
-import { ApiError, inspectDataset, type DatasetInspectResult, type DatasetRole } from "@/lib/api";
+import {
+  ApiError,
+  inspectDataset,
+  runMatching,
+  type DatasetInspectResult,
+  type DatasetRole,
+  type MatchingRunResult,
+} from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
 import {
   Check,
@@ -162,6 +169,8 @@ function MatchingPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [runState, setRunState] = useState<RunState>("idle");
   const [progress, setProgress] = useState(0);
+  const [runResult, setRunResult] = useState<MatchingRunResult | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
   const [columnMappings, setColumnMappings] = useState<ColumnMappingDraft[]>([]);
   const [configureValid, setConfigureValid] = useState(true);
@@ -182,22 +191,42 @@ function MatchingPage() {
     desc: t(`step.${stepKey(s.id)}Desc`),
   }));
 
-  const startRun = () => {
+  const startRun = async () => {
+    if (!reference?.result || !input?.result || !matchingConfiguration) {
+      setRunState("failed");
+      setRunError(t("matching.run.missingConfig"));
+      toast.error(t("feedback.toast.runFailed"));
+      return;
+    }
+
     toast.info(t("feedback.toast.runStarted"));
     setRunState("running");
     setProgress(0);
-    const shouldFail = Math.random() < 0.15;
-    const iv = window.setInterval(() => {
-      setProgress((p) => {
-        const next = p + 8 + Math.random() * 6;
-        if (next >= 100) {
-          window.clearInterval(iv);
-          setRunState(shouldFail ? "failed" : "success");
-          return 100;
-        }
-        return next;
+    setRunError(null);
+    setRunResult(null);
+
+    try {
+      setProgress(20);
+      const result = await runMatching({
+        name: `${reference.result.dataset.name} vs ${input.result.dataset.name}`,
+        referenceDatasetId: reference.result.dataset.id,
+        inputDatasetId: input.result.dataset.id,
+        mappings: columnMappings.filter(
+          (mapping) => mapping.referenceColumnId && mapping.inputColumnId,
+        ),
+        configuration: matchingConfiguration,
       });
-    }, 300);
+      setRunResult(result);
+      setProgress(result.progress.percentage || 100);
+      setRunState(result.job.status === "completed" ? "success" : "failed");
+      if (result.job.status !== "completed") {
+        setRunError(result.job.error_message ?? t("matching.run.failedGeneric"));
+      }
+    } catch (error) {
+      setProgress(0);
+      setRunState("failed");
+      setRunError(error instanceof ApiError ? error.message : t("matching.run.failedGeneric"));
+    }
   };
 
   const handleInspectFile = async (role: DatasetRole, file: File) => {
@@ -295,10 +324,14 @@ function MatchingPage() {
               state={runState}
               progress={progress}
               configuration={matchingConfiguration}
+              result={runResult}
+              error={runError}
               onStart={() => setRunConfirmOpen(true)}
               onRetry={() => {
                 setRunState("idle");
                 setProgress(0);
+                setRunResult(null);
+                setRunError(null);
               }}
               onBack={() => setStep(4)}
             />
@@ -2499,6 +2532,8 @@ function StepRun({
   state,
   progress,
   configuration,
+  result,
+  error,
   onStart,
   onRetry,
   onBack,
@@ -2506,6 +2541,8 @@ function StepRun({
   state: RunState;
   progress: number;
   configuration: MatchingConfiguration | null;
+  result: MatchingRunResult | null;
+  error: string | null;
   onStart: () => void;
   onRetry: () => void;
   onBack: () => void;
@@ -2597,7 +2634,15 @@ function StepRun({
           </div>
           <div className="flex-1">
             <p className="text-sm font-semibold">{t("matching.run.complete")}</p>
-            <p className="text-xs text-muted-foreground mt-1">{t("matching.run.completeDesc")}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {result
+                ? t("matching.run.completeSummary", {
+                    matched: result.summary.matched,
+                    possible: result.summary.possible_match,
+                    unmatched: result.summary.unmatched,
+                  })
+                : t("matching.run.completeDesc")}
+            </p>
           </div>
         </div>
       )}
@@ -2610,7 +2655,7 @@ function StepRun({
           <div className="flex-1">
             <p className="text-sm font-semibold">{t("matching.run.failed")}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {t("matching.run.failedDesc", { progress: Math.round(progress) })}
+              {error ?? t("matching.run.failedDesc", { progress: Math.round(progress) })}
             </p>
             <div className="mt-3 flex gap-2">
               <button

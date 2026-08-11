@@ -10,9 +10,9 @@ Version: MVP v0.1.0
 | Documentation        |      96% | In progress                                    |
 | Frontend UI          |      96% | Mostly complete                                |
 | Frontend Integration |      30% | Upload, Profiling, and Mapping slices complete |
-| Backend API          |      15% | First slice complete                           |
-| Database             |      10% | Partial                                        |
-| Matching Engine      |       0% | Not started                                    |
+| Backend API          |      25% | Upload/Profile and Matching run slices exist   |
+| Database             |      20% | Dataset and matching run tables implemented    |
+| Matching Engine      |      25% | MVP engine slice implemented                   |
 | AI Assistant         |       0% | Not started                                    |
 | Export Engine        |       0% | Not started                                    |
 | Authentication       |       0% | Not started                                    |
@@ -27,7 +27,7 @@ Version: MVP v0.1.0
 | Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                        |
 | Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
 | Configure | Logic complete with conditional configuration state ready for the future Matching Engine.              |
-| Run       | UI simulation only.                                                                                    |
+| Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                          |
 | Review    | UI complete, still uses mock data.                                                                     |
 | Sync      | UI complete, still uses mock/local state.                                                              |
 | Export    | UI complete, still uses mock data.                                                                     |
@@ -36,18 +36,18 @@ Version: MVP v0.1.0
 
 ## Backend
 
-| Area                     | Status                                                                              |
-| ------------------------ | ----------------------------------------------------------------------------------- |
-| Laravel Foundation       | Installed and running.                                                              |
-| API Routing              | Available through `routes/api.php`.                                                 |
-| Health Endpoint          | Implemented: `GET /api/health`.                                                     |
-| Dataset Inspect Endpoint | Implemented: `POST /api/datasets/inspect`.                                          |
-| CSV Parser               | Implemented for inspection milestone.                                               |
-| XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing. |
-| Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.    |
-| Auth API                 | Not started.                                                                        |
-| Matching Engine          | Not started.                                                                        |
-| Export Engine            | Not started.                                                                        |
+| Area                     | Status                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Laravel Foundation       | Installed and running.                                                                                    |
+| API Routing              | Available through `routes/api.php`.                                                                       |
+| Health Endpoint          | Implemented: `GET /api/health`.                                                                           |
+| Dataset Inspect Endpoint | Implemented: `POST /api/datasets/inspect`.                                                                |
+| CSV Parser               | Implemented for inspection milestone.                                                                     |
+| XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing.                       |
+| Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                          |
+| Auth API                 | Not started.                                                                                              |
+| Matching Engine          | MVP service implemented with normalization, indexing, candidate generation, scoring, Top N, and progress. |
+| Export Engine            | Not started.                                                                                              |
 
 ## Database
 
@@ -58,10 +58,10 @@ Version: MVP v0.1.0
 | `users`                   | Laravel default migration exists. |
 | `workspaces`              | Not started.                      |
 | `workspace_users`         | Not started.                      |
-| `matching_jobs`           | Not started.                      |
-| `column_mappings`         | Not started.                      |
-| `matching_configurations` | Not started.                      |
-| `matching_results`        | Not started.                      |
+| `matching_jobs`           | Migration and model implemented.  |
+| `column_mappings`         | Migration and model implemented.  |
+| `matching_configurations` | Migration and model implemented.  |
+| `matching_results`        | Migration and model implemented.  |
 | `review_decisions`        | Not started.                      |
 | `sync_plans`              | Not started.                      |
 | `exports`                 | Not started.                      |
@@ -114,7 +114,7 @@ Milestone 3A: Configure UX
 | Configure state remains local/engine-ready    | Complete |
 | Backend/API/database changes                  | None     |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 3B: Configure Logic
 
@@ -131,19 +131,35 @@ Milestone 3B: Configure Logic
 | Run step reads saved configuration summary  | Complete |
 | Backend/API/database changes                | None     |
 
+## Current Milestone
+
+Milestone 4: Optimized Matching Engine MVP
+
+| Requirement                                  | Status   |
+| -------------------------------------------- | -------- |
+| Normalize once before comparisons            | Complete |
+| Exact/normalized exact index lookup          | Complete |
+| Token candidate generation for fuzzy scoring | Complete |
+| Chunked input processing                     | Complete |
+| Configurable bounded worker slots            | Complete |
+| Field scoring algorithms MVP                 | Complete |
+| Top N candidate ranking                      | Complete |
+| Incremental result persistence               | Complete |
+| Matching progress status                     | Complete |
+| Frontend Run integration                     | Complete |
+| Review/Sync/Export execution                 | Deferred |
+
 ## Next Milestone
 
-Milestone 4: Matching Engine Preparation
+Milestone 5: Review Data Integration
 
-- Define backend matching job/config payload contract.
-- Persist matching job and mapping after Auth/Workspace scope is ready.
+- Connect Review/Results pages to persisted matching results.
 - Keep AI mapping suggestions deferred until AI Assistance milestone.
 
 ## Remaining MVP Work
 
 - Auth and workspace ownership.
-- Matching configuration integration and persistence.
-- Matching engine execution.
+- Full-file matching beyond inspected preview rows.
 - Manual review persistence.
 - Sync execution.
 - Export generation.

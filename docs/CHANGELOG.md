@@ -27,6 +27,9 @@
 - Configure validation for active fields, thresholds, candidate count, manual weights, and rule text.
 - Workflow-level Configure state snapshot for future Matching Engine handoff.
 - Run step configuration summary sourced from saved Configure state.
+- Laravel Matching Engine MVP endpoint with job, mapping, configuration, and result persistence.
+- Matching pipeline with one-time normalization, index/candidate search, chunked processing, field scoring, Top N, and progress summary.
+- MVP scoring support for exact, normalized exact, case-insensitive exact, fuzzy, token-based, and composite-style weighted scoring.
 
 ### Improved
 
@@ -39,11 +42,12 @@
 - Configure technical controls are now grouped under collapsed Advanced Settings for progressive disclosure.
 - Configure now shows only controls relevant to the selected strategy.
 - Configure now stores only relevant active settings for the selected preset or custom strategy.
+- Run step now calls the backend Matching Engine MVP instead of mock random progress.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 
 ### Notes
 
-- Matching engine execution, AI service integration, export generation, audit persistence, and authentication are not implemented yet.
-- Run, Review, Sync, Export, and Results still use mock/local state.
-- Configure state is frontend-only and is not persisted to the backend yet.
+- AI service integration, export generation, audit persistence, and authentication are not implemented yet.
+- Review, Sync, Export, and Results still use mock/local state.
+- Matching Engine MVP currently runs against inspected preview rows, not full stored file contents.

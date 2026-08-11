@@ -60,6 +60,47 @@ type InspectDatasetInput = {
   headerRow?: number;
 };
 
+type RunMatchingInput = {
+  name?: string;
+  referenceDatasetId: string;
+  inputDatasetId: string;
+  mappings: unknown[];
+  configuration: unknown;
+};
+
+export type MatchingRunResult = {
+  job: {
+    id: string;
+    name: string | null;
+    status: "queued" | "processing" | "completed" | "failed" | string;
+    reference_dataset_id: string;
+    input_dataset_id: string;
+    started_at: string | null;
+    finished_at: string | null;
+    error_message: string | null;
+  };
+  progress: {
+    status: string;
+    processed: number;
+    total: number;
+    percentage: number;
+  };
+  summary: {
+    matched: number;
+    possible_match: number;
+    unmatched: number;
+    candidates_scored: number;
+  };
+  top_results: {
+    id: string;
+    input_record_key: string;
+    reference_record_key: string | null;
+    result_type: string;
+    overall_score: number;
+    candidate_rank: number;
+  }[];
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -97,6 +138,35 @@ export async function inspectDataset(input: InspectDatasetInput): Promise<Datase
   if (!response.ok || !payload || payload.success === false) {
     throw new ApiError(
       payload?.message ?? "Dataset inspection failed. Please try again.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function runMatching(input: RunMatchingInput): Promise<MatchingRunResult> {
+  const response = await fetch(`${API_BASE_URL}/matching-jobs/run`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: input.name,
+      reference_dataset_id: input.referenceDatasetId,
+      input_dataset_id: input.inputDatasetId,
+      mappings: input.mappings,
+      configuration: input.configuration,
+    }),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<MatchingRunResult> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Matching run failed. Please check your configuration.",
       response.status,
       payload?.success === false ? payload.errors : undefined,
     );
