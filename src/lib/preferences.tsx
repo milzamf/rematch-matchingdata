@@ -388,6 +388,7 @@ const translations = {
     "matching.config.useStandardOutput": "Use standard output?",
     "matching.config.useStandardOutputDesc":
       "Standard output includes matched, possible match, unmatched, and summary.",
+    "matching.config.validationOutput": "Select at least one output item.",
     "matching.config.outputTitle": "Output Configuration",
     "matching.config.outputDesc":
       "Choose export contents and include the synchronization plan selected in the Sync step.",
@@ -440,6 +441,10 @@ const translations = {
     "matching.run.desc": "Execute the job with your current configuration and monitor progress.",
     "matching.run.ready": "Ready to run",
     "matching.run.estimated": "Estimated: ~1.2M pairwise comparisons - 2-3 minutes",
+    "matching.run.configPreset": "Preset",
+    "matching.run.configStrategy": "Strategy",
+    "matching.run.configFields": "Fields",
+    "matching.run.configCandidates": "Candidates",
     "matching.run.start": "Start Matching",
     "matching.run.progressTitle": "Matching in progress...",
     "matching.run.building": "Building candidate pairs",
@@ -997,6 +1002,7 @@ const translations = {
     "matching.config.useStandardOutput": "Gunakan output standar?",
     "matching.config.useStandardOutputDesc":
       "Output standar berisi matched, possible match, unmatched, dan summary.",
+    "matching.config.validationOutput": "Pilih minimal satu item output.",
     "matching.config.outputTitle": "Konfigurasi Output",
     "matching.config.outputDesc":
       "Pilih isi export dan sertakan rencana sinkronisasi dari langkah Sync.",
@@ -1050,6 +1056,10 @@ const translations = {
     "matching.run.desc": "Jalankan job dengan konfigurasi saat ini dan pantau progresnya.",
     "matching.run.ready": "Siap dijalankan",
     "matching.run.estimated": "Estimasi: ~1.2M perbandingan pasangan - 2-3 menit",
+    "matching.run.configPreset": "Preset",
+    "matching.run.configStrategy": "Strategi",
+    "matching.run.configFields": "Field",
+    "matching.run.configCandidates": "Kandidat",
     "matching.run.start": "Mulai Matching",
     "matching.run.progressTitle": "Matching sedang berjalan...",
     "matching.run.building": "Membuat pasangan kandidat",

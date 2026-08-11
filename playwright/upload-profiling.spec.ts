@@ -351,6 +351,23 @@ test("configure shows conditional controls for each strategy", async ({ page }) 
   await expect(advancedPanel.getByText("Similarity Threshold")).toHaveCount(0);
 });
 
+test("configure saves selected logic into workflow state for run", async ({ page }) => {
+  await uploadDatasetsAndOpenMapping(page, defaultColumns("reference"), defaultColumns("input"));
+
+  await page.getByRole("button", { name: /continue/i }).click();
+  await page.getByTestId("config-preset-custom").click();
+  await page.getByTestId("config-strategy-fuzzy").click();
+  await page.getByTestId("config-candidate-custom").click();
+  await page.getByTestId("config-custom-candidate-input").fill("5");
+  await page.getByRole("button", { name: /continue/i }).click();
+
+  const runSummary = page.getByTestId("run-configuration-summary");
+  await expect(runSummary).toContainText("Custom");
+  await expect(runSummary).toContainText("Fuzzy Match");
+  await expect(runSummary).toContainText("2");
+  await expect(runSummary).toContainText("Top 5");
+});
+
 test("mapping shows empty state when inspected columns are unavailable", async ({ page }) => {
   await page.goto("/matching");
   await page.getByRole("button", { name: /mapping/i }).click();

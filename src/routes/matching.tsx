@@ -75,6 +75,81 @@ type ColumnMappingDraft = {
   referenceDataType: string;
   inputDataType: string;
 };
+type Preset = "Balanced" | "Strict" | "Exploratory" | "Custom";
+type Strategy = "Hybrid" | "Exact" | "Fuzzy" | "Composite" | "Rule-Based";
+type FieldType = "text" | "number" | "date" | "boolean" | "unknown";
+type CandidateCount = 1 | 3 | 5 | 10 | "custom";
+type ConfigureAlgorithm =
+  | "Exact"
+  | "Normalized Exact"
+  | "Case-Insensitive Exact"
+  | "Numeric Exact"
+  | "Date Exact"
+  | "Jaro-Winkler"
+  | "Levenshtein"
+  | "Damerau-Levenshtein"
+  | "Jaccard Similarity"
+  | "Cosine Similarity"
+  | "Sørensen-Dice"
+  | "Ratcliff-Obershelp"
+  | "Monge-Elkan"
+  | "Smith-Waterman"
+  | "Token Sort Ratio"
+  | "Token Set Ratio"
+  | "Partial Ratio"
+  | "Partial Token Sort"
+  | "Partial Token Set";
+
+type ConfigurationField = {
+  mappingId: string;
+  referenceColumnId: string;
+  inputColumnId: string;
+  referenceColumnName: string;
+  inputColumnName: string;
+  dataType: FieldType;
+  algorithm: ConfigureAlgorithm;
+};
+
+type MatchingConfiguration = {
+  preset: Preset;
+  mode: "preset" | "custom";
+  strategy: Strategy;
+  isValid: boolean;
+  fields: ConfigurationField[];
+  thresholds: null | {
+    autoMatch: number;
+    review: number;
+    noMatch: number;
+  };
+  candidateGeneration: null | {
+    topN: number;
+  };
+  searchOptimization: {
+    enabled: boolean;
+    mode: "auto" | "manual";
+    fields: string[];
+    recommendedFields: string[];
+  };
+  normalization: {
+    mode: "auto" | "manual";
+    preset: string;
+  };
+  weighting: {
+    mode: "none" | "auto" | "manual";
+    fields: { mappingId: string; field: string; weight: number; algorithm: ConfigureAlgorithm }[];
+  };
+  rules: null | {
+    mandatoryRule: string;
+    numericTolerance: string | null;
+    dateTolerance: string | null;
+    combinedScoring: boolean;
+    similarityFormula: string | null;
+  };
+  output: {
+    mode: "standard" | "custom";
+    items: string[];
+  };
+};
 
 const ALLOWED = [".csv", ".xlsx"];
 const MAX_MB = 50;
@@ -90,6 +165,9 @@ function MatchingPage() {
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
   const [columnMappings, setColumnMappings] = useState<ColumnMappingDraft[]>([]);
   const [configureValid, setConfigureValid] = useState(true);
+  const [matchingConfiguration, setMatchingConfiguration] = useState<MatchingConfiguration | null>(
+    null,
+  );
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
@@ -155,10 +233,12 @@ function MatchingPage() {
 
     if (inspectedReferenceColumns.length === 0 || inspectedInputColumns.length === 0) {
       setColumnMappings([]);
+      setMatchingConfiguration(null);
       return;
     }
 
     setColumnMappings(suggestColumnMappings(inspectedReferenceColumns, inspectedInputColumns));
+    setMatchingConfiguration(null);
   }, [reference?.result, input?.result]);
 
   useEffect(() => {
@@ -203,12 +283,18 @@ function MatchingPage() {
             />
           )}
           {step === 4 && (
-            <StepConfig mappings={columnMappings} onValidityChange={setConfigureValid} />
+            <StepConfig
+              mappings={columnMappings}
+              configuration={matchingConfiguration}
+              onConfigurationChange={setMatchingConfiguration}
+              onValidityChange={setConfigureValid}
+            />
           )}
           {step === 5 && (
             <StepRun
               state={runState}
               progress={progress}
+              configuration={matchingConfiguration}
               onStart={() => setRunConfirmOpen(true)}
               onRetry={() => {
                 setRunState("idle");
@@ -1028,7 +1114,11 @@ function normalizedDataType(dataType: string): "text" | "number" | "date" | "boo
     : "unknown";
 }
 
-function defaultAlgorithmForField(referenceName: string, inputName: string, type: FieldType) {
+function defaultAlgorithmForField(
+  referenceName: string,
+  inputName: string,
+  type: FieldType,
+): ConfigureAlgorithm {
   const combinedName = `${referenceName} ${inputName}`.toLowerCase();
   if (type === "number") return "Numeric Exact";
   if (type === "date") return "Date Exact";
@@ -1042,18 +1132,27 @@ function defaultAlgorithmForField(referenceName: string, inputName: string, type
   return "Jaro-Winkler";
 }
 
-type Preset = "Balanced" | "Strict" | "Exploratory" | "Custom";
-type Strategy = "Hybrid" | "Exact" | "Fuzzy" | "Composite" | "Rule-Based";
-type FieldType = "text" | "number" | "date" | "boolean" | "unknown";
+function defaultExactAlgorithmForField(
+  referenceName: string,
+  inputName: string,
+  type: FieldType,
+): ConfigureAlgorithm {
+  const combinedName = `${referenceName} ${inputName}`.toLowerCase();
+  if (type === "number") return "Numeric Exact";
+  if (type === "date") return "Date Exact";
+  if (/(npwp|nik|id|kode|code|email)/.test(combinedName)) return "Normalized Exact";
+  if (type === "text") return "Normalized Exact";
+  return "Exact";
+}
 
-const RECOMMENDED_ALGORITHMS = [
+const RECOMMENDED_ALGORITHMS: ConfigureAlgorithm[] = [
   "Jaro-Winkler",
   "Levenshtein",
   "Token Sort Ratio",
   "Token Set Ratio",
 ];
 
-const MORE_ALGORITHMS = [
+const MORE_ALGORITHMS: ConfigureAlgorithm[] = [
   "Exact",
   "Normalized Exact",
   "Case-Insensitive Exact",
@@ -1071,51 +1170,147 @@ const MORE_ALGORITHMS = [
   "Partial Token Set",
 ];
 
+const STANDARD_OUTPUTS = ["Matched", "Possible Match", "Unmatched", "Summary Report"];
+const AUTO_RECOMMEND_KEYS = ["Province", "City", "Postal Code"];
+const AVAILABLE_CANDIDATE_FIELDS = ["Province", "City", "Postal Code", "Industry", "Business Type"];
+const NORMALIZATION_PRESETS = [
+  "Basic",
+  "Text Standardization",
+  "Entity Name",
+  "Address",
+  "Identifier Strict",
+];
+
 const PRESET_DEFAULTS: Record<
   Preset,
-  { autoMatch: number; review: number; noMatch: number; strategy: Strategy }
+  {
+    autoMatch: number;
+    review: number;
+    noMatch: number;
+    strategy: Strategy;
+    candidates: 1 | 3 | 5 | 10;
+    normalizationPreset: string;
+    searchMode: "auto" | "manual";
+    searchFields: string[];
+  }
 > = {
-  Balanced: { autoMatch: 90, review: 75, noMatch: 60, strategy: "Hybrid" },
-  Strict: { autoMatch: 95, review: 85, noMatch: 70, strategy: "Exact" },
-  Exploratory: { autoMatch: 85, review: 65, noMatch: 50, strategy: "Fuzzy" },
-  Custom: { autoMatch: 90, review: 75, noMatch: 60, strategy: "Hybrid" },
+  Balanced: {
+    autoMatch: 90,
+    review: 75,
+    noMatch: 60,
+    strategy: "Hybrid",
+    candidates: 3,
+    normalizationPreset: "Entity Name",
+    searchMode: "auto",
+    searchFields: [],
+  },
+  Strict: {
+    autoMatch: 95,
+    review: 85,
+    noMatch: 70,
+    strategy: "Exact",
+    candidates: 1,
+    normalizationPreset: "Identifier Strict",
+    searchMode: "manual",
+    searchFields: ["City", "Postal Code"],
+  },
+  Exploratory: {
+    autoMatch: 85,
+    review: 65,
+    noMatch: 50,
+    strategy: "Fuzzy",
+    candidates: 10,
+    normalizationPreset: "Text Standardization",
+    searchMode: "auto",
+    searchFields: [],
+  },
+  Custom: {
+    autoMatch: 90,
+    review: 75,
+    noMatch: 60,
+    strategy: "Hybrid",
+    candidates: 3,
+    normalizationPreset: "Entity Name",
+    searchMode: "auto",
+    searchFields: [],
+  },
 };
 
 function StepConfig({
   mappings,
+  configuration,
+  onConfigurationChange,
   onValidityChange,
 }: {
   mappings: ColumnMappingDraft[];
+  configuration: MatchingConfiguration | null;
+  onConfigurationChange: (configuration: MatchingConfiguration) => void;
   onValidityChange: (valid: boolean) => void;
 }) {
   const { t } = usePreferences();
-  const [preset, setPreset] = useState<Preset>("Balanced");
-  const [strategy, setStrategy] = useState<Strategy>("Hybrid");
-  const [autoMatch, setAutoMatch] = useState(90);
-  const [review, setReview] = useState(75);
-  const [noMatch, setNoMatch] = useState(60);
-  const [searchMode, setSearchMode] = useState<"auto" | "manual">("auto");
-  const [manualBlocks, setManualBlocks] = useState<string[]>(["City", "Postal Code"]);
-  const [candidates, setCandidates] = useState<1 | 3 | 5 | 10 | "custom">(3);
-  const [customCandidateCount, setCustomCandidateCount] = useState("15");
-  const [normalizationPreset, setNormalizationPreset] = useState("Entity Name");
-  const [normalizationMode, setNormalizationMode] = useState<"auto" | "manual">("auto");
-  const [outputMode, setOutputMode] = useState<"standard" | "custom">("standard");
-  const [manualWeights, setManualWeights] = useState(false);
-  const [combinedScoring, setCombinedScoring] = useState(false);
-  const [showFormula, setShowFormula] = useState(false);
+  const defaultPreset = configuration?.preset ?? "Balanced";
+  const defaultPresetValues = PRESET_DEFAULTS[defaultPreset];
+  const defaultTopN = configuration?.candidateGeneration?.topN ?? defaultPresetValues.candidates;
+  const [preset, setPreset] = useState<Preset>(defaultPreset);
+  const [strategy, setStrategy] = useState<Strategy>(
+    configuration?.strategy ?? defaultPresetValues.strategy,
+  );
+  const [autoMatch, setAutoMatch] = useState(
+    configuration?.thresholds?.autoMatch ?? defaultPresetValues.autoMatch,
+  );
+  const [review, setReview] = useState(
+    configuration?.thresholds?.review ?? defaultPresetValues.review,
+  );
+  const [noMatch, setNoMatch] = useState(
+    configuration?.thresholds?.noMatch ?? defaultPresetValues.noMatch,
+  );
+  const [searchMode, setSearchMode] = useState<"auto" | "manual">(
+    configuration?.searchOptimization.mode ?? defaultPresetValues.searchMode,
+  );
+  const [manualBlocks, setManualBlocks] = useState<string[]>(
+    configuration?.searchOptimization.fields.length
+      ? configuration.searchOptimization.fields
+      : defaultPresetValues.searchFields,
+  );
+  const [candidates, setCandidates] = useState<CandidateCount>(
+    [1, 3, 5, 10].includes(defaultTopN) ? (defaultTopN as 1 | 3 | 5 | 10) : "custom",
+  );
+  const [customCandidateCount, setCustomCandidateCount] = useState(String(defaultTopN));
+  const [normalizationPreset, setNormalizationPreset] = useState(
+    configuration?.normalization.preset ?? defaultPresetValues.normalizationPreset,
+  );
+  const [normalizationMode, setNormalizationMode] = useState<"auto" | "manual">(
+    configuration?.normalization.mode ?? "auto",
+  );
+  const [outputMode, setOutputMode] = useState<"standard" | "custom">(
+    configuration?.output.mode ?? "standard",
+  );
+  const [manualWeights, setManualWeights] = useState(configuration?.weighting.mode === "manual");
+  const [combinedScoring, setCombinedScoring] = useState(
+    configuration?.rules?.combinedScoring ?? false,
+  );
+  const [showFormula, setShowFormula] = useState(Boolean(configuration?.rules?.similarityFormula));
   const [showMoreAlgorithms, setShowMoreAlgorithms] = useState(false);
-  const [outputs, setOutputs] = useState<string[]>([
-    "Matched",
-    "Possible Match",
-    "Unmatched",
-    "Summary Report",
-  ]);
+  const [outputs, setOutputs] = useState<string[]>(configuration?.output.items ?? STANDARD_OUTPUTS);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [weights, setWeights] = useState<{ field: string; weight: number; method: string }[]>([]);
-  const [selectedFields, setSelectedFields] = useState<string[]>([]);
-  const [fieldAlgorithms, setFieldAlgorithms] = useState<Record<string, string>>({});
-  const [ruleText, setRuleText] = useState("NPWP must match exactly when present");
+  const [weights, setWeights] = useState<{ field: string; weight: number; method: string }[]>(
+    configuration?.weighting.fields.map((field) => ({
+      field: field.field,
+      weight: field.weight,
+      method: field.algorithm,
+    })) ?? [],
+  );
+  const [selectedFields, setSelectedFields] = useState<string[]>(
+    configuration?.fields.map((field) => field.mappingId) ?? [],
+  );
+  const [fieldAlgorithms, setFieldAlgorithms] = useState<Record<string, ConfigureAlgorithm>>(
+    Object.fromEntries(
+      configuration?.fields.map((field) => [field.mappingId, field.algorithm]) ?? [],
+    ),
+  );
+  const [ruleText, setRuleText] = useState(
+    configuration?.rules?.mandatoryRule ?? "NPWP must match exactly when present",
+  );
 
   const isCustom = preset === "Custom";
   const mappedFields = useMemo(
@@ -1127,6 +1322,8 @@ function StepConfig({
           return {
             id: mapping.id,
             label: `${mapping.referenceColumnName} ↔ ${mapping.inputColumnName}`,
+            referenceColumnId: mapping.referenceColumnId,
+            inputColumnId: mapping.inputColumnId,
             reference: mapping.referenceColumnName,
             input: mapping.inputColumnName,
             type,
@@ -1143,25 +1340,30 @@ function StepConfig({
     () => mappedFields.filter((field) => selectedFields.includes(field.id)),
     [mappedFields, selectedFields],
   );
+  const fieldsForConfiguration = isCustom ? activeFields : mappedFields;
   const totalWeight = weights.reduce((s, w) => s + w.weight, 0);
-  const hasNumberField = activeFields.some((field) => field.type === "number");
-  const hasDateField = activeFields.some((field) => field.type === "date");
-  const needsThreshold = isCustom && (strategy === "Fuzzy" || strategy === "Hybrid");
-  const needsCandidates = isCustom && (strategy === "Fuzzy" || strategy === "Hybrid");
-  const needsAlgorithms = isCustom && (strategy === "Fuzzy" || strategy === "Hybrid");
-  const canUseWeights = isCustom && strategy === "Hybrid";
-  const needsManualWeights = isCustom && strategy === "Hybrid" && manualWeights;
+  const hasNumberField = fieldsForConfiguration.some((field) => field.type === "number");
+  const hasDateField = fieldsForConfiguration.some((field) => field.type === "date");
+  const needsThreshold = isCustom && strategyNeedsThreshold(strategy);
+  const needsCandidates = isCustom && strategyNeedsCandidates(strategy);
+  const needsAlgorithms = isCustom && strategyNeedsAlgorithms(strategy);
+  const canUseWeights = isCustom && (strategy === "Hybrid" || strategy === "Composite");
+  const needsManualWeights =
+    isCustom && (strategy === "Hybrid" || strategy === "Composite") && manualWeights;
   const needsRuleScoring = isCustom && strategy === "Rule-Based" && combinedScoring;
   const candidateCountValid =
     candidates !== "custom" ||
     (Number(customCandidateCount) > 0 && Number.isInteger(Number(customCandidateCount)));
   const thresholdValid = !needsThreshold || (autoMatch > review && review > noMatch);
   const fieldSelectionValid =
-    strategy === "Hybrid" ? activeFields.length >= 2 : activeFields.length >= 1;
+    strategy === "Hybrid" || strategy === "Composite"
+      ? activeFields.length >= 2
+      : activeFields.length >= 1;
   const algorithmValid =
     !needsAlgorithms || activeFields.every((field) => Boolean(fieldAlgorithms[field.id]));
   const weightsValid = !(needsManualWeights || needsRuleScoring) || totalWeight === 100;
   const ruleValid = strategy !== "Rule-Based" || ruleText.trim().length > 0;
+  const outputValid = outputMode === "standard" || outputs.length > 0;
   const configValid =
     !isCustom ||
     (fieldSelectionValid &&
@@ -1169,7 +1371,112 @@ function StepConfig({
       algorithmValid &&
       candidateCountValid &&
       weightsValid &&
-      ruleValid);
+      ruleValid &&
+      outputValid);
+  const configurationSnapshot = useMemo<MatchingConfiguration>(() => {
+    const thresholdEnabled = strategyNeedsThreshold(strategy);
+    const candidateEnabled = strategyNeedsCandidates(strategy);
+    const resolvedTopN =
+      candidates === "custom" ? Number(customCandidateCount) || 0 : Number(candidates);
+    const configurationFields = fieldsForConfiguration.map((field) => ({
+      mappingId: field.id,
+      referenceColumnId: field.referenceColumnId,
+      inputColumnId: field.inputColumnId,
+      referenceColumnName: field.reference,
+      inputColumnName: field.input,
+      dataType: field.type,
+      algorithm: resolveConfiguredAlgorithm(field, strategy, fieldAlgorithms),
+    }));
+    const weightMode =
+      strategy === "Hybrid" || strategy === "Composite"
+        ? manualWeights
+          ? "manual"
+          : "auto"
+        : strategy === "Rule-Based" && combinedScoring
+          ? "manual"
+          : "none";
+
+    return {
+      preset,
+      mode: isCustom ? "custom" : "preset",
+      strategy,
+      isValid: configValid,
+      fields: configurationFields,
+      thresholds: thresholdEnabled
+        ? {
+            autoMatch,
+            review,
+            noMatch,
+          }
+        : null,
+      candidateGeneration: candidateEnabled ? { topN: resolvedTopN } : null,
+      searchOptimization: {
+        enabled: candidateEnabled,
+        mode: searchMode,
+        fields: searchMode === "manual" && candidateEnabled ? manualBlocks : [],
+        recommendedFields: candidateEnabled ? AUTO_RECOMMEND_KEYS : [],
+      },
+      normalization: {
+        mode: normalizationMode,
+        preset: normalizationPreset,
+      },
+      weighting: {
+        mode: weightMode,
+        fields:
+          weightMode === "none"
+            ? []
+            : weights.map((field) => ({
+                mappingId:
+                  fieldsForConfiguration.find((mappedField) => mappedField.label === field.field)
+                    ?.id ?? field.field,
+                field: field.field,
+                weight: weightMode === "auto" ? field.weight : field.weight,
+                algorithm: normalizeConfiguredAlgorithm(field.method),
+              })),
+      },
+      rules:
+        strategy === "Rule-Based"
+          ? {
+              mandatoryRule: ruleText.trim(),
+              numericTolerance: hasNumberField ? "+/- 0.5%" : null,
+              dateTolerance: hasDateField ? "+/- 3 days" : null,
+              combinedScoring,
+              similarityFormula:
+                combinedScoring && showFormula ? t("matching.config.weightedAverage") : null,
+            }
+          : null,
+      output: {
+        mode: outputMode,
+        items: outputMode === "standard" ? STANDARD_OUTPUTS : outputs,
+      },
+    };
+  }, [
+    autoMatch,
+    candidates,
+    combinedScoring,
+    configValid,
+    customCandidateCount,
+    fieldAlgorithms,
+    fieldsForConfiguration,
+    hasDateField,
+    hasNumberField,
+    isCustom,
+    manualBlocks,
+    manualWeights,
+    noMatch,
+    normalizationMode,
+    normalizationPreset,
+    outputMode,
+    outputs,
+    preset,
+    review,
+    ruleText,
+    searchMode,
+    showFormula,
+    strategy,
+    t,
+    weights,
+  ]);
   const summaryItems = [
     [t("matching.config.summaryPreset"), presetLabel(preset, t)],
     [t("matching.config.summaryStrategy"), strategyLabel(strategy, t)],
@@ -1234,16 +1541,6 @@ function StepConfig({
     }
   };
 
-  const AUTO_RECOMMEND_KEYS = ["Province", "City", "Postal Code"];
-  const AVAILABLE_COLUMNS = ["Province", "City", "Postal Code", "Industry", "Business Type"];
-  const NORMALIZATION_PRESETS = [
-    "Basic",
-    "Text Standardization",
-    "Entity Name",
-    "Address",
-    "Identifier Strict",
-  ];
-
   useEffect(() => {
     if (mappedFields.length === 0) return;
     setSelectedFields((current) => {
@@ -1283,6 +1580,10 @@ function StepConfig({
   useEffect(() => {
     onValidityChange(configValid);
   }, [configValid, onValidityChange]);
+
+  useEffect(() => {
+    onConfigurationChange(configurationSnapshot);
+  }, [configurationSnapshot, onConfigurationChange]);
 
   const applyRecommendation = () => {
     applyPreset("Balanced");
@@ -1439,6 +1740,11 @@ function StepConfig({
               );
             })}
           </div>
+        )}
+        {!outputValid && (
+          <p className="mt-3 text-xs font-medium text-destructive">
+            {t("matching.config.validationOutput")}
+          </p>
         )}
       </section>
 
@@ -1705,7 +2011,7 @@ function StepConfig({
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    {AVAILABLE_COLUMNS.map((c) => {
+                    {AVAILABLE_CANDIDATE_FIELDS.map((c) => {
                       const on = manualBlocks.includes(c);
                       return (
                         <button
@@ -2051,6 +2357,43 @@ function strategyLabel(strategy: Strategy, t: ReturnType<typeof usePreferences>[
   return labels[strategy];
 }
 
+function strategyNeedsThreshold(strategy: Strategy) {
+  return strategy === "Fuzzy" || strategy === "Hybrid" || strategy === "Composite";
+}
+
+function strategyNeedsCandidates(strategy: Strategy) {
+  return strategy === "Fuzzy" || strategy === "Hybrid" || strategy === "Composite";
+}
+
+function strategyNeedsAlgorithms(strategy: Strategy) {
+  return strategy === "Fuzzy" || strategy === "Hybrid" || strategy === "Composite";
+}
+
+function resolveConfiguredAlgorithm(
+  field: {
+    id: string;
+    reference: string;
+    input: string;
+    type: FieldType;
+    algorithm: ConfigureAlgorithm;
+  },
+  strategy: Strategy,
+  fieldAlgorithms: Record<string, ConfigureAlgorithm>,
+): ConfigureAlgorithm {
+  if (strategy === "Exact" || strategy === "Rule-Based") {
+    return defaultExactAlgorithmForField(field.reference, field.input, field.type);
+  }
+
+  return fieldAlgorithms[field.id] ?? field.algorithm;
+}
+
+function normalizeConfiguredAlgorithm(value: string): ConfigureAlgorithm {
+  const algorithms: ConfigureAlgorithm[] = [...RECOMMENDED_ALGORITHMS, ...MORE_ALGORITHMS];
+  return algorithms.includes(value as ConfigureAlgorithm)
+    ? (value as ConfigureAlgorithm)
+    : "Jaro-Winkler";
+}
+
 function fieldSelectionDescription(strategy: Strategy, t: ReturnType<typeof usePreferences>["t"]) {
   if (strategy === "Hybrid" || strategy === "Composite")
     return t("matching.config.fieldSelectionHybridDesc");
@@ -2143,15 +2486,26 @@ function ThresholdInput({
   );
 }
 
+function RunConfigItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xs font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
 function StepRun({
   state,
   progress,
+  configuration,
   onStart,
   onRetry,
   onBack,
 }: {
   state: RunState;
   progress: number;
+  configuration: MatchingConfiguration | null;
   onStart: () => void;
   onRetry: () => void;
   onBack: () => void;
@@ -2179,6 +2533,35 @@ function StepRun({
               {t("matching.run.start")}
             </button>
           </div>
+          {configuration && (
+            <div
+              className="mt-5 grid gap-3 rounded-lg border border-border bg-secondary/20 p-4 md:grid-cols-4"
+              data-testid="run-configuration-summary"
+            >
+              <RunConfigItem
+                label={t("matching.run.configPreset")}
+                value={presetLabel(configuration.preset, t)}
+              />
+              <RunConfigItem
+                label={t("matching.run.configStrategy")}
+                value={strategyLabel(configuration.strategy, t)}
+              />
+              <RunConfigItem
+                label={t("matching.run.configFields")}
+                value={String(configuration.fields.length)}
+              />
+              <RunConfigItem
+                label={t("matching.run.configCandidates")}
+                value={
+                  configuration.candidateGeneration
+                    ? t("matching.config.topN", {
+                        count: configuration.candidateGeneration.topN,
+                      })
+                    : t("matching.config.notRequired")
+                }
+              />
+            </div>
+          )}
         </div>
       )}
 

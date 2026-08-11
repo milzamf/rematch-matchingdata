@@ -25,6 +25,8 @@
 - Conditional Configure flow for Exact, Fuzzy, Composite / Hybrid, and Rule-Based strategies.
 - Default algorithm recommendations per mapped field type/name, with advanced algorithms hidden behind More Algorithms.
 - Configure validation for active fields, thresholds, candidate count, manual weights, and rule text.
+- Workflow-level Configure state snapshot for future Matching Engine handoff.
+- Run step configuration summary sourced from saved Configure state.
 
 ### Improved
 
@@ -36,10 +38,12 @@
 - Mapping page now focuses only on reference/input column pairing; matching algorithm selection is deferred to Configure.
 - Configure technical controls are now grouped under collapsed Advanced Settings for progressive disclosure.
 - Configure now shows only controls relevant to the selected strategy.
+- Configure now stores only relevant active settings for the selected preset or custom strategy.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 
 ### Notes
 
 - Matching engine execution, AI service integration, export generation, audit persistence, and authentication are not implemented yet.
-- Configure, Run, Review, Sync, Export, and Results still use mock/local state.
+- Run, Review, Sync, Export, and Results still use mock/local state.
+- Configure state is frontend-only and is not persisted to the backend yet.

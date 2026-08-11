@@ -1,6 +1,6 @@
 # BatchMatch - Implementation Status
 
-Last Updated: 2026-08-01
+Last Updated: 2026-08-11
 Version: MVP v0.1.0
 
 ## Overall Progress
@@ -20,19 +20,19 @@ Version: MVP v0.1.0
 
 ## Frontend
 
-| Area      | Status                                                                                                   |
-| --------- | -------------------------------------------------------------------------------------------------------- |
-| Dashboard | UI complete, still uses mock data.                                                                       |
-| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                            |
-| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                          |
-| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.    |
-| Configure | UX complete with Quick Setup, Summary Configuration, conditional Advanced Settings, and local state. |
-| Run       | UI simulation only.                                                                                      |
-| Review    | UI complete, still uses mock data.                                                                       |
-| Sync      | UI complete, still uses mock/local state.                                                                |
-| Export    | UI complete, still uses mock data.                                                                       |
-| Results   | UI complete, still uses mock data.                                                                       |
-| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.   |
+| Area      | Status                                                                                                 |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| Dashboard | UI complete, still uses mock data.                                                                     |
+| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                          |
+| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                        |
+| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
+| Configure | Logic complete with conditional configuration state ready for the future Matching Engine.              |
+| Run       | UI simulation only.                                                                                    |
+| Review    | UI complete, still uses mock data.                                                                     |
+| Sync      | UI complete, still uses mock/local state.                                                              |
+| Export    | UI complete, still uses mock data.                                                                     |
+| Results   | UI complete, still uses mock data.                                                                     |
+| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete. |
 
 ## Backend
 
@@ -94,7 +94,7 @@ Milestone 2: Real Column Mapping
 | Backend tests                                 | Added    |
 | Frontend tests                                | Added    |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 3A: Configure UX
 
@@ -114,11 +114,28 @@ Milestone 3A: Configure UX
 | Configure state remains local/engine-ready    | Complete |
 | Backend/API/database changes                  | None     |
 
+## Current Milestone
+
+Milestone 3B: Configure Logic
+
+| Requirement                                 | Status   |
+| ------------------------------------------- | -------- |
+| Preset default configuration logic          | Complete |
+| Custom conditional configuration logic      | Complete |
+| Exact/Fuzzy/Hybrid/Rule-Based validation    | Complete |
+| Field algorithm defaults by field type/name | Complete |
+| Automatic/manual normalization state        | Complete |
+| Automatic/manual candidate filtering state  | Complete |
+| Standard/custom output state                | Complete |
+| Workflow-level configuration snapshot       | Complete |
+| Run step reads saved configuration summary  | Complete |
+| Backend/API/database changes                | None     |
+
 ## Next Milestone
 
-Milestone 3B: Configure Integration Preparation
+Milestone 4: Matching Engine Preparation
 
-- Use frontend mapping state in Configure.
+- Define backend matching job/config payload contract.
 - Persist matching job and mapping after Auth/Workspace scope is ready.
 - Keep AI mapping suggestions deferred until AI Assistance milestone.
 
