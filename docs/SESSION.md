@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 7: Export Results completed.
+Milestone 5C.1: Smart Case-Based Review completed.
 
 ## Project Status
 
@@ -11,7 +11,7 @@ Milestone 7: Export Results completed.
 - Mapping: Done
 - Configure: Done for UX and workflow state, no backend persistence yet
 - Run: Done for backend MVP execution against inspected preview rows
-- Review: Done for real Matching Engine results, traceable case groups, and local review decisions
+- Review: Done for real Matching Engine results, smart case groups, traceable decisions, and deterministic bulk safety validation
 - Sync: Done for frontend finalization preview and local idempotent audit
 - Export: Done for frontend CSV/XLSX generation from latest review results
 
@@ -29,6 +29,7 @@ Milestone 7: Export Results completed.
 - Configure uses Quick Setup, Summary Configuration, conditional Advanced Settings, validation, and workflow-level configuration state.
 - Matching Engine MVP runs in Laravel with normalization, entity-aware name parsing, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
 - Review uses persisted matching results, groups similar cases across open/resolved states, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
+- Smart Review groups Need Review cases by deterministic fingerprints, shows representative samples/recommendations, and keeps unsafe bulk exceptions in Need Review.
 - Sync reads latest review decisions, blocks unresolved review, previews recommended plan, and stores a local idempotent audit per job.
 - Export reads latest review results and generates default/custom CSV or XLSX files from final matching data.
 
@@ -96,7 +97,9 @@ Upload
 - Review default view adalah Case Groups; All Records tetap tersedia.
 - Case grouping deterministic memakai case feature extraction, fingerprint, confidence High/Mixed/Unique, dan representative example.
 - Bulk decision hanya boleh untuk cluster homogen (`High`); Mixed/Unique harus direview granular.
+- Bulk Accept menjalankan deterministic safety validation; record dengan identifier conflict, legal form conflict, duplicate reference, atau strong-field conflict tetap `NEED_REVIEW`.
 - Review Knowledge disimpan di metadata review decision sebagai pola dan kondisi, bukan cluster ID saja.
+- Review Knowledge memiliki level `NEW_PATTERN` dan `KNOWN_PATTERN`; `TRUSTED_PATTERN` belum otomatis dipakai.
 - Case Groups memiliki filter Open/Resolved/All; resolved group tetap tampil dan bisa dibuka ulang.
 - Review decision menyimpan previous status, decided_at, source individual/group, reviewer lokal, affected records, dan batch id untuk undo group.
 - Sync default flow: Finalize Summary, Recommended Plan, Preview, Confirm Sync.

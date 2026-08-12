@@ -44,6 +44,7 @@ class ReviewResultService
                 'input_record_key' => $inputKey,
                 'status' => $decision?->new_result_type ?? $this->statusForGroup($group),
                 'display_status' => $this->displayStatus($decision, $this->statusForGroup($group)),
+                'status_code' => $this->statusCode($decision, $this->statusForGroup($group)),
                 'review_status' => $primary?->review_status ?? 'pending',
                 'decision' => $decision ? $this->decisionPayload($decision) : null,
                 'decision_history' => $history->map(fn (ReviewDecision $item) => $this->decisionPayload($item))->values()->all(),
@@ -88,6 +89,17 @@ class ReviewResultService
             $itemsByKey = collect($reviewSnapshot['items'])->keyBy('input_record_key');
             $caseGroupsById = collect($reviewSnapshot['case_groups'])->keyBy('id');
             $inputKeys = $this->targetInputKeys($payload, $scope, $caseGroupsById);
+            $inputKeys = $this->openInputKeys($itemsByKey, $inputKeys, $scope);
+            $safetyFailures = $this->bulkSafetyFailures($itemsByKey, $inputKeys, $decision, $scope, $payload);
+            $inputKeys = array_values(array_filter(
+                $inputKeys,
+                fn (string $inputKey) => ! isset($safetyFailures[$inputKey]),
+            ));
+
+            if ($inputKeys === []) {
+                throw new InvalidArgumentException('All selected records require individual review after safety validation.');
+            }
+
             $newType = $this->newResultType($decision);
             $audits = [];
             $knowledge = null;
@@ -110,7 +122,7 @@ class ReviewResultService
                 }
 
                 $previousType = $result?->result_type;
-                $knowledge = $knowledge ?? $this->reviewKnowledge($item, $decision, $scope, $payload);
+                $knowledge = $knowledge ?? $this->reviewKnowledge($job, $item, $decision, $scope, $payload);
 
                 if ($result !== null) {
                     $result->update([
@@ -147,6 +159,11 @@ class ReviewResultService
                         'case_group_id' => $payload['case_group_id'] ?? null,
                         'batch_id' => $batchId,
                         'affected_records' => count($inputKeys),
+                        'safety_validation' => [
+                            'applied' => in_array($scope, ['group', 'selected'], true),
+                            'passed' => true,
+                            'skipped_records' => array_values($safetyFailures),
+                        ],
                         'review_knowledge' => $knowledge,
                     ],
                 ]);
@@ -163,6 +180,8 @@ class ReviewResultService
                     'selected_reference_record_key' => $latestAudit->selected_reference_record_key,
                     'new_result_type' => $latestAudit->new_result_type,
                     'affected_records' => count($audits),
+                    'skipped_records' => array_values($safetyFailures),
+                    'skipped_count' => count($safetyFailures),
                 ],
                 'review' => $this->list($job->id),
             ];
@@ -242,6 +261,7 @@ class ReviewResultService
     private function caseGroups($items): array
     {
         return $items
+            ->filter(fn (array $item) => $this->isReviewCaseItem($item))
             ->groupBy(fn (array $item) => data_get($item, 'case_features.fingerprint'))
             ->map(function ($group, string $fingerprint) {
                 /** @var \Illuminate\Support\Collection<int, array<string, mixed>> $group */
@@ -262,6 +282,9 @@ class ReviewResultService
                     'reason' => data_get($representative, 'case_features.reason'),
                     'conditions' => data_get($representative, 'case_features.conditions', []),
                     'confidence' => $confidence,
+                    'consistency' => $this->caseConsistency($confidence),
+                    'recommendation' => $this->caseRecommendation((string) data_get($representative, 'case_features.pattern'), $confidence, $decisionSummary),
+                    'knowledge_level' => $this->knowledgeLevelFromHistory($group),
                     'eligible_for_bulk' => $confidence === 'High' && $groupStatus === 'open',
                     'item_count' => $group->count(),
                     'reviewed_count' => $group->filter(fn (array $item) => $item['decision'] !== null)->count(),
@@ -273,6 +296,11 @@ class ReviewResultService
                     'item_keys' => $group->pluck('input_record_key')->values()->all(),
                     'representative_input_key' => $representative['input_record_key'] ?? null,
                     'representative' => $representative,
+                    'representative_samples' => $group
+                        ->sortByDesc(fn (array $item) => data_get($item, 'candidates.0.score', 0))
+                        ->take(3)
+                        ->values()
+                        ->all(),
                 ];
             })
             ->sortBy(fn (array $group) => ['High' => 0, 'Mixed' => 1, 'Unique' => 2][$group['confidence']] ?? 3)
@@ -296,6 +324,8 @@ class ReviewResultService
             'affected_records' => (int) data_get($decision->metadata, 'affected_records', 1),
             'case_group_id' => data_get($decision->metadata, 'case_group_id'),
             'batch_id' => data_get($decision->metadata, 'batch_id'),
+            'review_knowledge' => data_get($decision->metadata, 'review_knowledge'),
+            'safety_validation' => data_get($decision->metadata, 'safety_validation'),
         ];
     }
 
@@ -315,6 +345,24 @@ class ReviewResultService
             'possible_match' => 'need_review',
             'unmatched' => 'unmatched',
             default => $baseStatus,
+        };
+    }
+
+    private function statusCode(?ReviewDecision $decision, string $baseStatus): string
+    {
+        if ($decision !== null) {
+            return match ($decision->decision) {
+                'accept_match', 'select_candidate' => 'MANUAL_ACCEPTED',
+                'reject_match' => 'MANUAL_REJECTED',
+                'mark_unmatched' => 'CONFIRMED_UNMATCHED',
+                default => 'NEED_REVIEW',
+            };
+        }
+
+        return match ($baseStatus) {
+            'matched' => 'AUTO_MATCHED',
+            'possible_match' => 'NEED_REVIEW',
+            default => 'NEED_REVIEW',
         };
     }
 
@@ -444,6 +492,59 @@ class ReviewResultService
         };
     }
 
+    private function caseConsistency(string $confidence): string
+    {
+        return match ($confidence) {
+            'High' => 'High',
+            'Mixed' => 'Mixed',
+            default => 'Unique',
+        };
+    }
+
+    private function caseRecommendation(string $pattern, string $confidence, array $decisionSummary): string
+    {
+        if (($decisionSummary['pending'] ?? 0) === 0) {
+            return 'Resolved. Keep the decision history for audit.';
+        }
+
+        if ($confidence !== 'High') {
+            return 'Review individually before applying any bulk decision.';
+        }
+
+        return match ($pattern) {
+            'LEGAL_FORM_CONFLICT', 'FIELD_CONFLICT' => 'Reject group unless the representative sample is intentionally the same entity.',
+            'SIMILAR_NAME_REVIEW' => 'Accept group after checking representative samples.',
+            'NO_CANDIDATE' => 'Mark as unmatched or review source data.',
+            default => 'Review samples, then apply the recommended group decision.',
+        };
+    }
+
+    private function knowledgeLevelFromHistory($group): string
+    {
+        $knowledge = $group
+            ->flatMap(fn (array $item) => $item['decision_history'] ?? [])
+            ->pluck('review_knowledge')
+            ->filter();
+
+        if ($knowledge->count() >= 2 && $knowledge->pluck('decision')->unique()->count() === 1) {
+            return 'KNOWN_PATTERN';
+        }
+
+        return 'NEW_PATTERN';
+    }
+
+    private function isReviewCaseItem(array $item): bool
+    {
+        $status = (string) ($item['display_status'] ?? $item['status'] ?? '');
+
+        return in_array($status, [
+            'need_review',
+            'manual_accepted',
+            'manual_rejected',
+            'confirmed_unmatched',
+        ], true) || $item['decision'] !== null;
+    }
+
     /**
      * @param array<string, mixed> $payload
      * @param \Illuminate\Support\Collection<string, array<string, mixed>> $caseGroupsById
@@ -487,6 +588,81 @@ class ReviewResultService
     }
 
     /**
+     * @param \Illuminate\Support\Collection<string, array<string, mixed>> $itemsByKey
+     * @param array<int, string> $inputKeys
+     * @return array<int, string>
+     */
+    private function openInputKeys($itemsByKey, array $inputKeys, string $scope): array
+    {
+        if (! in_array($scope, ['group', 'selected'], true)) {
+            return $inputKeys;
+        }
+
+        return array_values(array_filter($inputKeys, function (string $inputKey) use ($itemsByKey) {
+            $item = $itemsByKey->get($inputKey);
+
+            return is_array($item) && empty($item['decision']);
+        }));
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<string, array<string, mixed>> $itemsByKey
+     * @param array<int, string> $inputKeys
+     * @return array<string, array<string, mixed>>
+     */
+    private function bulkSafetyFailures($itemsByKey, array $inputKeys, string $decision, string $scope, array $payload): array
+    {
+        if (! in_array($scope, ['group', 'selected'], true) || ! in_array($decision, ['accept_match', 'select_candidate'], true)) {
+            return [];
+        }
+
+        $referenceCounts = [];
+        $candidatesByKey = [];
+
+        foreach ($inputKeys as $inputKey) {
+            $item = $itemsByKey->get($inputKey);
+            $candidate = is_array($item) ? $this->candidateForDecision($item, $payload, false) : null;
+            $referenceKey = (string) ($candidate['reference_record_key'] ?? '');
+            $candidatesByKey[$inputKey] = $candidate;
+
+            if ($referenceKey !== '') {
+                $referenceCounts[$referenceKey] = ($referenceCounts[$referenceKey] ?? 0) + 1;
+            }
+        }
+
+        $failures = [];
+
+        foreach ($inputKeys as $inputKey) {
+            $item = $itemsByKey->get($inputKey);
+            $candidate = $candidatesByKey[$inputKey] ?? null;
+            $referenceKey = (string) ($candidate['reference_record_key'] ?? '');
+            $reason = null;
+
+            if (! is_array($item) || ! is_array($candidate) || $referenceKey === '') {
+                $reason = 'No reference candidate is available.';
+            } elseif ((bool) data_get($item, 'case_features.conditions.legal_form_conflict', false)) {
+                $reason = 'Legal form conflict must be reviewed individually.';
+            } elseif (($referenceCounts[$referenceKey] ?? 0) > 1) {
+                $reason = 'Multiple input records point to the same reference record.';
+            } elseif ($this->hasIdentifierConflict($candidate)) {
+                $reason = 'Identifier conflict must be reviewed individually.';
+            } elseif ($this->hasContradictoryStrongField($candidate)) {
+                $reason = 'A strong supporting field contradicts the candidate.';
+            }
+
+            if ($reason !== null) {
+                $failures[$inputKey] = [
+                    'input_record_key' => $inputKey,
+                    'reference_record_key' => $referenceKey ?: null,
+                    'reason' => $reason,
+                ];
+            }
+        }
+
+        return $failures;
+    }
+
+    /**
      * @param array<string, mixed> $item
      * @param array<string, mixed> $payload
      * @return array<string, mixed>|null
@@ -507,17 +683,44 @@ class ReviewResultService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    private function reviewKnowledge(array $item, string $decision, string $scope, array $payload): array
+    private function reviewKnowledge(MatchingJob $job, array $item, string $decision, string $scope, array $payload): array
     {
         $features = $item['case_features'] ?? $this->caseFeatures($item);
+        $level = $this->knowledgeLevel($job, $features, $decision);
 
         return [
+            'level' => $level,
             'pattern' => $features['pattern'] ?? 'UNKNOWN',
             'conditions' => $features['conditions'] ?? [],
             'decision' => $this->knowledgeDecision($decision),
             'scope' => $scope,
             'case_group_id' => $payload['case_group_id'] ?? null,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $features
+     */
+    private function knowledgeLevel(MatchingJob $job, array $features, string $decision): string
+    {
+        $pattern = (string) ($features['pattern'] ?? 'UNKNOWN');
+        $targetDecision = $this->knowledgeDecision($decision);
+        $matchingDecisions = $job->reviewDecisions()
+            ->whereNull('undone_at')
+            ->get()
+            ->filter(fn (ReviewDecision $item) => data_get($item->metadata, 'review_knowledge.pattern') === $pattern);
+
+        if (
+            $matchingDecisions->count() >= 2
+            && $matchingDecisions
+                ->filter(fn (ReviewDecision $item) => data_get($item->metadata, 'review_knowledge.decision') === $targetDecision)
+                ->count() === $matchingDecisions->count()
+            && ! (bool) ($features['conditions']['legal_form_conflict'] ?? false)
+        ) {
+            return 'KNOWN_PATTERN';
+        }
+
+        return 'NEW_PATTERN';
     }
 
     private function knowledgeDecision(string $decision): string
@@ -543,6 +746,57 @@ class ReviewResultService
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function hasIdentifierConflict(array $candidate): bool
+    {
+        return collect($candidate['field_scores'] ?? [])->contains(function (array $score) {
+            $field = strtolower((string) ($score['reference_column'] ?? '').' '.(string) ($score['input_column'] ?? ''));
+
+            return $this->isIdentifierField($field)
+                && ($score['comparison'] ?? null) === 'different'
+                && (float) ($score['score'] ?? 0) < 95;
+        });
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function hasContradictoryStrongField(array $candidate): bool
+    {
+        return collect($candidate['field_scores'] ?? [])->contains(function (array $score) {
+            $field = strtolower((string) ($score['reference_column'] ?? '').' '.(string) ($score['input_column'] ?? ''));
+
+            return $this->isStrongField($field)
+                && ($score['comparison'] ?? null) === 'different'
+                && (float) ($score['score'] ?? 0) < 75;
+        });
+    }
+
+    private function isIdentifierField(string $field): bool
+    {
+        return Str::contains($field, ['nik', 'npwp', 'id', 'identifier', 'kode', 'code']);
+    }
+
+    private function isStrongField(string $field): bool
+    {
+        return Str::contains($field, [
+            'nik',
+            'npwp',
+            'id',
+            'identifier',
+            'kode',
+            'code',
+            'email',
+            'phone',
+            'telepon',
+            'telp',
+            'tanggal',
+            'date',
+        ]);
     }
 
     /**

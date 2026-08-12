@@ -36,6 +36,7 @@
 - Case-grouped Review with deterministic fingerprints, confidence labels, representative examples, and bulk eligibility rules.
 - Review Knowledge metadata storing decision patterns and conditions for future matching runs.
 - Traceable Review case groups with Open / Resolved / All filters, decision history, decision source, affected records, and batch undo.
+- Smart case-based Review with recommendations, representative samples, deterministic bulk safety validation, and Review Knowledge levels.
 - Sync finalization preview using latest review decisions, recommended plan, unresolved-review warning, and local idempotent audit.
 - Export Results step with default and custom export modes sourced from latest review decisions.
 - Client-side CSV and XLSX export generation for final matching rows and review decision summary.
@@ -57,6 +58,7 @@
 - Explicit PT vs CV conflicts are downgraded to review instead of becoming Auto Match; missing legal form or missing Persero/Tbk is not treated as automatic conflict.
 - Review now defaults to Case Groups while preserving All Records review for granular decisions.
 - Bulk review decisions are blocked for mixed or unique groups that are not homogeneous enough.
+- Bulk Accept now applies only to records that pass safety validation; exceptions remain in Need Review.
 - Accepted or rejected case groups remain visible under Resolved instead of disappearing.
 - Sync flow is simplified to Finalize Summary -> Recommended Plan -> Preview -> Confirm Sync.
 - Export now shows record-count preview, generated filename, format selection, loading, success, and error feedback.

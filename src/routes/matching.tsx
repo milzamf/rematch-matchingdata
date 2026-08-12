@@ -2807,8 +2807,8 @@ function StepReview({ jobId }: { jobId: string | null }) {
         matchingResultId: candidate?.id,
         decision,
       });
-      setReview(next);
-      const updated = next.items.find(
+      setReview(next.review);
+      const updated = next.review.items.find(
         (nextItem) => nextItem.input_record_key === item.input_record_key,
       );
       setSelected(updated ?? null);
@@ -2852,9 +2852,14 @@ function StepReview({ jobId }: { jobId: string | null }) {
         scope,
         caseGroupId: group.id,
       });
-      setReview(next);
+      setReview(next.review);
       setSelectedGroupKeys((current) => ({ ...current, [group.id]: [] }));
-      toast.success(t("matching.review.groupDecisionSaved", { count: keys.length }));
+      toast.success(
+        t("matching.review.groupDecisionSaved", {
+          count: next.decision.affected_records,
+          skipped: next.decision.skipped_count ?? 0,
+        }),
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
     } finally {
@@ -2990,6 +2995,13 @@ function StepReview({ jobId }: { jobId: string | null }) {
             setSelected(item);
             setSelectedCandidateId(candidate?.id ?? null);
           }}
+          onReviewIndividually={(item) => {
+            const candidate = item.candidates[0] ?? null;
+            setViewMode("all_records");
+            setFilter("possible_match");
+            setSelected(item);
+            setSelectedCandidateId(candidate?.id ?? null);
+          }}
           onDecide={decideCaseGroup}
           onUndo={undoDecision}
         />
@@ -3106,8 +3118,15 @@ function StepReview({ jobId }: { jobId: string | null }) {
                             {candidate ? `${candidate.score}%` : "-"}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={statusBadgeClass(item.display_status ?? item.status)}>
-                              {reviewStatusLabel(item.display_status ?? item.status, t)}
+                            <span
+                              className={statusBadgeClass(
+                                item.status_code ?? item.display_status ?? item.status,
+                              )}
+                            >
+                              {reviewStatusLabel(
+                                item.status_code ?? item.display_status ?? item.status,
+                                t,
+                              )}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums text-xs text-muted-foreground">
@@ -3175,7 +3194,10 @@ function StepReview({ jobId }: { jobId: string | null }) {
                 <SheetTitle className="text-base">{t("matching.review.compare")}</SheetTitle>
                 <SheetDescription>
                   {selected.input_record_key} ·{" "}
-                  {reviewStatusLabel(selected.display_status ?? selected.status, t)}
+                  {reviewStatusLabel(
+                    selected.status_code ?? selected.display_status ?? selected.status,
+                    t,
+                  )}
                 </SheetDescription>
               </SheetHeader>
 
@@ -3310,6 +3332,7 @@ function CaseGroupsReview({
   onDecide,
   onFilterChange,
   onOpenRecord,
+  onReviewIndividually,
   onToggleKey,
   onUndo,
   saving,
@@ -3324,6 +3347,7 @@ function CaseGroupsReview({
   onFilterChange: (filter: CaseGroupFilter) => void;
   onToggleKey: (group: ReviewCaseGroup, key: string) => void;
   onOpenRecord: (item: ReviewItem) => void;
+  onReviewIndividually: (item: ReviewItem) => void;
   onUndo: (decisionId: string) => void;
   onDecide: (
     group: ReviewCaseGroup,
@@ -3371,9 +3395,12 @@ function CaseGroupsReview({
           const selectedKeys = selectedKeysByGroup[group.id] ?? [];
           const representative = group.representative;
           const candidate = representative.candidates[0] ?? null;
-          const previewItems = group.item_keys
-            .map((key) => itemsByKey.get(key))
-            .filter((item): item is ReviewItem => Boolean(item));
+          const previewItems =
+            group.representative_samples ??
+            group.item_keys
+              .map((key) => itemsByKey.get(key))
+              .filter((item): item is ReviewItem => Boolean(item))
+              .slice(0, 3);
           const canAccept = Boolean(candidate?.reference_record_key);
           const isResolved = group.status === "resolved";
           const latestDecision = group.decision_history?.[0] ?? null;
@@ -3393,6 +3420,9 @@ function CaseGroupsReview({
                     <span className={caseConfidenceClass(group.confidence)}>
                       {caseConfidenceLabel(group.confidence, t)}
                     </span>
+                    <span className={knowledgeLevelClass(group.knowledge_level ?? "NEW_PATTERN")}>
+                      {knowledgeLevelLabel(group.knowledge_level ?? "NEW_PATTERN", t)}
+                    </span>
                     <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                       {t("matching.review.caseCount", { count: group.item_count })}
                     </span>
@@ -3403,6 +3433,14 @@ function CaseGroupsReview({
                     )}
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>
+                  {group.recommendation && (
+                    <p className="mt-2 text-xs font-medium text-foreground">
+                      {t("matching.review.recommendation")}:{" "}
+                      <span className="font-normal text-muted-foreground">
+                        {group.recommendation}
+                      </span>
+                    </p>
+                  )}
                   <p className="mt-2 text-xs text-muted-foreground">
                     {t("matching.review.representative")}:{" "}
                     <span className="font-medium text-foreground">
@@ -3443,6 +3481,22 @@ function CaseGroupsReview({
                     </button>
                   ) : (
                     <>
+                      <button
+                        type="button"
+                        onClick={() => onOpenRecord(representative)}
+                        disabled={saving}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                      >
+                        {t("matching.review.reviewMore")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onReviewIndividually(representative)}
+                        disabled={saving}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                      >
+                        {t("matching.review.reviewIndividually")}
+                      </button>
                       <button
                         type="button"
                         onClick={() => onDecide(group, "accept_match", "group")}
@@ -3538,9 +3592,14 @@ function CaseGroupsReview({
                             </td>
                             <td className="px-3 py-2">
                               <span
-                                className={statusBadgeClass(item.display_status ?? item.status)}
+                                className={statusBadgeClass(
+                                  item.status_code ?? item.display_status ?? item.status,
+                                )}
                               >
-                                {reviewStatusLabel(item.display_status ?? item.status, t)}
+                                {reviewStatusLabel(
+                                  item.status_code ?? item.display_status ?? item.status,
+                                  t,
+                                )}
                               </span>
                             </td>
                             <td
@@ -3738,13 +3797,23 @@ function scoreTone(score: number) {
 
 function statusBadgeClass(status: string) {
   const base = "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold";
-  if (["matched", "auto_matched", "manual_accepted"].includes(status)) {
+  if (
+    ["matched", "auto_matched", "manual_accepted", "AUTO_MATCHED", "MANUAL_ACCEPTED"].includes(
+      status,
+    )
+  ) {
     return `${base} bg-success/10 text-success`;
   }
-  if (["possible_match", "need_review", "manual_rejected"].includes(status)) {
+  if (
+    ["possible_match", "need_review", "manual_rejected", "NEED_REVIEW", "MANUAL_REJECTED"].includes(
+      status,
+    )
+  ) {
     return `${base} bg-warning/10 text-warning`;
   }
-  if (status === "confirmed_unmatched") return `${base} bg-destructive/10 text-destructive`;
+  if (["confirmed_unmatched", "CONFIRMED_UNMATCHED"].includes(status)) {
+    return `${base} bg-destructive/10 text-destructive`;
+  }
   return `${base} bg-secondary text-muted-foreground`;
 }
 
@@ -3761,6 +3830,11 @@ function reviewFilterLabel(filter: ReviewFilter, t: ReturnType<typeof usePrefere
 }
 
 function reviewStatusLabel(status: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (status === "NEED_REVIEW") return t("matching.review.statusNeedReview");
+  if (status === "AUTO_MATCHED") return t("matching.review.statusAutoMatched");
+  if (status === "MANUAL_ACCEPTED") return t("matching.review.statusManualAccepted");
+  if (status === "MANUAL_REJECTED") return t("matching.review.statusManualRejected");
+  if (status === "CONFIRMED_UNMATCHED") return t("matching.review.statusConfirmedUnmatched");
   if (status === "need_review") return t("matching.review.statusNeedReview");
   if (status === "auto_matched") return t("matching.review.statusAutoMatched");
   if (status === "manual_accepted") return t("matching.review.statusManualAccepted");
@@ -3825,6 +3899,21 @@ function caseConfidenceClass(confidence: string) {
   }
 
   return "rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground";
+}
+
+function knowledgeLevelLabel(level: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (level === "KNOWN_PATTERN") return t("matching.review.knownPattern");
+  if (level === "TRUSTED_PATTERN") return t("matching.review.trustedPattern");
+  return t("matching.review.newPattern");
+}
+
+function knowledgeLevelClass(level: string) {
+  const base = "rounded-full border px-2 py-0.5 text-[11px] font-semibold";
+
+  if (level === "KNOWN_PATTERN") return `${base} border-brand/30 bg-brand/10 text-brand`;
+  if (level === "TRUSTED_PATTERN") return `${base} border-success/30 bg-success/10 text-success`;
+
+  return `${base} border-border bg-secondary text-muted-foreground`;
 }
 
 function comparisonLabel(comparison: string, t: ReturnType<typeof usePreferences>["t"]) {

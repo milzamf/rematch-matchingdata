@@ -20,19 +20,19 @@ Version: MVP v0.1.0
 
 ## Frontend
 
-| Area      | Status                                                                                                      |
-| --------- | ----------------------------------------------------------------------------------------------------------- |
-| Dashboard | UI complete, still uses mock data.                                                                          |
-| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                               |
-| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                             |
-| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.       |
-| Configure | Logic complete with conditional configuration state ready for the future Matching Engine.                   |
-| Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                               |
-| Review    | Uses real Matching Engine results with open/resolved case groups, decision history, bulk actions, and undo. |
-| Sync      | Uses latest review decisions for frontend finalization preview and local idempotent audit.                  |
-| Export    | Generates default/custom CSV and XLSX files from latest Review results.                                     |
-| Results   | UI complete, still uses mock data.                                                                          |
-| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.      |
+| Area      | Status                                                                                                               |
+| --------- | -------------------------------------------------------------------------------------------------------------------- |
+| Dashboard | UI complete, still uses mock data.                                                                                   |
+| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                                        |
+| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                                      |
+| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.                |
+| Configure | Logic complete with conditional configuration state ready for the future Matching Engine.                            |
+| Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                                        |
+| Review    | Uses real Matching Engine results with smart case groups, safety-validated bulk actions, decision history, and undo. |
+| Sync      | Uses latest review decisions for frontend finalization preview and local idempotent audit.                           |
+| Export    | Generates default/custom CSV and XLSX files from latest Review results.                                              |
+| Results   | UI complete, still uses mock data.                                                                                   |
+| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.               |
 
 ## Backend
 
@@ -47,7 +47,7 @@ Version: MVP v0.1.0
 | Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                                              |
 | Auth API                 | Not started.                                                                                                                  |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
-| Review Knowledge         | Deterministic review patterns are stored in review decision metadata.                                                         |
+| Review Knowledge         | Deterministic review patterns and knowledge levels are stored in review decision metadata.                                    |
 | Export Engine            | Frontend-only CSV/XLSX generation exists; server-side export persistence not started.                                         |
 
 ## Database
@@ -201,6 +201,22 @@ Milestone 5C: Case-Grouped Review & Review Knowledge
 
 ## Completed Milestone
 
+Milestone 5C.1: Smart Case-Based Review
+
+| Requirement                                                   | Status   |
+| ------------------------------------------------------------- | -------- |
+| Default Case Groups view for Need Review records              | Complete |
+| Deterministic fingerprint grouping and representative samples | Complete |
+| Case reason, count, consistency, confidence, recommendation   | Complete |
+| Accept Group, Reject Group, Review More, Review Individually  | Complete |
+| Bulk safety validation after human decision                   | Complete |
+| Unsafe records stay in Need Review without failing the group  | Complete |
+| Status code support for AUTO_MATCHED / MANUAL / NEED_REVIEW   | Complete |
+| Review Knowledge levels NEW_PATTERN and KNOWN_PATTERN         | Complete |
+| LLM, AI, Workspace, Authentication                            | Deferred |
+
+## Completed Milestone
+
 Milestone 5D: Review Traceability Fix and Sync Finalization
 
 | Requirement                                                                                             | Status   |
@@ -218,7 +234,7 @@ Milestone 5D: Review Traceability Fix and Sync Finalization
 | Local idempotent sync audit per job                                                                     | Complete |
 | Server-side sync persistence, Export, Auth, Workspace, AI                                               | Deferred |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 7: Export Results
 

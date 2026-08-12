@@ -143,6 +143,74 @@ class ReviewResultsTest extends TestCase
             ->assertJsonPath('data.review.case_groups.0.status', 'open');
     }
 
+    public function test_bulk_accept_skips_records_that_fail_safety_validation(): void
+    {
+        $reference = $this->dataset('reference');
+        $input = $this->dataset('input');
+        $job = MatchingJob::create([
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'Bulk Safety Smoke',
+            'status' => 'completed',
+            'processed_count' => 3,
+            'total_count' => 3,
+        ]);
+
+        foreach ([['1', 'A'], ['2', 'B'], ['3', 'B']] as [$inputKey, $referenceKey]) {
+            $job->results()->create([
+                'input_record_key' => $inputKey,
+                'reference_record_key' => $referenceKey,
+                'result_type' => 'possible_match',
+                'overall_score' => 88,
+                'candidate_rank' => 1,
+                'field_scores' => [[
+                    'reference_column' => 'name',
+                    'input_column' => 'name',
+                    'score' => 88,
+                ]],
+                'candidate_metadata' => [
+                    'input_record' => ['name' => "Satu Data {$inputKey}"],
+                    'reference_record' => ['name' => "PT Satu Data {$referenceKey}"],
+                ],
+                'decision_reason' => 'Similar entity candidate',
+            ]);
+        }
+
+        $groupId = $this->getJson("/api/matching-jobs/{$job->id}/review-results")
+            ->assertOk()
+            ->assertJsonPath('data.case_groups.0.eligible_for_bulk', true)
+            ->assertJsonPath('data.case_groups.0.knowledge_level', 'NEW_PATTERN')
+            ->json('data.case_groups.0.id');
+
+        $response = $this->postJson("/api/matching-jobs/{$job->id}/review-decisions", [
+            'input_record_key' => '1',
+            'decision' => 'accept_match',
+            'scope' => 'group',
+            'case_group_id' => $groupId,
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.decision.affected_records', 1)
+            ->assertJsonPath('data.decision.skipped_count', 2);
+
+        $items = collect($response->json('data.review.items'))->keyBy('input_record_key');
+        $this->assertSame('MANUAL_ACCEPTED', $items->get('1')['status_code']);
+        $this->assertSame('NEED_REVIEW', $items->get('2')['status_code']);
+        $this->assertSame('NEED_REVIEW', $items->get('3')['status_code']);
+
+        $this->assertDatabaseHas('matching_results', [
+            'matching_job_id' => $job->id,
+            'input_record_key' => '1',
+            'result_type' => 'matched',
+            'review_status' => 'reviewed',
+        ]);
+        $this->assertDatabaseHas('matching_results', [
+            'matching_job_id' => $job->id,
+            'input_record_key' => '2',
+            'result_type' => 'possible_match',
+            'review_status' => 'pending',
+        ]);
+    }
+
     private function dataset(string $role): Dataset
     {
         return Dataset::create([

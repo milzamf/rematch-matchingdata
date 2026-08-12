@@ -139,12 +139,30 @@ export type ReviewDecisionSummary = {
   affected_records?: number;
   case_group_id?: string | null;
   batch_id?: string | null;
+  review_knowledge?: {
+    level?: "NEW_PATTERN" | "KNOWN_PATTERN" | "TRUSTED_PATTERN" | string;
+    pattern?: string;
+    decision?: string;
+    conditions?: Record<string, unknown>;
+  } | null;
+  safety_validation?: {
+    applied?: boolean;
+    passed?: boolean;
+    skipped_records?: ReviewSafetyRecord[];
+  } | null;
 };
 
 export type ReviewItem = {
   input_record_key: string;
   status: "matched" | "possible_match" | "unmatched" | string;
   display_status?: string;
+  status_code?:
+    | "AUTO_MATCHED"
+    | "MANUAL_ACCEPTED"
+    | "MANUAL_REJECTED"
+    | "CONFIRMED_UNMATCHED"
+    | "NEED_REVIEW"
+    | string;
   review_status: string;
   decision: ReviewDecisionSummary | null;
   decision_history?: ReviewDecisionSummary[];
@@ -167,6 +185,9 @@ export type ReviewCaseGroup = {
   reason: string;
   conditions: Record<string, unknown>;
   confidence: "High" | "Mixed" | "Unique" | string;
+  consistency?: "High" | "Mixed" | "Unique" | string;
+  recommendation?: string;
+  knowledge_level?: "NEW_PATTERN" | "KNOWN_PATTERN" | "TRUSTED_PATTERN" | string;
   eligible_for_bulk: boolean;
   item_count: number;
   reviewed_count: number;
@@ -181,6 +202,27 @@ export type ReviewCaseGroup = {
   item_keys: string[];
   representative_input_key: string | null;
   representative: ReviewItem;
+  representative_samples?: ReviewItem[];
+};
+
+export type ReviewSafetyRecord = {
+  input_record_key: string;
+  reference_record_key: string | null;
+  reason: string;
+};
+
+export type ReviewDecisionResult = {
+  decision: {
+    id: string;
+    decision: string;
+    input_record_key: string;
+    selected_reference_record_key: string | null;
+    new_result_type: string;
+    affected_records: number;
+    skipped_records?: ReviewSafetyRecord[];
+    skipped_count?: number;
+  };
+  review: ReviewResults;
 };
 
 export type ReviewResults = {
@@ -304,7 +346,7 @@ export async function fetchReviewResults(jobId: string): Promise<ReviewResults> 
 export async function saveReviewDecision(
   jobId: string,
   input: ReviewDecisionInput,
-): Promise<ReviewResults> {
+): Promise<ReviewDecisionResult> {
   const response = await fetch(`${API_BASE_URL}/matching-jobs/${jobId}/review-decisions`, {
     method: "POST",
     headers: {
@@ -332,7 +374,7 @@ export async function saveReviewDecision(
     );
   }
 
-  return payload.data.review;
+  return payload.data;
 }
 
 export async function undoReviewDecision(
