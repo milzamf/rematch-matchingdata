@@ -41,6 +41,12 @@ import {
   normalizeStoredExportHistory,
   type StoredExportHistoryEntry,
 } from "@/lib/result-exports";
+import {
+  buildIdentitySummary,
+  extractIdentityMappings,
+  type IdentitySemantic,
+  type IdentitySummary,
+} from "@/lib/result-identity";
 import { buildMatchingSearch, validateWorkflowSearch } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/results")({
@@ -195,6 +201,10 @@ function ResultsPage() {
   const matchingConfig = readRecord(workflowConfig.matchingConfiguration);
   const matchingPreset = readString(matchingConfig.preset);
   const matchingStrategy = readString(matchingConfig.strategy);
+  const identityMappings = useMemo(
+    () => extractIdentityMappings(workspace?.workflow_state),
+    [workspace?.workflow_state],
+  );
   const hasResults = Boolean(workspace && (workspace.matching_job_id ?? workspace.matching_job?.id) && items.length > 0);
   const activeStatuses = countFinalStatuses(items);
   const nextAction = buildNextAction({
@@ -413,23 +423,30 @@ function ResultsPage() {
                   syncSummary={syncSummary}
                 />
               )}
-              {tab === "matched" && <MatchedTab items={matchedItems} />}
+              {tab === "matched" && <MatchedTab items={matchedItems} identityMappings={identityMappings} />}
               {tab === "review" && (
                 <NeedReviewTab
                   caseGroupCount={reviewCaseCount}
+                  identityMappings={identityMappings}
                   items={needReviewItems}
                   workspaceId={workspace.id}
                   canReview={canReview}
                 />
               )}
               {tab === "unmatched" && (
-                <UnmatchedTab items={unmatchedItems} workspaceId={workspace.id} canReview={canReview} />
+                <UnmatchedTab
+                  identityMappings={identityMappings}
+                  items={unmatchedItems}
+                  workspaceId={workspace.id}
+                  canReview={canReview}
+                />
               )}
               {tab === "statistics" && <StatisticsTab items={items} />}
               {tab === "reviewHistory" && (
                 <ReviewHistoryTab
                   caseGroups={caseGroups}
                   historyView={historyView}
+                  identityMappings={identityMappings}
                   items={items}
                   onViewChange={setHistoryView}
                 />
@@ -605,7 +622,13 @@ function OverviewTab({
   );
 }
 
-function MatchedTab({ items }: { items: ReviewItem[] }) {
+function MatchedTab({
+  items,
+  identityMappings,
+}: {
+  items: ReviewItem[];
+  identityMappings: ReturnType<typeof extractIdentityMappings>;
+}) {
   const { t } = usePreferences();
 
   if (items.length === 0) {
@@ -634,10 +657,15 @@ function MatchedTab({ items }: { items: ReviewItem[] }) {
         <tbody className="divide-y divide-border">
           {items.map((item) => {
             const candidate = selectDisplayCandidate(item);
+            const identity = buildIdentitySummary(item, candidate, identityMappings);
             return (
               <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
-                <td className="px-6 py-4">{recordPreview(item.input_record)}</td>
-                <td className="px-6 py-4">{recordPreview(candidate?.reference_record ?? null)}</td>
+                <td className="px-6 py-4">
+                  <RecordIdentityPreview summary={identity} side="input" />
+                </td>
+                <td className="px-6 py-4">
+                  <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                </td>
                 <td className="px-6 py-4 text-right font-medium tabular-nums">
                   {formatScore(candidate?.score)}
                 </td>
@@ -657,11 +685,13 @@ function MatchedTab({ items }: { items: ReviewItem[] }) {
 
 function NeedReviewTab({
   caseGroupCount,
+  identityMappings,
   items,
   workspaceId,
   canReview,
 }: {
   caseGroupCount: number;
+  identityMappings: ReturnType<typeof extractIdentityMappings>;
   items: ReviewItem[];
   workspaceId: string;
   canReview: boolean;
@@ -716,10 +746,15 @@ function NeedReviewTab({
           <tbody className="divide-y divide-border">
             {items.map((item) => {
               const candidate = selectDisplayCandidate(item);
+              const identity = buildIdentitySummary(item, candidate, identityMappings);
               return (
                 <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
-                  <td className="px-6 py-4">{recordPreview(item.input_record)}</td>
-                  <td className="px-6 py-4">{recordPreview(candidate?.reference_record ?? null)}</td>
+                  <td className="px-6 py-4">
+                    <RecordIdentityPreview summary={identity} side="input" />
+                  </td>
+                  <td className="px-6 py-4">
+                    <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                  </td>
                   <td className="px-6 py-4 text-right font-medium tabular-nums">
                     {formatScore(candidate?.score)}
                   </td>
@@ -738,10 +773,12 @@ function NeedReviewTab({
 }
 
 function UnmatchedTab({
+  identityMappings,
   items,
   workspaceId,
   canReview,
 }: {
+  identityMappings: ReturnType<typeof extractIdentityMappings>;
   items: ReviewItem[];
   workspaceId: string;
   canReview: boolean;
@@ -771,32 +808,38 @@ function UnmatchedTab({
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {items.map((item) => (
-            <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
-              <td className="px-6 py-4">{recordPreview(item.input_record)}</td>
-              <td className="px-6 py-4">{caseReasonLabel(item, t)}</td>
-              <td className="px-6 py-4">
-                <StatusBadge
-                  label={displayDecisionLabel(item, t)}
-                  tone={item.display_status === "manual_rejected" ? "destructive" : "muted"}
-                />
-              </td>
-              <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
-              <td className="px-6 py-4">
-                {isPendingReview(item) && canReview ? (
-                  <Link
-                    to="/matching"
-                    search={buildMatchingSearch(workspaceId, 6)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
-                  >
-                    {t("results.review.open")}
-                  </Link>
-                ) : (
-                  <span className="text-xs text-muted-foreground">{t("results.readOnly")}</span>
-                )}
-              </td>
-            </tr>
-          ))}
+          {items.map((item) => {
+            const candidate = selectDisplayCandidate(item);
+            const identity = buildIdentitySummary(item, candidate, identityMappings);
+            return (
+              <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
+                <td className="px-6 py-4">
+                  <RecordIdentityPreview summary={identity} side="input" />
+                </td>
+                <td className="px-6 py-4">{caseReasonLabel(item, t)}</td>
+                <td className="px-6 py-4">
+                  <StatusBadge
+                    label={displayDecisionLabel(item, t)}
+                    tone={item.display_status === "manual_rejected" ? "destructive" : "muted"}
+                  />
+                </td>
+                <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
+                <td className="px-6 py-4">
+                  {isPendingReview(item) && canReview ? (
+                    <Link
+                      to="/matching"
+                      search={buildMatchingSearch(workspaceId, 6)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                    >
+                      {t("results.review.open")}
+                    </Link>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">{t("results.readOnly")}</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -849,11 +892,13 @@ function StatisticsTab({ items }: { items: ReviewItem[] }) {
 function ReviewHistoryTab({
   caseGroups,
   historyView,
+  identityMappings,
   items,
   onViewChange,
 }: {
   caseGroups: ReviewCaseGroup[];
   historyView: ReviewHistoryView;
+  identityMappings: ReturnType<typeof extractIdentityMappings>;
   items: ReviewItem[];
   onViewChange: (view: ReviewHistoryView) => void;
 }) {
@@ -890,6 +935,8 @@ function ReviewHistoryTab({
               <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="px-6 py-3 font-medium">{t("results.table.caseGroup")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
                   <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
                   <th className="px-6 py-3 text-right font-medium">{t("results.table.affectedRecords")}</th>
                   <th className="px-6 py-3 text-right font-medium">{t("results.table.exceptions")}</th>
@@ -902,6 +949,12 @@ function ReviewHistoryTab({
                 {caseGroups.map((group) => {
                   const latest = latestDecision(group.decision_history ?? []);
                   const exceptions = groupExceptions(group);
+                  const representativeCandidate = selectDisplayCandidate(group.representative);
+                  const identity = buildIdentitySummary(
+                    group.representative,
+                    representativeCandidate,
+                    identityMappings,
+                  );
                   return (
                     <tr key={group.id} className="align-top hover:bg-secondary/20">
                       <td className="px-6 py-4">
@@ -909,6 +962,12 @@ function ReviewHistoryTab({
                           <p className="font-medium">{caseGroupDisplayLabel(group, t)}</p>
                           <p className="text-xs text-muted-foreground">{caseGroupReason(group, t)}</p>
                         </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <RecordIdentityPreview summary={identity} side="input" />
+                      </td>
+                      <td className="px-6 py-4">
+                        <RecordIdentityPreview summary={identity} side="reference" showDetails />
                       </td>
                       <td className="px-6 py-4">{groupDecisionLabel(group, t)}</td>
                       <td className="px-6 py-4 text-right tabular-nums">{formatNumber(group.item_count)}</td>
@@ -953,11 +1012,16 @@ function ReviewHistoryTab({
                 .filter((item) => Boolean(item.decision))
                 .map((item) => {
                   const candidate = selectDisplayCandidate(item);
+                  const identity = buildIdentitySummary(item, candidate, identityMappings);
                   return (
                     <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
                       <td className="px-6 py-4 font-mono text-xs">{item.input_record_key}</td>
-                      <td className="px-6 py-4">{recordPreview(item.input_record)}</td>
-                      <td className="px-6 py-4">{recordPreview(candidate?.reference_record ?? null)}</td>
+                      <td className="px-6 py-4">
+                        <RecordIdentityPreview summary={identity} side="input" />
+                      </td>
+                      <td className="px-6 py-4">
+                        <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                      </td>
                       <td className="px-6 py-4">{displayDecisionLabel(item, t)}</td>
                       <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
                       <td className="px-6 py-4">{item.decision?.reviewer ?? t("common.notAvailable")}</td>
@@ -1056,6 +1120,90 @@ function ExportTab({
         </div>
       )}
     </div>
+  );
+}
+
+function RecordIdentityPreview({
+  summary,
+  side,
+  showDetails = false,
+}: {
+  summary: IdentitySummary;
+  side: "input" | "reference";
+  showDetails?: boolean;
+}) {
+  const { t } = usePreferences();
+  const primaryValue = side === "input" ? summary.primary?.inputValue : summary.primary?.referenceValue;
+  const previewRows = summary.rows.filter((row) =>
+    side === "input" ? Boolean(row.inputValue) : Boolean(row.referenceValue),
+  );
+
+  return (
+    <div className="min-w-0 max-w-sm">
+      <p className="truncate text-sm font-semibold text-foreground">
+        {primaryValue ?? t("common.notAvailable")}
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {previewRows.length > 0 ? (
+          previewRows.map((row) => (
+            <IdentityLine
+              key={`${side}-${row.semantic}-${row.label}`}
+              label={semanticLabel(row.semantic, t)}
+              value={side === "input" ? row.inputValue : row.referenceValue}
+            />
+          ))
+        ) : (
+          <p className="text-xs text-muted-foreground">{t("common.notAvailable")}</p>
+        )}
+      </div>
+      {showDetails && summary.hasReference && summary.detailRows.length > 1 && (
+        <IdentityDetailDisclosure summary={summary} />
+      )}
+    </div>
+  );
+}
+
+function IdentityLine({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null;
+
+  return (
+    <div className="flex gap-2 text-xs leading-relaxed">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function IdentityDetailDisclosure({ summary }: { summary: IdentitySummary }) {
+  const { t } = usePreferences();
+
+  return (
+    <details className="mt-3 rounded-md border border-border/70 bg-secondary/20 p-3">
+      <summary className="cursor-pointer text-xs font-medium text-foreground">
+        {t("results.identity.viewDetails")}
+      </summary>
+      <div className="mt-3 overflow-hidden rounded-md border border-border bg-background">
+        <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_88px] gap-0 border-b border-border bg-secondary/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span>{t("results.identity.field")}</span>
+          <span>{t("results.table.inputData")}</span>
+          <span>{t("results.table.referenceData")}</span>
+          <span>{t("common.status")}</span>
+        </div>
+        {summary.detailRows.map((row) => (
+          <div
+            key={`${row.semantic}-${row.label}`}
+            className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,1fr)_88px] gap-0 border-b border-border last:border-b-0 px-3 py-2 text-xs"
+          >
+            <span className="pr-3 text-muted-foreground">{semanticLabel(row.semantic, t)}</span>
+            <span className="pr-3 text-foreground">{row.inputValue ?? t("common.notAvailable")}</span>
+            <span className="pr-3 text-foreground">{row.referenceValue ?? t("common.notAvailable")}</span>
+            <span className={row.changed ? "text-warning" : "text-success"}>
+              {row.changed ? t("results.identity.different") : t("results.identity.same")}
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -1479,26 +1627,18 @@ function normalizeSyncSummary(value: unknown): SyncSummary | null {
   };
 }
 
-function recordPreview(record: Record<string, string | number | boolean | null> | null) {
-  if (!record) {
-    return <span className="text-xs text-muted-foreground">-</span>;
+function semanticLabel(
+  semantic: IdentitySemantic,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  if (semantic === "name") return t("results.identity.name");
+  if (semantic === "primary_identifier" || semantic === "secondary_identifier") {
+    return t("results.identity.identifier");
   }
-
-  const entries = Object.entries(record).filter(([, value]) => value !== null && value !== "");
-  if (entries.length === 0) {
-    return <span className="text-xs text-muted-foreground">-</span>;
-  }
-
-  return (
-    <div className="space-y-1">
-      {entries.slice(0, 3).map(([key, value]) => (
-        <div key={key} className="text-xs leading-relaxed">
-          <span className="font-medium text-foreground">{key}</span>
-          <span className="text-muted-foreground">: {String(value)}</span>
-        </div>
-      ))}
-    </div>
-  );
+  if (semantic === "province") return t("results.identity.province");
+  if (semantic === "city") return t("results.identity.city");
+  if (semantic === "address") return t("results.identity.address");
+  return t("results.identity.identity");
 }
 
 function formatScore(score: number | undefined) {
