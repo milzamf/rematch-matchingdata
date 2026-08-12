@@ -9,14 +9,14 @@ Version: MVP v0.1.0
 | -------------------- | -------: | ------------------------------------------- |
 | Documentation        |      97% | In progress                                 |
 | Frontend UI          |      96% | Mostly complete                             |
-| Frontend Integration |      40% | Upload through Review slices have real data |
-| Backend API          |      30% | Upload/Profile/Run/Review slices exist      |
+| Frontend Integration |      45% | Upload through grouped Review slices have real data |
+| Backend API          |      35% | Upload/Profile/Run/Review slices exist      |
 | Database             |      25% | Dataset, matching, and review tables exist  |
 | Matching Engine      |      30% | MVP engine slice with entity-aware names    |
 | AI Assistant         |       0% | Not started                                 |
 | Export Engine        |       0% | Not started                                 |
 | Authentication       |       0% | Not started                                 |
-| Testing              |      25% | In progress                                 |
+| Testing              |      28% | In progress                                 |
 
 ## Frontend
 
@@ -28,7 +28,7 @@ Version: MVP v0.1.0
 | Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
 | Configure | Logic complete with conditional configuration state ready for the future Matching Engine.              |
 | Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                          |
-| Review    | Uses real Matching Engine results with decision save and undo.                                         |
+| Review    | Uses real Matching Engine results with case groups, decision save, bulk eligible actions, and undo.    |
 | Sync      | UI complete, still uses mock/local state.                                                              |
 | Export    | UI complete, still uses mock data.                                                                     |
 | Results   | UI complete, still uses mock data.                                                                     |
@@ -47,6 +47,7 @@ Version: MVP v0.1.0
 | Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                          |
 | Auth API                 | Not started.                                                                                              |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
+| Review Knowledge         | Deterministic review patterns are stored in review decision metadata.                                   |
 | Export Engine            | Not started.                                                                                              |
 
 ## Database
@@ -166,7 +167,7 @@ Milestone 5B: Review Matching Results
 | Persist review decisions                           | Complete |
 | Sync/Export/Auth/Workspace/AI                      | Deferred |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 5B.1: Entity-Aware Name Matching
 
@@ -180,6 +181,23 @@ Milestone 5B.1: Entity-Aware Name Matching
 | Treat missing legal form or missing Persero/Tbk as non-conflict | Complete |
 | Separate branch/unit metadata from parent company | Complete |
 | Case clustering, Sync, Export, AI                | Deferred |
+
+## Current Milestone
+
+Milestone 5C: Case-Grouped Review & Review Knowledge
+
+| Requirement                                      | Status   |
+| ------------------------------------------------ | -------- |
+| Case feature extraction                          | Complete |
+| Deterministic case fingerprint / classification  | Complete |
+| Group similar Need Review cases                  | Complete |
+| Cluster confidence High / Mixed / Unique         | Complete |
+| Representative example per group                 | Complete |
+| View toggle Case Groups / All Records            | Complete |
+| Apply decision to one, selected, or entire group | Complete |
+| Block bulk decision for non-homogeneous clusters | Complete |
+| Store Review Knowledge as pattern and conditions | Complete |
+| Sync/Export/Auth/Workspace/AI                    | Deferred |
 
 ## Next Milestone
 

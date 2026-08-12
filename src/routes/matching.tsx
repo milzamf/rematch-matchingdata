@@ -16,6 +16,7 @@ import {
   type DatasetInspectResult,
   type DatasetRole,
   type MatchingRunResult,
+  type ReviewCaseGroup,
   type ReviewCandidate,
   type ReviewItem,
   type ReviewResults,
@@ -2691,8 +2692,10 @@ function StepReview({ jobId }: { jobId: string | null }) {
   const [review, setReview] = useState<ReviewResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"case_groups" | "all_records">("case_groups");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ReviewFilter>("possible_match");
+  const [selectedGroupKeys, setSelectedGroupKeys] = useState<Record<string, string[]>>({});
   const [selected, setSelected] = useState<ReviewItem | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -2727,6 +2730,19 @@ function StepReview({ jobId }: { jobId: string | null }) {
   }, [jobId, t]);
 
   const items = review?.items ?? [];
+  const caseGroups = review?.case_groups ?? [];
+  const visibleCaseGroups = caseGroups.filter((group) => {
+    if (!query) return true;
+    const haystack = JSON.stringify([
+      group.label,
+      group.pattern,
+      group.reason,
+      group.confidence,
+      group.representative?.input_record,
+      group.representative?.candidates?.[0]?.reference_record,
+    ]).toLowerCase();
+    return haystack.includes(query.toLowerCase());
+  });
   const filtered = items
     .filter((item) => filter === "all" || item.status === filter)
     .filter((item) => {
@@ -2753,6 +2769,20 @@ function StepReview({ jobId }: { jobId: string | null }) {
     selected?.candidates[0] ??
     null;
 
+  const toggleSelectedGroupKey = (group: ReviewCaseGroup, key: string) => {
+    setSelectedGroupKeys((current) => {
+      const selectedKeys = current[group.id] ?? [];
+      const nextKeys = selectedKeys.includes(key)
+        ? selectedKeys.filter((item) => item !== key)
+        : [...selectedKeys, key];
+
+      return {
+        ...current,
+        [group.id]: nextKeys,
+      };
+    });
+  };
+
   const decide = async (
     item: ReviewItem,
     decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
@@ -2776,6 +2806,44 @@ function StepReview({ jobId }: { jobId: string | null }) {
           ? t("feedback.toast.approved")
           : t("feedback.toast.rejected"),
       );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const decideCaseGroup = async (
+    group: ReviewCaseGroup,
+    decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
+    scope: "selected" | "group",
+  ) => {
+    if (!jobId) return;
+
+    if (!group.eligible_for_bulk) {
+      toast.error(t("matching.review.bulkBlocked"));
+      return;
+    }
+
+    const keys = scope === "selected" ? (selectedGroupKeys[group.id] ?? []) : group.item_keys;
+
+    if (keys.length === 0) {
+      toast.error(t("matching.review.selectRecordsFirst"));
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const next = await saveReviewDecision(jobId, {
+        inputRecordKey: keys[0],
+        inputRecordKeys: keys,
+        decision,
+        scope,
+        caseGroupId: group.id,
+      });
+      setReview(next);
+      setSelectedGroupKeys((current) => ({ ...current, [group.id]: [] }));
+      toast.success(t("matching.review.groupDecisionSaved", { count: keys.length }));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
     } finally {
@@ -2847,33 +2915,35 @@ function StepReview({ jobId }: { jobId: string | null }) {
     <>
       <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
 
-      <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-        <div className="flex flex-wrap gap-2">
-          {(["possible_match", "matched", "unmatched", "all"] as ReviewFilter[]).map((status) => (
+      <div className="mb-4 grid gap-3 lg:grid-cols-[auto_1fr_auto] lg:items-center">
+        <div className="inline-flex w-fit rounded-lg border border-border bg-secondary/30 p-1">
+          {(["case_groups", "all_records"] as const).map((mode) => (
             <button
-              key={status}
+              key={mode}
               type="button"
               onClick={() => {
-                setFilter(status);
+                setViewMode(mode);
                 setPage(1);
               }}
               className={[
-                "rounded-md border px-3 py-2 text-xs font-semibold transition-colors",
-                filter === status
-                  ? "border-brand bg-brand/10 text-foreground"
-                  : "border-border text-muted-foreground hover:bg-secondary",
+                "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+                viewMode === mode
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
               ].join(" ")}
             >
-              {reviewFilterLabel(status, t)}
-              <span className="ml-2 tabular-nums text-muted-foreground">
-                {status === "all"
-                  ? items.length
-                  : items.filter((item) => item.status === status).length}
-              </span>
+              {mode === "case_groups"
+                ? t("matching.review.caseGroups")
+                : t("matching.review.allRecords")}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 md:w-72">
+        <p className="text-xs text-muted-foreground">
+          {viewMode === "case_groups"
+            ? t("matching.review.caseGroupsDesc")
+            : t("matching.review.allRecordsDesc")}
+        </p>
+        <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 lg:w-72">
           <Search className="size-3.5 text-muted-foreground" />
           <input
             value={query}
@@ -2887,142 +2957,192 @@ function StepReview({ jobId }: { jobId: string | null }) {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="rounded-lg border border-border">
-          <EmptyState
-            icon={Inbox}
-            title={t("feedback.empty.title")}
-            description={t("feedback.empty.desc")}
-          />
-        </div>
-      ) : (
-        <div className="border border-border rounded-lg overflow-hidden">
-          <div className="max-h-[520px] overflow-auto">
-            <table className="w-full min-w-[980px] text-sm" style={{ tableLayout: "fixed" }}>
-              <colgroup>
-                <col />
-                <col />
-                <col style={{ width: "120px" }} />
-                <col style={{ width: "150px" }} />
-                <col style={{ width: "120px" }} />
-                <col style={{ width: "210px" }} />
-              </colgroup>
-              <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="text-left px-4 py-2.5 font-medium">
-                    {t("matching.review.input")}
-                  </th>
-                  <th className="text-left px-4 py-2.5 font-medium">
-                    {t("matching.review.reference")}
-                  </th>
-                  <th className="text-right px-4 py-2.5 font-medium">
-                    {t("matching.review.similarity")}
-                  </th>
-                  <th className="text-left px-4 py-2.5 font-medium">
-                    {t("matching.review.group")}
-                  </th>
-                  <th className="text-right px-4 py-2.5 font-medium">
-                    {t("matching.review.topCandidates")}
-                  </th>
-                  <th className="text-right px-4 py-2.5 font-medium">{t("common.action")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {paged.map((item) => {
-                  const candidate = item.candidates[0] ?? null;
-                  const hasReferenceCandidate = Boolean(candidate?.reference_record_key);
-                  return (
-                    <tr
-                      key={item.input_record_key}
-                      onClick={() => {
-                        setSelected(item);
-                        setSelectedCandidateId(candidate?.id ?? null);
-                      }}
-                      className="hover:bg-secondary/40 cursor-pointer"
-                    >
-                      <td className="px-4 py-3 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {recordHeadline(item.input_record)}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {recordMeta(item.input_record)}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {hasReferenceCandidate
-                            ? recordHeadline(candidate?.reference_record ?? {})
-                            : t("matching.review.noCandidate")}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {hasReferenceCandidate
-                            ? recordMeta(candidate?.reference_record ?? {})
-                            : t("matching.review.noCandidateDesc")}
-                        </p>
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-right tabular-nums font-semibold ${scoreTone(candidate?.score ?? 0)}`}
-                      >
-                        {candidate ? `${candidate.score}%` : "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={statusBadgeClass(item.status)}>
-                          {reviewStatusLabel(item.status, t)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-xs text-muted-foreground">
-                        {item.candidates.length}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div
-                          className="flex justify-end gap-1.5"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            onClick={() => decide(item, "accept_match", candidate)}
-                            disabled={!hasReferenceCandidate || saving}
-                            className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
-                          >
-                            {t("matching.review.accept")}
-                          </button>
-                          <button
-                            onClick={() => decide(item, "mark_unmatched", null)}
-                            disabled={saving}
-                            className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
-                          >
-                            {t("matching.review.markUnmatched")}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
-            <span>
-              {t("matching.review.count", { filtered: filtered.length, total: items.length })} ·{" "}
-              {t("matching.review.page", { page, total: totalPages })}
-            </span>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
-              >
-                {t("common.prev")}
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
-              >
-                {t("common.next")}
-              </button>
+      {viewMode === "case_groups" && (
+        <CaseGroupsReview
+          groups={visibleCaseGroups}
+          items={items}
+          saving={saving}
+          selectedKeysByGroup={selectedGroupKeys}
+          onToggleKey={toggleSelectedGroupKey}
+          onOpenRecord={(item) => {
+            const candidate = item.candidates[0] ?? null;
+            setSelected(item);
+            setSelectedCandidateId(candidate?.id ?? null);
+          }}
+          onDecide={decideCaseGroup}
+        />
+      )}
+
+      {viewMode === "all_records" && (
+        <>
+          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="flex flex-wrap gap-2">
+              {(["possible_match", "matched", "unmatched", "all"] as ReviewFilter[]).map(
+                (status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => {
+                      setFilter(status);
+                      setPage(1);
+                    }}
+                    className={[
+                      "rounded-md border px-3 py-2 text-xs font-semibold transition-colors",
+                      filter === status
+                        ? "border-brand bg-brand/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-secondary",
+                    ].join(" ")}
+                  >
+                    {reviewFilterLabel(status, t)}
+                    <span className="ml-2 tabular-nums text-muted-foreground">
+                      {status === "all"
+                        ? items.length
+                        : items.filter((item) => item.status === status).length}
+                    </span>
+                  </button>
+                ),
+              )}
             </div>
           </div>
-        </div>
+
+          {filtered.length === 0 ? (
+            <div className="rounded-lg border border-border">
+              <EmptyState
+                icon={Inbox}
+                title={t("feedback.empty.title")}
+                description={t("feedback.empty.desc")}
+              />
+            </div>
+          ) : (
+            <div className="border border-border rounded-lg overflow-hidden">
+              <div className="max-h-[520px] overflow-auto">
+                <table className="w-full min-w-[980px] text-sm" style={{ tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col />
+                    <col />
+                    <col style={{ width: "120px" }} />
+                    <col style={{ width: "150px" }} />
+                    <col style={{ width: "120px" }} />
+                    <col style={{ width: "210px" }} />
+                  </colgroup>
+                  <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 font-medium">
+                        {t("matching.review.input")}
+                      </th>
+                      <th className="text-left px-4 py-2.5 font-medium">
+                        {t("matching.review.reference")}
+                      </th>
+                      <th className="text-right px-4 py-2.5 font-medium">
+                        {t("matching.review.similarity")}
+                      </th>
+                      <th className="text-left px-4 py-2.5 font-medium">
+                        {t("matching.review.group")}
+                      </th>
+                      <th className="text-right px-4 py-2.5 font-medium">
+                        {t("matching.review.topCandidates")}
+                      </th>
+                      <th className="text-right px-4 py-2.5 font-medium">{t("common.action")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {paged.map((item) => {
+                      const candidate = item.candidates[0] ?? null;
+                      const hasReferenceCandidate = Boolean(candidate?.reference_record_key);
+                      return (
+                        <tr
+                          key={item.input_record_key}
+                          onClick={() => {
+                            setSelected(item);
+                            setSelectedCandidateId(candidate?.id ?? null);
+                          }}
+                          className="hover:bg-secondary/40 cursor-pointer"
+                        >
+                          <td className="px-4 py-3 min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {recordHeadline(item.input_record)}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {recordMeta(item.input_record)}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3 min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {hasReferenceCandidate
+                                ? recordHeadline(candidate?.reference_record ?? {})
+                                : t("matching.review.noCandidate")}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {hasReferenceCandidate
+                                ? recordMeta(candidate?.reference_record ?? {})
+                                : t("matching.review.noCandidateDesc")}
+                            </p>
+                          </td>
+                          <td
+                            className={`px-4 py-3 text-right tabular-nums font-semibold ${scoreTone(candidate?.score ?? 0)}`}
+                          >
+                            {candidate ? `${candidate.score}%` : "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={statusBadgeClass(item.status)}>
+                              {reviewStatusLabel(item.status, t)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums text-xs text-muted-foreground">
+                            {item.candidates.length}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div
+                              className="flex justify-end gap-1.5"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                onClick={() => decide(item, "accept_match", candidate)}
+                                disabled={!hasReferenceCandidate || saving}
+                                className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
+                              >
+                                {t("matching.review.accept")}
+                              </button>
+                              <button
+                                onClick={() => decide(item, "mark_unmatched", null)}
+                                disabled={saving}
+                                className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
+                              >
+                                {t("matching.review.markUnmatched")}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
+                <span>
+                  {t("matching.review.count", { filtered: filtered.length, total: items.length })} ·{" "}
+                  {t("matching.review.page", { page, total: totalPages })}
+                </span>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
+                  >
+                    {t("common.prev")}
+                  </button>
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
+                  >
+                    {t("common.next")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
@@ -3147,6 +3267,224 @@ function StepReview({ jobId }: { jobId: string | null }) {
         </SheetContent>
       </Sheet>
     </>
+  );
+}
+
+function CaseGroupsReview({
+  groups,
+  items,
+  onDecide,
+  onOpenRecord,
+  onToggleKey,
+  saving,
+  selectedKeysByGroup,
+}: {
+  groups: ReviewCaseGroup[];
+  items: ReviewItem[];
+  saving: boolean;
+  selectedKeysByGroup: Record<string, string[]>;
+  onToggleKey: (group: ReviewCaseGroup, key: string) => void;
+  onOpenRecord: (item: ReviewItem) => void;
+  onDecide: (
+    group: ReviewCaseGroup,
+    decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
+    scope: "selected" | "group",
+  ) => void;
+}) {
+  const { t } = usePreferences();
+  const itemsByKey = useMemo(
+    () => new Map(items.map((item) => [item.input_record_key, item])),
+    [items],
+  );
+
+  if (groups.length === 0) {
+    return (
+      <div className="rounded-lg border border-border">
+        <EmptyState
+          icon={Inbox}
+          title={t("matching.review.noCaseGroups")}
+          description={t("matching.review.noCaseGroupsDesc")}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {groups.map((group) => {
+        const selectedKeys = selectedKeysByGroup[group.id] ?? [];
+        const representative = group.representative;
+        const candidate = representative.candidates[0] ?? null;
+        const previewItems = group.item_keys
+          .map((key) => itemsByKey.get(key))
+          .filter((item): item is ReviewItem => Boolean(item));
+        const canAccept = Boolean(candidate?.reference_record_key);
+
+        return (
+          <section
+            key={group.id}
+            className="rounded-lg border border-border bg-background p-4 shadow-sm"
+          >
+            <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-start">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold">{group.label}</p>
+                  <span className={caseConfidenceClass(group.confidence)}>
+                    {caseConfidenceLabel(group.confidence, t)}
+                  </span>
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    {t("matching.review.caseCount", { count: group.item_count })}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t("matching.review.representative")}:{" "}
+                  <span className="font-medium text-foreground">
+                    {recordHeadline(representative.input_record)}
+                  </span>
+                  {candidate ? (
+                    <span
+                      className={`ml-2 tabular-nums font-semibold ${scoreTone(candidate.score)}`}
+                    >
+                      {candidate.score}%
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
+                <button
+                  type="button"
+                  onClick={() => onDecide(group, "accept_match", "group")}
+                  disabled={!group.eligible_for_bulk || !canAccept || saving}
+                  className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
+                >
+                  {t("matching.review.applyGroupAccept")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDecide(group, "reject_match", "group")}
+                  disabled={!group.eligible_for_bulk || !canAccept || saving}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                >
+                  {t("matching.review.applyGroupReject")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDecide(group, "mark_unmatched", "group")}
+                  disabled={!group.eligible_for_bulk || saving}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                >
+                  {t("matching.review.applyGroupUnmatched")}
+                </button>
+              </div>
+            </div>
+
+            {!group.eligible_for_bulk && (
+              <div className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+                {t("matching.review.bulkNotEligible")}
+              </div>
+            )}
+
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
+                {t("matching.review.groupExamples")}
+              </summary>
+              <div className="mt-3 overflow-hidden rounded-lg border border-border">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead className="bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="w-10 px-3 py-2 text-left"></th>
+                      <th className="px-3 py-2 text-left font-medium">
+                        {t("matching.review.input")}
+                      </th>
+                      <th className="px-3 py-2 text-left font-medium">
+                        {t("matching.review.reference")}
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        {t("matching.review.similarity")}
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">{t("common.action")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {previewItems.map((item) => {
+                      const rowCandidate = item.candidates[0] ?? null;
+                      return (
+                        <tr key={item.input_record_key}>
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedKeys.includes(item.input_record_key)}
+                              disabled={!group.eligible_for_bulk || saving}
+                              onChange={() => onToggleKey(group, item.input_record_key)}
+                              aria-label={t("matching.review.selectRecord")}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <p className="truncate font-medium">
+                              {recordHeadline(item.input_record)}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {recordMeta(item.input_record)}
+                            </p>
+                          </td>
+                          <td className="px-3 py-2">
+                            <p className="truncate font-medium">
+                              {rowCandidate?.reference_record_key
+                                ? recordHeadline(rowCandidate.reference_record)
+                                : t("matching.review.noCandidate")}
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {rowCandidate?.reference_record_key
+                                ? recordMeta(rowCandidate.reference_record)
+                                : t("matching.review.noCandidateDesc")}
+                            </p>
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right tabular-nums font-semibold ${scoreTone(rowCandidate?.score ?? 0)}`}
+                          >
+                            {rowCandidate ? `${rowCandidate.score}%` : "-"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => onOpenRecord(item)}
+                              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+                            >
+                              {t("matching.review.compare")}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onDecide(group, "accept_match", "selected")}
+                  disabled={
+                    !group.eligible_for_bulk || selectedKeys.length === 0 || !canAccept || saving
+                  }
+                  className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
+                >
+                  {t("matching.review.applySelectedAccept")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDecide(group, "mark_unmatched", "selected")}
+                  disabled={!group.eligible_for_bulk || selectedKeys.length === 0 || saving}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                >
+                  {t("matching.review.applySelectedUnmatched")}
+                </button>
+              </div>
+            </details>
+          </section>
+        );
+      })}
+    </div>
   );
 }
 
@@ -3277,6 +3615,24 @@ function reviewStatusLabel(status: string, t: ReturnType<typeof usePreferences>[
   if (status === "matched") return t("matching.review.groupMatched");
   if (status === "possible_match") return t("matching.review.groupPossible");
   return t("matching.review.groupUnmatched");
+}
+
+function caseConfidenceLabel(confidence: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (confidence === "High") return t("matching.review.confidenceHigh");
+  if (confidence === "Mixed") return t("matching.review.confidenceMixed");
+  return t("matching.review.confidenceUnique");
+}
+
+function caseConfidenceClass(confidence: string) {
+  if (confidence === "High") {
+    return "rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[11px] font-semibold text-success";
+  }
+
+  if (confidence === "Mixed") {
+    return "rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning";
+  }
+
+  return "rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground";
 }
 
 function comparisonLabel(comparison: string, t: ReturnType<typeof usePreferences>["t"]) {

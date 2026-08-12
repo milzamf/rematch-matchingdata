@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 5B.1: Entity-Aware Name Matching completed.
+Milestone 5C: Case-Grouped Review & Review Knowledge completed.
 
 ## Project Status
 
@@ -28,13 +28,13 @@ Milestone 5B.1: Entity-Aware Name Matching completed.
 - Mapping supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference validation.
 - Configure uses Quick Setup, Summary Configuration, conditional Advanced Settings, validation, and workflow-level configuration state.
 - Matching Engine MVP runs in Laravel with normalization, entity-aware name parsing, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
-- Review uses persisted matching results, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
+- Review uses persisted matching results, groups similar Need Review cases, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
 
 ## Next Milestone
 
 Milestone 6: Sync Strategy Integration.
 
-Objective: connect Sync step to reviewed matching results without adding Export, AI, Auth, or Workspace.
+Objective: connect Sync step to reviewed matching results and review decisions without adding Export, AI, Auth, or Workspace.
 
 ## Current Architecture
 
@@ -89,6 +89,10 @@ Upload
 - PT vs CV yang keduanya eksplisit tidak boleh menjadi auto match; missing legal form atau missing Persero/Tbk bukan conflict otomatis.
 - Review memanggil `/api/matching-jobs/{job}/review-results`, `/review-decisions`, dan `/review-decisions/{decision}/undo`.
 - Review memprioritaskan `possible_match` sebagai Need Review, menampilkan Input vs Reference, Top N kandidat, field highlight, dan audit decision lokal.
+- Review default view adalah Case Groups; All Records tetap tersedia.
+- Case grouping deterministic memakai case feature extraction, fingerprint, confidence High/Mixed/Unique, dan representative example.
+- Bulk decision hanya boleh untuk cluster homogen (`High`); Mixed/Unique harus direview granular.
+- Review Knowledge disimpan di metadata review decision sebagai pola dan kondisi, bukan cluster ID saja.
 - Auto mapping saat ini rule-based sederhana, bukan AI.
 - Reference column tidak boleh dipakai dua kali; input column boleh dipakai ulang.
 - Jangan mengubah Run, Review, Sync, Export, AI, Auth, Workspace, atau Matching Engine kecuali milestone meminta.

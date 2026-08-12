@@ -106,6 +106,11 @@ export type ReviewFieldScore = {
   input_column: string;
   score: number;
   comparison: "same" | "similar" | "different" | string;
+  identity_conflict?: boolean;
+  identity_metadata?: {
+    reference?: Record<string, string | number | boolean | null>;
+    input?: Record<string, string | number | boolean | null>;
+  };
 };
 
 export type ReviewCandidate = {
@@ -132,6 +137,28 @@ export type ReviewItem = {
   };
   input_record: Record<string, string | number | boolean | null>;
   candidates: ReviewCandidate[];
+  case_features?: {
+    pattern: string;
+    fingerprint: string;
+    reason: string;
+    conditions: Record<string, unknown>;
+  };
+};
+
+export type ReviewCaseGroup = {
+  id: string;
+  fingerprint: string;
+  pattern: string;
+  label: string;
+  reason: string;
+  conditions: Record<string, unknown>;
+  confidence: "High" | "Mixed" | "Unique" | string;
+  eligible_for_bulk: boolean;
+  item_count: number;
+  reviewed_count: number;
+  item_keys: string[];
+  representative_input_key: string | null;
+  representative: ReviewItem;
 };
 
 export type ReviewResults = {
@@ -147,12 +174,16 @@ export type ReviewResults = {
     reviewed: number;
   };
   items: ReviewItem[];
+  case_groups: ReviewCaseGroup[];
 };
 
 type ReviewDecisionInput = {
   inputRecordKey: string;
+  inputRecordKeys?: string[];
   matchingResultId?: string;
   decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched";
+  scope?: "one" | "selected" | "group";
+  caseGroupId?: string;
   note?: string;
 };
 
@@ -260,8 +291,11 @@ export async function saveReviewDecision(
     },
     body: JSON.stringify({
       input_record_key: input.inputRecordKey,
+      input_record_keys: input.inputRecordKeys,
       matching_result_id: input.matchingResultId,
       decision: input.decision,
+      scope: input.scope,
+      case_group_id: input.caseGroupId,
       note: input.note,
     }),
   });
