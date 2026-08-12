@@ -52,6 +52,14 @@ type ApiFailure = {
   errors?: Record<string, string[]>;
 };
 
+export type AuthUser = {
+  id: string | number;
+  name: string;
+  email: string;
+};
+
+export const AUTH_UNAUTHORIZED_EVENT = "batchmatch:auth-unauthorized";
+
 type InspectDatasetInput = {
   file: File;
   datasetRole: DatasetRole;
@@ -337,10 +345,123 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api").replace(
-  /\/$/,
-  "",
-);
+export async function fetchCurrentUser(): Promise<AuthUser | null> {
+  const response = await apiFetch("/me");
+  if (response.status === 401) {
+    return null;
+  }
+
+  const payload = (await response.json().catch(() => null)) as ApiSuccess<AuthUser> | ApiFailure | null;
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Unable to load the current session",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function loginWithSession(input: {
+  email: string;
+  password: string;
+}): Promise<AuthUser> {
+  await ensureCsrfCookie();
+
+  const response = await apiFetch("/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as ApiSuccess<AuthUser> | ApiFailure | null;
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Email or password is incorrect",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function logoutSession(): Promise<void> {
+  await ensureCsrfCookie();
+
+  const response = await apiFetch("/logout", {
+    method: "POST",
+  });
+  const payload = (await response.json().catch(() => null)) as ApiSuccess<unknown> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Logout failed",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+}
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
+const BACKEND_ORIGIN =
+  typeof window === "undefined"
+    ? "http://127.0.0.1:8000"
+    : new URL(import.meta.env.VITE_BACKEND_ORIGIN ?? API_BASE_URL, window.location.origin).origin;
+
+function buildApiUrl(path: string) {
+  return `${API_BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+
+function readCookie(name: string) {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const match = document.cookie.split("; ").find((part) => part.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : null;
+}
+
+async function apiFetch(path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Accept", "application/json");
+
+  const method = (init.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrfToken = readCookie("XSRF-TOKEN");
+    if (csrfToken) {
+      headers.set("X-XSRF-TOKEN", csrfToken);
+    }
+  }
+
+  const response = await fetch(buildApiUrl(path), {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
+  }
+
+  return response;
+}
+
+async function ensureCsrfCookie() {
+  await fetch(`${BACKEND_ORIGIN}/sanctum/csrf-cookie`, {
+    method: "GET",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+}
 
 export async function inspectDataset(input: InspectDatasetInput): Promise<DatasetInspectResult> {
   const form = new FormData();
@@ -351,7 +472,7 @@ export async function inspectDataset(input: InspectDatasetInput): Promise<Datase
   if (input.delimiter) form.append("delimiter", input.delimiter);
   if (input.headerRow) form.append("header_row", String(input.headerRow));
 
-  const response = await fetch(`${API_BASE_URL}/datasets/inspect`, {
+  const response = await apiFetch("/datasets/inspect", {
     method: "POST",
     body: form,
     headers: {
@@ -373,7 +494,7 @@ export async function inspectDataset(input: InspectDatasetInput): Promise<Datase
 }
 
 export async function runMatching(input: RunMatchingInput): Promise<MatchingRunResult> {
-  const response = await fetch(`${API_BASE_URL}/matching-jobs/run`, {
+  const response = await apiFetch("/matching-jobs/run", {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -403,7 +524,7 @@ export async function runMatching(input: RunMatchingInput): Promise<MatchingRunR
 }
 
 export async function fetchReviewResults(jobId: string): Promise<ReviewResults> {
-  const response = await fetch(`${API_BASE_URL}/matching-jobs/${jobId}/review-results`, {
+  const response = await apiFetch(`/matching-jobs/${jobId}/review-results`, {
     headers: { Accept: "application/json" },
   });
   const payload = (await response.json().catch(() => null)) as
@@ -424,7 +545,7 @@ export async function saveReviewDecision(
   jobId: string,
   input: ReviewDecisionInput,
 ): Promise<ReviewDecisionResult> {
-  const response = await fetch(`${API_BASE_URL}/matching-jobs/${jobId}/review-decisions`, {
+  const response = await apiFetch(`/matching-jobs/${jobId}/review-decisions`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -455,7 +576,7 @@ export async function saveReviewDecision(
 }
 
 export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
-  const response = await fetch(`${API_BASE_URL}/workspaces`, {
+  const response = await apiFetch("/workspaces", {
     headers: { Accept: "application/json" },
   });
   const payload = (await response.json().catch(() => null)) as
@@ -477,7 +598,7 @@ export async function createWorkspace(input: WorkspaceInput): Promise<WorkspaceS
 }
 
 export async function fetchWorkspace(id: string): Promise<WorkspaceSummary> {
-  const response = await fetch(`${API_BASE_URL}/workspaces/${id}`, {
+  const response = await apiFetch(`/workspaces/${id}`, {
     headers: { Accept: "application/json" },
   });
   const payload = (await response.json().catch(() => null)) as
@@ -502,7 +623,7 @@ export async function updateWorkspace(
 }
 
 export async function deleteWorkspace(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/workspaces/${id}`, {
+  const response = await apiFetch(`/workspaces/${id}`, {
     method: "DELETE",
     headers: { Accept: "application/json" },
   });
@@ -523,7 +644,7 @@ async function writeWorkspace(
   method: "POST" | "PATCH",
   input: WorkspaceInput,
 ): Promise<WorkspaceSummary> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url.replace(API_BASE_URL, ""), {
     method,
     headers: {
       Accept: "application/json",
@@ -559,8 +680,8 @@ export async function undoReviewDecision(
   jobId: string,
   decisionId: string,
 ): Promise<ReviewResults> {
-  const response = await fetch(
-    `${API_BASE_URL}/matching-jobs/${jobId}/review-decisions/${decisionId}/undo`,
+  const response = await apiFetch(
+    `/matching-jobs/${jobId}/review-decisions/${decisionId}/undo`,
     {
       method: "POST",
       headers: { Accept: "application/json" },

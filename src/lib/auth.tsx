@@ -1,129 +1,102 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-export type User = {
-  id: string;
-  username: string;
-  fullName: string;
-  email: string;
-};
+import {
+  AUTH_UNAUTHORIZED_EVENT,
+  fetchCurrentUser,
+  loginWithSession,
+  logoutSession,
+  type AuthUser,
+  ApiError,
+} from "@/lib/api";
 
-type StoredUser = User & { password: string };
+type AuthResult = { ok: true } | { ok: false; error: string };
 
 type AuthContextValue = {
-  user: User | null;
+  currentUser: AuthUser | null;
+  isAuthenticated: boolean;
+  isLoadingAuth: boolean;
+  login: (input: { email: string; password: string }) => Promise<AuthResult>;
+  logout: () => Promise<void>;
+  refreshCurrentUser: () => Promise<AuthUser | null>;
+  user: AuthUser | null;
   hydrated: boolean;
-  login: (username: string, password: string) => { ok: true } | { ok: false; error: string };
-  register: (input: {
-    fullName: string;
-    username: string;
-    email: string;
-    password: string;
-  }) => { ok: true } | { ok: false; error: string };
-  logout: () => void;
-  resetRequest: (email: string) => { ok: true } | { ok: false; error: string };
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const USERS_KEY = "batchmatch:users";
-const SESSION_KEY = "batchmatch:session";
-
-function readUsers(): StoredUser[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(USERS_KEY);
-    if (!raw) {
-      window.localStorage.setItem(USERS_KEY, JSON.stringify([]));
-      return [];
-    }
-    return JSON.parse(raw) as StoredUser[];
-  } catch {
-    return [];
-  }
-}
-
-function writeUsers(users: StoredUser[]) {
-  window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  useEffect(() => {
-    readUsers(); // ensures seed
+  const refreshCurrentUser = useCallback(async () => {
+    setIsLoadingAuth(true);
     try {
-      const raw = window.localStorage.getItem(SESSION_KEY);
-      if (raw) setUser(JSON.parse(raw));
+      const user = await fetchCurrentUser();
+      setCurrentUser(user);
+      return user;
     } catch {
-      /* noop */
+      setCurrentUser(null);
+      return null;
+    } finally {
+      setIsLoadingAuth(false);
     }
-    setHydrated(true);
   }, []);
 
-  const persistSession = (u: User | null) => {
-    if (typeof window === "undefined") return;
-    if (u) window.localStorage.setItem(SESSION_KEY, JSON.stringify(u));
-    else window.localStorage.removeItem(SESSION_KEY);
-  };
+  useEffect(() => {
+    void refreshCurrentUser();
+  }, [refreshCurrentUser]);
 
-  const value: AuthContextValue = {
-    user,
-    hydrated,
-    login: (username, password) => {
-      const users = readUsers();
-      const match = users.find(
-        (u) => u.username.toLowerCase() === username.toLowerCase() && u.password === password,
-      );
-      if (!match) return { ok: false, error: "Invalid username or password." };
-      const pub: User = {
-        id: match.id,
-        username: match.username,
-        fullName: match.fullName,
-        email: match.email,
-      };
-      setUser(pub);
-      persistSession(pub);
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setCurrentUser(null);
+      setIsLoadingAuth(false);
+    };
+
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+  }, []);
+
+  const login = useCallback(async (input: { email: string; password: string }): Promise<AuthResult> => {
+    try {
+      const user = await loginWithSession(input);
+      setCurrentUser(user);
       return { ok: true };
-    },
-    register: ({ fullName, username, email, password }) => {
-      if (!fullName || !username || !email || !password)
-        return { ok: false, error: "All fields are required." };
-      if (password.length < 6)
-        return { ok: false, error: "Password must be at least 6 characters." };
-      const users = readUsers();
-      if (users.some((u) => u.username.toLowerCase() === username.toLowerCase()))
-        return { ok: false, error: "Username is already taken." };
-      if (users.some((u) => u.email.toLowerCase() === email.toLowerCase()))
-        return { ok: false, error: "Email is already registered." };
-      const newUser: StoredUser = {
-        id: `u_${Date.now().toString(36)}`,
-        username,
-        fullName,
-        email,
-        password,
-      };
-      writeUsers([...users, newUser]);
-      const pub: User = {
-        id: newUser.id,
-        username: newUser.username,
-        fullName: newUser.fullName,
-        email: newUser.email,
-      };
-      setUser(pub);
-      persistSession(pub);
-      return { ok: true };
-    },
-    logout: () => {
-      setUser(null);
-      persistSession(null);
-    },
-    resetRequest: (email) => {
-      if (!email.includes("@")) return { ok: false, error: "Enter a valid email." };
-      // Mock success regardless (to avoid user enumeration)
-      return { ok: true };
-    },
-  };
+    } catch (error) {
+      setCurrentUser(null);
+      if (error instanceof ApiError) {
+        if (error.status === 401 || error.status === 422) {
+          return { ok: false, error: error.message || "Email or password is incorrect" };
+        }
+        return { ok: false, error: "Unable to connect to the server" };
+      }
+
+      return { ok: false, error: "Unable to connect to the server" };
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      await logoutSession();
+    } catch {
+      // Clear local state even if the session request fails so the UI does not remain stuck.
+    } finally {
+      setCurrentUser(null);
+    }
+  }, []);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      currentUser,
+      isAuthenticated: Boolean(currentUser),
+      isLoadingAuth,
+      login,
+      logout,
+      refreshCurrentUser,
+      user: currentUser,
+      hydrated: !isLoadingAuth,
+    }),
+    [currentUser, isLoadingAuth, login, logout, refreshCurrentUser],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -137,7 +110,8 @@ export function useAuth() {
 export function getInitials(name: string) {
   return name
     .split(" ")
-    .map((p) => p[0])
+    .map((part) => part[0])
+    .filter(Boolean)
     .slice(0, 2)
     .join("")
     .toUpperCase();

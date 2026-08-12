@@ -4,6 +4,9 @@
 
 ### Added
 
+- Authentication foundation with Laravel Sanctum session/cookie login, current user, and logout endpoints.
+- Protected app access for authenticated users only, with login redirect and dummy registration/password-reset routes disabled.
+- Frontend auth state centralization for current user, loading, login, logout, and session refresh.
 - Initial RE-MATCH frontend with Dashboard, Matching, Results, and Settings.
 - Matching wizard aligned to the main workflow: Upload -> Profiling -> Mapping -> Configure -> Run -> Review -> Sync -> Export.
 - Synchronization / merge strategy for matched, unmatched, possible match, and conflict records.

@@ -6,16 +6,16 @@ import { Topbar } from "./topbar";
 import { useAuth } from "@/lib/auth";
 
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { user, hydrated } = useAuth();
+  const { currentUser, isLoadingAuth } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (hydrated && !user) {
-      navigate({ to: "/login" });
+    if (!isLoadingAuth && !currentUser) {
+      navigate({ to: "/login", replace: true });
     }
-  }, [hydrated, user, navigate]);
+  }, [currentUser, isLoadingAuth, navigate]);
 
-  if (!hydrated || !user) {
+  if (isLoadingAuth || !currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />

@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 8.1.2: UI Language Consistency, Workflow Step Guard, Workspace Naming, and Copy Cleanup completed.
+Milestone 9: Authentication Foundation completed.
 
 ## Project Status
 
@@ -15,6 +15,7 @@ Milestone 8.1.2: UI Language Consistency, Workflow Step Guard, Workspace Naming,
 - Sync: Done frontend/local audit
 - Export: Done frontend CSV/XLSX
 - Workspace Persistence: Done MVP
+- Authentication: Done foundation
 - Dashboard Real Data: Done
 - RE-MATCH Branding and Shell Cleanup: Done
 - Language Consistency: Done for main workflow and shell
@@ -34,6 +35,10 @@ Milestone 8.1.2: UI Language Consistency, Workflow Step Guard, Workspace Naming,
 - Workspace MVP persists workflow progress to backend and can resume the latest step.
 - Workspace list supports Open/Continue, Rename, and Delete without deleting datasets.
 - Dashboard reads workspace data from backend and no longer shows dummy analytics.
+- Login now uses Laravel Sanctum session/cookie auth with `/api/login`, `/api/me`, and `/api/logout`.
+- Protected app routes and workflow APIs now require an authenticated session.
+- Register and forgot-password dummy routes now redirect to Login.
+- The first development user can be created by setting `BATCHMATCH_DEV_PASSWORD` and running `php artisan db:seed`, which provisions `dev@re-match.local`.
 - Product-facing UI is rebranded from BatchMatch to RE-MATCH.
 - Sidebar and application shell no longer show dummy user identity, search, notification, help, or fake account controls.
 - Organization identity is shown lightly in the sidebar and Settings.
@@ -44,9 +49,9 @@ Milestone 8.1.2: UI Language Consistency, Workflow Step Guard, Workspace Naming,
 
 ## Next Milestone
 
-Stabilization & QA.
+Milestone 9.1: Role & Permission Foundation.
 
-Objective: run build/lint/tests, fix regressions from MVP feature work, and verify Upload -> Export with workspace resume.
+Objective: add the next identity layer after basic authentication is stable.
 
 ## Current Architecture
 
@@ -54,7 +59,7 @@ Frontend:
 React, Vite, TypeScript, Tailwind CSS. Handles UI, workflow navigation, preferences, API calls, local export generation, and workspace resume/autosave.
 
 Backend:
-Laravel REST API. Handles health, dataset inspection/profiling, matching engine run/status, review decisions, and workspace persistence.
+Laravel REST API. Handles health, authentication, dataset inspection/profiling, matching engine run/status, review decisions, and workspace persistence.
 
 Database:
 Implemented MVP tables include `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, `matching_results`, `review_decisions`, and `workspaces`.
@@ -72,7 +77,6 @@ Upload
 
 ## Known Limitations
 
-- Authentication belum dibuat.
 - User/workspace membership ownership belum dibuat.
 - AI Assistance belum dibuat.
 - Matching Engine MVP masih memakai inspected preview rows, belum full-file processing.
@@ -80,6 +84,7 @@ Upload
 - Export history masih frontend/local download, belum server-side export table.
 - Results page masih mock/local state.
 - Audit trail table belum dibuat.
+- Authentication now uses session/cookie auth only; ownership and role enforcement are intentionally deferred.
 
 ## Notes
 

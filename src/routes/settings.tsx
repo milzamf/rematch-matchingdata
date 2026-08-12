@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { ConfirmationDialog, ErrorPanel, LoadingPanel } from "@/components/feedback-states";
+import { useAuth } from "@/lib/auth";
 import { usePreferences } from "@/lib/preferences";
 
 export const Route = createFileRoute("/settings")({
@@ -19,6 +20,7 @@ export const Route = createFileRoute("/settings")({
 
 function SettingsPage() {
   const { language, resolvedTheme, setLanguage, setTheme, t, theme } = usePreferences();
+  const { currentUser } = useAuth();
   const defaultMatchingDefaults = {
     preset: "Balanced",
     normalization: "Text Standardization",
@@ -88,7 +90,10 @@ function SettingsPage() {
               <ReadOnlyItem label={t("settings.applicationName")} value="RE-MATCH" />
               <ReadOnlyItem label={t("settings.organization")} value={t("brand.organization")} />
               <ReadOnlyItem label={t("settings.organizationUnit")} value={t("brand.organizationUnit")} />
-              <ReadOnlyItem label={t("settings.userIdentity")} value={t("settings.authDeferred")} />
+              <ReadOnlyItem
+                label={t("settings.userIdentity")}
+                value={currentUser ? `${currentUser.name} (${currentUser.email})` : t("settings.authDeferred")}
+              />
             </div>
           </Card>
 

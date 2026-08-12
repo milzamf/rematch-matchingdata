@@ -6,12 +6,13 @@ BatchMatch uses a separated architecture:
 
 - Frontend: React + Tailwind CSS
 - Backend: Laravel REST API
+- Authentication: Laravel Sanctum session/cookie auth
 - Database: MySQL or PostgreSQL
 - Matching Engine: Laravel Service Layer, with optional Python/RapidFuzz service later
 - AI Assistance: External AI API through backend only
 - Export Engine: Backend service for Excel, CSV, JSON, and audit output
 
-Frontend must never access database, AI token, or file storage directly.
+Frontend must never access database, AI token, or file storage directly. It authenticates through Laravel Sanctum session cookies and reads the current user from `/api/me`.
 
 ---
 
@@ -74,7 +75,7 @@ app/
 
 ## 5. Core Backend Services
 ### AuthService
-Handles login, register, forgot password, session, and user workspace access.
+Handles login, current session lookup, logout, CSRF flow, and protected API access.
 
 ### DatasetService
 Handles uploaded datasets, metadata, storage, parser selection, and dataset ownership.

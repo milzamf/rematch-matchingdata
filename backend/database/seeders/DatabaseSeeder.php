@@ -15,11 +15,18 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        $password = env('BATCHMATCH_DEV_PASSWORD');
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        if (! is_string($password) || $password === '') {
+            return;
+        }
+
+        User::updateOrCreate(
+            ['email' => 'dev@re-match.local'],
+            [
+                'name' => 'RE-MATCH Developer',
+                'password' => $password,
+            ],
+        );
     }
 }

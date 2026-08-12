@@ -6,8 +6,8 @@ Status: API contract draft with implemented MVP slices called out explicitly.
 
 - Backend: Laravel REST API.
 - Frontend: React app consuming JSON APIs only.
-- Authentication should protect each user's workspace, jobs, uploads, exports, review history, AI recommendations, and audit trail.
-- All workspace-scoped endpoints must verify the authenticated user's membership in the active workspace.
+- Authentication should protect the main workflow and session-backed workspace state.
+- Workspace ownership and membership checks are deferred to a later milestone.
 - File parsing, profiling, matching, AI calls, export generation, and audit logging happen in the backend.
 
 ## Implemented MVP Vertical Slice
@@ -15,7 +15,7 @@ Status: API contract draft with implemented MVP slices called out explicitly.
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
 | `/api/health` | `GET` | Check API availability. | none | `success`, `data.service`, `data.status`, `data.version` |
-| `/api/workspaces` | `GET` | List saved workflow workspaces. | none | `id`, `name`, `status`, `current_step`, `record_count`, `updated_at` |
+| `/api/workspaces` | `GET` | List saved workflow workspaces for the authenticated session. | none | `id`, `name`, `status`, `current_step`, `record_count`, `updated_at` |
 | `/api/workspaces` | `POST` | Create a saved workflow workspace. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `workflow_state` | `workspace` |
 | `/api/workspaces/{workspaceId}` | `GET` | Restore workspace detail, linked datasets, and workflow snapshot. | none | `workspace`, `reference_dataset`, `input_dataset`, `matching_job`, `workflow_state` |
 | `/api/workspaces/{workspaceId}` | `PATCH` | Idempotently autosave workspace progress. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history` | `workspace` |
@@ -23,23 +23,21 @@ Status: API contract draft with implemented MVP slices called out explicitly.
 | `/api/datasets/inspect` | `POST` | Upload and inspect one CSV/XLSX dataset for the current frontend workflow. | `file`, `dataset_role`, `sheet_name`, `delimiter`, `header_row` | `dataset`, `columns`, `preview_rows`, `profiling_summary` |
 | `/api/matching-jobs/run` | `POST` | Run the Matching Engine MVP and optionally attach the job to a workspace. | `workspace_id`, `name`, `reference_dataset_id`, `input_dataset_id`, `mappings`, `configuration` | `job`, `progress`, `summary`, `top_results` |
 
-Note: implemented MVP endpoints are intentionally not authenticated yet. They should move behind user/workspace ownership once Auth API is added.
+Note: implemented workflow endpoints are now behind Laravel Sanctum session auth. Workspace ownership still comes later.
 
 ## 1. Auth
 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
-| `/api/auth/register` | `POST` | Create user and default workspace. | `full_name`, `username`, `email`, `password`, `organization` | `user`, `workspace`, `token` |
-| `/api/auth/login` | `POST` | Login with username/email and password. | `login`, `password` | `user`, `workspaces`, `active_workspace_id`, `token` |
-| `/api/auth/forgot-password` | `POST` | Request password reset email. | `email` | `message` |
-| `/api/auth/logout` | `POST` | Revoke current session/token. | none | `message` |
+| `/api/login` | `POST` | Login with email and password using session/cookie auth. | `email`, `password` | `id`, `name`, `email` |
+| `/api/me` | `GET` | Get the currently authenticated user. | none | `id`, `name`, `email` |
+| `/api/logout` | `POST` | Invalidate the current authenticated session. | none | `message` |
 
 ## 2. User / Workspace
 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
-| `/api/user` | `GET` | Get current user profile. | none | `user`, `preferences` |
-| `/api/user` | `PATCH` | Update user profile. | `full_name`, `username`, `email`, `organization`, `role` | `user` |
+| `/api/me` | `GET` | Get the current authenticated user session. | none | `id`, `name`, `email` |
 | `/api/user/preferences` | `PATCH` | Save theme, language, defaults, AI, and privacy preferences. | `theme`, `language`, `matching_defaults`, `ai_preferences`, `privacy_settings` | `preferences` |
 | `/api/workspaces` | `GET` | List accessible workspaces. | none | `workspaces` |
 | `/api/workspaces` | `POST` | Create a workspace/session. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `workflow_state` | `workspace` |

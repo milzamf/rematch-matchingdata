@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
@@ -16,39 +16,52 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
-  const { login, user, hydrated } = useAuth();
+  const { currentUser, isAuthenticated, isLoadingAuth, login } = useAuth();
   const { t } = usePreferences();
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (hydrated && user) navigate({ to: "/" });
-  }, [hydrated, user, navigate]);
+    if (!isLoadingAuth && isAuthenticated) {
+      navigate({ to: "/", replace: true });
+    }
+  }, [isAuthenticated, isLoadingAuth, navigate]);
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (loading) return;
+
     setError(null);
-    if (!username || !password) return setError(t("auth.loginMissing"));
+
+    if (!email || !password) {
+      setError(t("auth.loginMissing"));
+      return;
+    }
+
     setLoading(true);
-    setTimeout(() => {
-      const res = login(username, password);
-      setLoading(false);
-      if (!res.ok) setError(authError(res.error, t));
-      else navigate({ to: "/" });
-    }, 350);
+    const result = await login({ email, password });
+    setLoading(false);
+
+    if (!result.ok) {
+      setError(authError(result.error, t));
+      return;
+    }
+
+    navigate({ to: "/", replace: true });
   };
 
   return (
     <AuthShell title={t("auth.signInTitle")} subtitle={t("auth.signInSubtitle")}>
       <form onSubmit={submit} className="space-y-4">
         <Field
-          label={t("auth.username")}
-          value={username}
-          onChange={setUsername}
-          placeholder={t("auth.usernamePlaceholder")}
+          label={t("auth.email")}
+          type="email"
+          value={email}
+          onChange={setEmail}
+          placeholder={t("auth.emailPlaceholder")}
           autoFocus
         />
         <Field
@@ -57,48 +70,38 @@ function LoginPage() {
           value={password}
           onChange={setPassword}
           placeholder={t("auth.passwordPlaceholder")}
-          rightSlot={
-            <Link
-              to="/forgot-password"
-              className="text-xs font-medium text-accent hover:underline"
-            >
-              {t("auth.forgot")}
-            </Link>
-          }
         />
         {error && (
-          <p className="text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}
           </p>
         )}
         <button
           type="submit"
           disabled={loading}
-          className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-brand text-brand-foreground py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-60"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading && <Loader2 className="size-4 animate-spin" />}
           {t("auth.signIn")}
         </button>
       </form>
-      <p className="mt-6 text-center text-xs text-muted-foreground">
-        {t("auth.noAccount")}{" "}
-        <Link to="/register" className="font-medium text-accent hover:underline">
-          {t("auth.createOne")}
-        </Link>
-      </p>
+
+      {currentUser && (
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          {t("auth.loggedInAs")} {currentUser.name}
+        </p>
+      )}
     </AuthShell>
   );
 }
 
 export function authError(error: string, t: ReturnType<typeof usePreferences>["t"]) {
   const map: Record<string, Parameters<typeof t>[0]> = {
-    "Invalid username or password.": "auth.error.invalid",
+    "Email or password is incorrect": "auth.error.invalid",
+    "Unable to connect to the server": "auth.error.server",
     "All fields are required.": "auth.error.required",
-    "Password must be at least 6 characters.": "auth.error.passwordLength",
-    "Username is already taken.": "auth.error.usernameTaken",
-    "Email is already registered.": "auth.error.emailRegistered",
-    "Enter a valid email.": "auth.error.emailInvalid",
   };
+
   return map[error] ? t(map[error]) : error;
 }
 
@@ -111,18 +114,32 @@ export function AuthShell({
   subtitle: string;
   children: ReactNode;
 }) {
+  const { t } = usePreferences();
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
+    <div className="min-h-screen bg-background px-4 py-12 flex items-center justify-center">
       <div className="w-full max-w-md">
-        <div className="flex items-center gap-2.5 mb-8 justify-center">
-          <div className="size-9 bg-brand rounded-lg grid place-items-center">
-            <div className="size-3.5 bg-brand-foreground rounded-[3px]" />
+        <div className="mb-8 flex flex-col items-center gap-3 text-center">
+          <div className="size-11 rounded-xl bg-brand grid place-items-center">
+            <div className="size-4 rounded-[4px] bg-brand-foreground" />
           </div>
-          <span className="font-semibold text-lg tracking-tight">RE-MATCH</span>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+              {t("brand.subtitle")}
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
+              RE-MATCH
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("brand.organizationUnit")}
+            </p>
+            <p className="text-sm text-muted-foreground">{t("brand.organization")}</p>
+          </div>
         </div>
-        <div className="bg-card border border-border rounded-xl shadow-xs p-8">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground mb-6">{subtitle}</p>
+
+        <div className="rounded-xl border border-border bg-card p-8 shadow-xs">
+          <h2 className="text-xl font-semibold tracking-tight text-foreground">{title}</h2>
+          <p className="mt-1 mb-6 text-sm text-muted-foreground">{subtitle}</p>
           {children}
         </div>
       </div>
@@ -137,7 +154,6 @@ export function Field({
   type = "text",
   placeholder,
   autoFocus,
-  rightSlot,
 }: {
   label: string;
   value: string;
@@ -145,21 +161,17 @@ export function Field({
   type?: string;
   placeholder?: string;
   autoFocus?: boolean;
-  rightSlot?: ReactNode;
 }) {
   return (
     <label className="block">
-      <span className="flex items-center justify-between mb-1.5">
-        <span className="text-xs font-medium text-foreground">{label}</span>
-        {rightSlot}
-      </span>
+      <span className="mb-1.5 block text-xs font-medium text-foreground">{label}</span>
       <input
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         type={type}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
+        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
       />
     </label>
   );

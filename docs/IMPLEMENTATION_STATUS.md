@@ -9,13 +9,13 @@ Version: MVP v0.1.0
 | -------------------- | -------: | ---------------------------------------------------------- |
 | Documentation        |      97% | In progress                                                |
 | Frontend UI          |      97% | Mostly complete with RE-MATCH product-facing copy          |
-| Frontend Integration |      72% | Upload through Export plus dashboard/workspace integration |
-| Backend API          |      42% | Upload/Profile/Run/Review/Workspace slices exist           |
+| Frontend Integration |      74% | Upload through Export plus dashboard/workspace integration |
+| Backend API          |      46% | Upload/Profile/Run/Review/Workspace and auth slices exist |
 | Database             |      32% | Dataset, matching, review, and workspace tables exist      |
 | Matching Engine      |      30% | MVP engine slice with entity-aware names                   |
 | AI Assistant         |       0% | Not started                                                |
 | Export Engine        |      20% | Frontend CSV/XLSX generation exists                        |
-| Authentication       |       0% | Not started                                                |
+| Authentication       |      18% | Session/cookie auth foundation implemented                |
 | Testing              |      28% | In progress                                                |
 
 ## Frontend
@@ -35,6 +35,7 @@ Version: MVP v0.1.0
 | Results   | UI complete, still uses mock data.                                                                                   |
 | Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.               |
 | Shell     | Rebranded to RE-MATCH and cleaned of dummy user/search/notification/help controls.                                  |
+| Auth      | Login redirects to the Laravel session, with current user and logout exposed in the app shell.                     |
 
 ## Backend
 
@@ -47,7 +48,7 @@ Version: MVP v0.1.0
 | CSV Parser               | Implemented for inspection milestone.                                                                                         |
 | XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing.                                           |
 | Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                                              |
-| Auth API                 | Not started.                                                                                                                  |
+| Auth API                 | Implemented: `POST /api/login`, `GET /api/me`, and `POST /api/logout` using Sanctum session auth.                        |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
 | Review Knowledge         | Deterministic review patterns and knowledge levels are stored in review decision metadata.                                    |
 | Workspace Persistence    | MVP endpoint supports list/create/detail/update/delete and stores workflow snapshots.                                         |
