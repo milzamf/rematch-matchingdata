@@ -2,11 +2,12 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { LogOut, Plus } from "lucide-react";
 
 import { getInitials, useAuth } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 
 export function Topbar() {
   const { t } = usePreferences();
-  const { currentUser, logout } = useAuth();
+  const { can, currentUser, logout } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -31,16 +32,21 @@ export function Topbar() {
               <p className="text-[11px] text-muted-foreground truncate max-w-40">
                 {currentUser.email}
               </p>
+              <p className="text-[11px] text-muted-foreground truncate max-w-40">
+                {t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0])}
+              </p>
             </div>
           </div>
         )}
-        <Link
-          to="/matching"
-          className="inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90 transition-opacity"
-        >
-          <Plus className="size-4" />
-          {t("topbar.newMatching")}
-        </Link>
+        {can(PERMISSIONS.MATCHING_CREATE) && (
+          <Link
+            to="/matching"
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-3 py-1.5 text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            <Plus className="size-4" />
+            {t("topbar.newMatching")}
+          </Link>
+        )}
         <button
           type="button"
           onClick={handleLogout}

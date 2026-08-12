@@ -6,18 +6,22 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 
+import { useAuth } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 
 const nav = [
-  { labelKey: "nav.dashboard", url: "/", icon: LayoutDashboard },
-  { labelKey: "nav.matching", url: "/matching", icon: GitCompareArrows },
-  { labelKey: "nav.results", url: "/results", icon: ClipboardCheck },
+  { labelKey: "nav.dashboard", url: "/", icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
+  { labelKey: "nav.matching", url: "/matching", icon: GitCompareArrows, permission: PERMISSIONS.MATCHING_VIEW },
+  { labelKey: "nav.results", url: "/results", icon: ClipboardCheck, permission: PERMISSIONS.EXPORT_VIEW },
   { labelKey: "nav.settings", url: "/settings", icon: SettingsIcon },
 ] as const;
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const { t } = usePreferences();
+  const { can } = useAuth();
+  const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
 
   return (
     <aside className="hidden lg:flex w-60 shrink-0 border-r border-border bg-sidebar flex-col sticky top-0 h-screen">
@@ -34,7 +38,7 @@ export function AppSidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {nav.map((item) => {
+        {visibleNav.map((item) => {
           const active = item.url === "/" ? pathname === "/" : pathname.startsWith(item.url);
           const Icon = item.icon;
           return (

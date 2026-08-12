@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 9: Authentication Foundation completed.
+Milestone 9.1: Role & Permission Foundation completed.
 
 ## Project Status
 
@@ -21,6 +21,7 @@ Milestone 9: Authentication Foundation completed.
 - Language Consistency: Done for main workflow and shell
 - Workflow Step Guard: Done
 - Workspace Rename: Done
+- Role & Permission Foundation: Done
 
 ## Completed
 
@@ -37,8 +38,10 @@ Milestone 9: Authentication Foundation completed.
 - Dashboard reads workspace data from backend and no longer shows dummy analytics.
 - Login now uses Laravel Sanctum session/cookie auth with `/api/login`, `/api/me`, and `/api/logout`.
 - Protected app routes and workflow APIs now require an authenticated session.
+- User role is now part of the session identity with backend permission mapping as the source of truth.
+- Frontend shell and workflow actions now hide or deny access based on returned permissions.
 - Register and forgot-password dummy routes now redirect to Login.
-- The first development user can be created by setting `BATCHMATCH_DEV_PASSWORD` and running `php artisan db:seed`, which provisions `dev@re-match.local`.
+- The first development user can be created by setting `BATCHMATCH_DEV_PASSWORD` and optional `BATCHMATCH_DEV_ROLE`, then running `php artisan db:seed`, which provisions `dev@re-match.local`.
 - Product-facing UI is rebranded from BatchMatch to RE-MATCH.
 - Sidebar and application shell no longer show dummy user identity, search, notification, help, or fake account controls.
 - Organization identity is shown lightly in the sidebar and Settings.
@@ -49,9 +52,9 @@ Milestone 9: Authentication Foundation completed.
 
 ## Next Milestone
 
-Milestone 9.1: Role & Permission Foundation.
+Milestone 9.2: Workspace Ownership.
 
-Objective: add the next identity layer after basic authentication is stable.
+Objective: scope workspaces, datasets, jobs, review decisions, and exports to the authenticated user or membership boundary.
 
 ## Current Architecture
 
@@ -62,7 +65,7 @@ Backend:
 Laravel REST API. Handles health, authentication, dataset inspection/profiling, matching engine run/status, review decisions, and workspace persistence.
 
 Database:
-Implemented MVP tables include `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, `matching_results`, `review_decisions`, and `workspaces`.
+Implemented MVP tables include `users` with role, `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, `matching_results`, `review_decisions`, and `workspaces`.
 
 Workflow:
 
@@ -78,6 +81,7 @@ Upload
 ## Known Limitations
 
 - User/workspace membership ownership belum dibuat.
+- Role-based ownership boundary belum dibuat; current authorization is permission-based only.
 - AI Assistance belum dibuat.
 - Matching Engine MVP masih memakai inspected preview rows, belum full-file processing.
 - Sync persistence masih berupa frontend/local state, belum server-side sync plan table.
@@ -85,6 +89,8 @@ Upload
 - Results page masih mock/local state.
 - Audit trail table belum dibuat.
 - Authentication now uses session/cookie auth only; ownership and role enforcement are intentionally deferred.
+- Backend permission map sekarang menjadi source of truth; frontend hanya membaca `role` dan `permissions` dari `/api/me`.
+- Role yang tersedia saat ini: `admin`, `user`, `pimpinan`.
 
 ## Notes
 

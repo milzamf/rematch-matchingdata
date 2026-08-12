@@ -1,9 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
+import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog, ErrorPanel, LoadingPanel } from "@/components/feedback-states";
+import { useAuth } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 import {
   matchedRecords,
@@ -43,11 +46,24 @@ type TabKey = (typeof tabs)[number];
 
 function ResultsPage() {
   const { t } = usePreferences();
+  const { can } = useAuth();
   const [tab, setTab] = useState<TabKey>("overview");
   const [confirmExportOpen, setConfirmExportOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
   const hasResults = recentJobs.length > 0;
+  const canExport = can(PERMISSIONS.EXPORT_EXECUTE);
+
+  if (!can(PERMISSIONS.EXPORT_VIEW)) {
+    return (
+      <AppLayout>
+        <div className="px-8 py-8 max-w-[1400px] mx-auto">
+          <AccessDeniedState />
+        </div>
+      </AppLayout>
+    );
+  }
+
   const prepareExport = () => {
     setConfirmExportOpen(false);
     setResultsError(null);
@@ -67,20 +83,24 @@ function ResultsPage() {
           description={t("results.description")}
           actions={
             <>
-              <button
-                onClick={() => setConfirmExportOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
-              >
-                <Download className="size-4" />
-                CSV
-              </button>
-              <button
-                onClick={() => setTab("export")}
-                className="inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-3 py-2 text-sm font-medium hover:opacity-90"
-              >
-                <FileDown className="size-4" />
-                {t("results.export")}
-              </button>
+              {canExport && (
+                <>
+                  <button
+                    onClick={() => setConfirmExportOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
+                  >
+                    <Download className="size-4" />
+                    CSV
+                  </button>
+                  <button
+                    onClick={() => setTab("export")}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-brand text-brand-foreground px-3 py-2 text-sm font-medium hover:opacity-90"
+                  >
+                    <FileDown className="size-4" />
+                    {t("results.export")}
+                  </button>
+                </>
+              )}
             </>
           }
         />

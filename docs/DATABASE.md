@@ -69,7 +69,7 @@ erDiagram
 
 | Table | Key fields |
 | --- | --- |
-| `users` | `id`, `full_name`, `username`, `email`, `password_hash`, `status`, timestamps. |
+| `users` | `id`, `full_name`, `username`, `email`, `role`, `password_hash`, `status`, timestamps. |
 | `workspaces` | `id`, future `owner_user_id`, `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history`, timestamps. |
 | `workspace_users` | `workspace_id`, `user_id`, `role`, `status`, timestamps. |
 | `datasets` | `id`, `workspace_id`, `uploaded_by_user_id`, `name`, `dataset_role`, `source_type`, `file_format`, `storage_path`, `row_count`, `column_count`, `parse_status`, `schema_snapshot_json`, `profiling_summary_json`, timestamps. |
@@ -147,4 +147,5 @@ This order creates parent records before dependent records. `audit_logs` should 
 - `dataset_columns` stores detected column type, position, null count/percentage, unique count, duplicate percentage, and sample values.
 - `workspaces` stores resumable workflow sessions with linked reference/input datasets, matching job, current step, status, and compact workflow snapshot.
 - Current workspace delete removes only the workspace/session row. Linked datasets, matching jobs, and reference data are not deleted by workspace delete.
-- User ownership and workspace membership enforcement are deferred until Auth API is implemented.
+- User ownership and workspace membership enforcement are deferred until the Workspace Ownership milestone.
+- Current implemented auth metadata adds `users.role` with allowed values `admin`, `user`, and `pimpinan`.

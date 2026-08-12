@@ -15,13 +15,13 @@ Status: API contract draft with implemented MVP slices called out explicitly.
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
 | `/api/health` | `GET` | Check API availability. | none | `success`, `data.service`, `data.status`, `data.version` |
-| `/api/workspaces` | `GET` | List saved workflow workspaces for the authenticated session. | none | `id`, `name`, `status`, `current_step`, `record_count`, `updated_at` |
-| `/api/workspaces` | `POST` | Create a saved workflow workspace. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `workflow_state` | `workspace` |
-| `/api/workspaces/{workspaceId}` | `GET` | Restore workspace detail, linked datasets, and workflow snapshot. | none | `workspace`, `reference_dataset`, `input_dataset`, `matching_job`, `workflow_state` |
-| `/api/workspaces/{workspaceId}` | `PATCH` | Idempotently autosave workspace progress. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history` | `workspace` |
-| `/api/workspaces/{workspaceId}` | `DELETE` | Delete workspace session only. Linked datasets are not deleted. | none | `id` |
-| `/api/datasets/inspect` | `POST` | Upload and inspect one CSV/XLSX dataset for the current frontend workflow. | `file`, `dataset_role`, `sheet_name`, `delimiter`, `header_row` | `dataset`, `columns`, `preview_rows`, `profiling_summary` |
-| `/api/matching-jobs/run` | `POST` | Run the Matching Engine MVP and optionally attach the job to a workspace. | `workspace_id`, `name`, `reference_dataset_id`, `input_dataset_id`, `mappings`, `configuration` | `job`, `progress`, `summary`, `top_results` |
+| `/api/workspaces` | `GET` | List saved workflow workspaces for the authenticated session. Requires `workspace.view`. | none | `id`, `name`, `status`, `current_step`, `record_count`, `updated_at` |
+| `/api/workspaces` | `POST` | Create a saved workflow workspace. Requires `workspace.create`. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `workflow_state` | `workspace` |
+| `/api/workspaces/{workspaceId}` | `GET` | Restore workspace detail, linked datasets, and workflow snapshot. Requires `workspace.view`. | none | `workspace`, `reference_dataset`, `input_dataset`, `matching_job`, `workflow_state` |
+| `/api/workspaces/{workspaceId}` | `PATCH` | Idempotently autosave workspace progress. Requires `workspace.update`. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history` | `workspace` |
+| `/api/workspaces/{workspaceId}` | `DELETE` | Delete workspace session only. Linked datasets are not deleted. Requires `workspace.delete`. | none | `id` |
+| `/api/datasets/inspect` | `POST` | Upload and inspect one CSV/XLSX dataset for the current frontend workflow. Requires `matching.create`. | `file`, `dataset_role`, `sheet_name`, `delimiter`, `header_row` | `dataset`, `columns`, `preview_rows`, `profiling_summary` |
+| `/api/matching-jobs/run` | `POST` | Run the Matching Engine MVP and optionally attach the job to a workspace. Requires `matching.run`. | `workspace_id`, `name`, `reference_dataset_id`, `input_dataset_id`, `mappings`, `configuration` | `job`, `progress`, `summary`, `top_results` |
 
 Note: implemented workflow endpoints are now behind Laravel Sanctum session auth. Workspace ownership still comes later.
 
@@ -29,9 +29,29 @@ Note: implemented workflow endpoints are now behind Laravel Sanctum session auth
 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
-| `/api/login` | `POST` | Login with email and password using session/cookie auth. | `email`, `password` | `id`, `name`, `email` |
-| `/api/me` | `GET` | Get the currently authenticated user. | none | `id`, `name`, `email` |
+| `/api/login` | `POST` | Login with email and password using session/cookie auth. | `email`, `password` | `user.id`, `user.name`, `user.email`, `user.role`, `permissions[]` |
+| `/api/me` | `GET` | Get the currently authenticated user and permissions. | none | `user.id`, `user.name`, `user.email`, `user.role`, `permissions[]` |
 | `/api/logout` | `POST` | Invalidate the current authenticated session. | none | `message` |
+
+### Implemented permission codes
+
+- `dashboard.view`
+- `workspace.view`
+- `workspace.create`
+- `workspace.update`
+- `workspace.delete`
+- `matching.view`
+- `matching.create`
+- `matching.configure`
+- `matching.run`
+- `review.view`
+- `review.decide`
+- `sync.view`
+- `sync.execute`
+- `export.view`
+- `export.execute`
+- `monitoring.view`
+- `admin.access`
 
 ## 2. User / Workspace
 

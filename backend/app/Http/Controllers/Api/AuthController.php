@@ -56,16 +56,20 @@ class AuthController extends Controller
     }
 
     /**
-     * @return array{id: string|int, name: string, email: string}
+     * @return array{user: array{id: string|int, name: string, email: string, role: string}, permissions: list<string>}
      */
     private function userPayload(?User $user): array
     {
         abort_if(! $user, 401);
 
         return [
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->roleEnum()->value,
+            ],
+            'permissions' => $user->permissions(),
         ];
     }
 }

@@ -5,6 +5,9 @@
 ### Added
 
 - Authentication foundation with Laravel Sanctum session/cookie login, current user, and logout endpoints.
+- Role and permission foundation with centralized backend permission mapping for `admin`, `user`, and `pimpinan`.
+- Backend permission middleware for protected workspace, inspect, matching, and review APIs.
+- Frontend permission-aware auth state, role-aware shell navigation, and access-denied pages for restricted sections.
 - Protected app access for authenticated users only, with login redirect and dummy registration/password-reset routes disabled.
 - Frontend auth state centralization for current user, loading, login, logout, and session refresh.
 - Initial RE-MATCH frontend with Dashboard, Matching, Results, and Settings.
@@ -52,6 +55,8 @@
 
 ### Improved
 
+- `/api/me` and login session payloads now return user identity plus permissions for frontend authorization.
+- Review, sync, export, workspace rename/delete, and new matching actions are now hidden when the active role lacks permission.
 - UI polish for navigation, dashboard tables, workflow stepper, column mapping, matching configuration, manual review, and results tabs.
 - Results experience with Overview, Matched, Possible Match, Unmatched, Statistics, Audit Trail, and Export History tabs.
 - Settings page with profile, matching defaults, AI preferences, data privacy, and about sections.
@@ -87,7 +92,7 @@
 
 ### Notes
 
-- AI service integration, server-side export history, audit persistence, and authentication are not implemented yet.
+- AI service integration, server-side export history, audit persistence, workspace ownership, and membership enforcement are not implemented yet.
 - Sync still uses local audit state; Export is frontend-generated from latest Review results; Results still uses mock/local state.
 - Matching Engine MVP currently runs against inspected preview rows, not full stored file contents.
-- Review decisions are stored without Auth/user membership ownership until those milestones are implemented.
+- Review decisions are stored without user/workspace ownership enforcement until those milestones are implemented.

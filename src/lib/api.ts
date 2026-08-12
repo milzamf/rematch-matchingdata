@@ -1,3 +1,5 @@
+import type { PermissionName, UserRole } from "@/lib/authorization";
+
 export type DatasetRole = "reference" | "input";
 
 export type DatasetMetadata = {
@@ -56,6 +58,12 @@ export type AuthUser = {
   id: string | number;
   name: string;
   email: string;
+  role: UserRole;
+};
+
+export type AuthSession = {
+  user: AuthUser;
+  permissions: PermissionName[];
 };
 
 export const AUTH_UNAUTHORIZED_EVENT = "batchmatch:auth-unauthorized";
@@ -345,13 +353,16 @@ export class ApiError extends Error {
   }
 }
 
-export async function fetchCurrentUser(): Promise<AuthUser | null> {
+export async function fetchCurrentUser(): Promise<AuthSession | null> {
   const response = await apiFetch("/me");
   if (response.status === 401) {
     return null;
   }
 
-  const payload = (await response.json().catch(() => null)) as ApiSuccess<AuthUser> | ApiFailure | null;
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<AuthSession>
+    | ApiFailure
+    | null;
   if (!response.ok || !payload || payload.success === false) {
     throw new ApiError(
       payload?.message ?? "Unable to load the current session",
@@ -366,7 +377,7 @@ export async function fetchCurrentUser(): Promise<AuthUser | null> {
 export async function loginWithSession(input: {
   email: string;
   password: string;
-}): Promise<AuthUser> {
+}): Promise<AuthSession> {
   await ensureCsrfCookie();
 
   const response = await apiFetch("/login", {
@@ -380,7 +391,10 @@ export async function loginWithSession(input: {
     }),
   });
 
-  const payload = (await response.json().catch(() => null)) as ApiSuccess<AuthUser> | ApiFailure | null;
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<AuthSession>
+    | ApiFailure
+    | null;
   if (!response.ok || !payload || payload.success === false) {
     throw new ApiError(
       payload?.message ?? "Email or password is incorrect",

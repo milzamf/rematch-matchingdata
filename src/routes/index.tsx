@@ -11,9 +11,12 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorPanel, LoadingPanel } from "@/components/feedback-states";
+import { useAuth } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/authorization";
 import { ApiError, listWorkspaces, type WorkspaceSummary } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
 
@@ -32,12 +35,15 @@ export const Route = createFileRoute("/")({
 
 function DashboardPage() {
   const { t } = usePreferences();
+  const { can } = useAuth();
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canViewDashboard = can(PERMISSIONS.DASHBOARD_VIEW);
 
   const loadDashboard = useCallback((mode: "initial" | "refresh" = "initial") => {
+    if (!canViewDashboard) return;
     if (mode === "initial") setLoading(true);
     if (mode === "refresh") setRefreshing(true);
     setError(null);
@@ -51,7 +57,7 @@ function DashboardPage() {
         setLoading(false);
         setRefreshing(false);
       });
-  }, [t]);
+  }, [canViewDashboard, t]);
 
   useEffect(() => {
     loadDashboard();
@@ -61,6 +67,17 @@ function DashboardPage() {
   const latestWorkspace = summary.latestActive ?? workspaces[0] ?? null;
   const actionItems = summary.actionItems;
   const reviewItems = summary.reviewItems;
+  const canCreateMatching = can(PERMISSIONS.MATCHING_CREATE);
+
+  if (!canViewDashboard) {
+    return (
+      <AppLayout>
+        <div className="mx-auto max-w-[1400px] px-8 py-8">
+          <AccessDeniedState />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -82,13 +99,15 @@ function DashboardPage() {
                 )}
                 {t("common.refresh")}
               </button>
-              <Link
-                to="/matching"
-                className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
-              >
-                <Plus className="size-4" />
-                {t("topbar.newMatching")}
-              </Link>
+              {canCreateMatching && (
+                <Link
+                  to="/matching"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
+                >
+                  <Plus className="size-4" />
+                  {t("topbar.newMatching")}
+                </Link>
+              )}
             </div>
           }
         />
@@ -122,13 +141,15 @@ function DashboardPage() {
               title={t("dashboard.real.emptyTitle")}
               description={t("dashboard.real.emptyDesc")}
               action={
-                <Link
-                  to="/matching"
-                  className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
-                >
-                  <Plus className="size-4" />
-                  {t("topbar.newMatching")}
-                </Link>
+                canCreateMatching ? (
+                  <Link
+                    to="/matching"
+                    className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
+                  >
+                    <Plus className="size-4" />
+                    {t("topbar.newMatching")}
+                  </Link>
+                ) : undefined
               }
             />
             <p className="mt-6 text-center text-xs text-muted-foreground">

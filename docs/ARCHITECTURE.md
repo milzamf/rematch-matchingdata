@@ -7,12 +7,13 @@ BatchMatch uses a separated architecture:
 - Frontend: React + Tailwind CSS
 - Backend: Laravel REST API
 - Authentication: Laravel Sanctum session/cookie auth
+- Authorization: backend role/permission map returned through `/api/me`
 - Database: MySQL or PostgreSQL
 - Matching Engine: Laravel Service Layer, with optional Python/RapidFuzz service later
 - AI Assistance: External AI API through backend only
 - Export Engine: Backend service for Excel, CSV, JSON, and audit output
 
-Frontend must never access database, AI token, or file storage directly. It authenticates through Laravel Sanctum session cookies and reads the current user from `/api/me`.
+Frontend must never access database, AI token, or file storage directly. It authenticates through Laravel Sanctum session cookies and reads the current user plus permissions from `/api/me`.
 
 ---
 
@@ -75,7 +76,10 @@ app/
 
 ## 5. Core Backend Services
 ### AuthService
-Handles login, current session lookup, logout, CSRF flow, and protected API access.
+Handles login, current session lookup, logout, CSRF flow, role payload, and protected API access.
+
+### Authorization Layer
+Maps roles (`admin`, `user`, `pimpinan`) to permissions in the backend. Frontend permission awareness must follow backend-returned permissions and must not become the source of truth.
 
 ### DatasetService
 Handles uploaded datasets, metadata, storage, parser selection, and dataset ownership.
@@ -139,7 +143,7 @@ exports
 audit_logs
 ai_recommendations
 
-Each user owns their own workspace data. Users must not access other users' jobs, uploads, exports, or audit trail.
+Current implementation supports authenticated identity plus role/permission awareness. Full workspace ownership and per-user data isolation remain a separate milestone.
 
 ## 7. API Modules
 Planned REST API groups:

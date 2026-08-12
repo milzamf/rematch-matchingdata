@@ -15,7 +15,7 @@ Version: MVP v0.1.0
 | Matching Engine      |      30% | MVP engine slice with entity-aware names                   |
 | AI Assistant         |       0% | Not started                                                |
 | Export Engine        |      20% | Frontend CSV/XLSX generation exists                        |
-| Authentication       |      18% | Session/cookie auth foundation implemented                |
+| Authentication       |      33% | Session auth plus role and permission foundation exist    |
 | Testing              |      28% | In progress                                                |
 
 ## Frontend
@@ -35,7 +35,7 @@ Version: MVP v0.1.0
 | Results   | UI complete, still uses mock data.                                                                                   |
 | Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.               |
 | Shell     | Rebranded to RE-MATCH and cleaned of dummy user/search/notification/help controls.                                  |
-| Auth      | Login redirects to the Laravel session, with current user and logout exposed in the app shell.                     |
+| Auth      | Login redirects to the Laravel session, with current user role, permissions, logout, protected routes, and access-denied states exposed in the app shell. |
 
 ## Backend
 
@@ -48,7 +48,7 @@ Version: MVP v0.1.0
 | CSV Parser               | Implemented for inspection milestone.                                                                                         |
 | XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing.                                           |
 | Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                                              |
-| Auth API                 | Implemented: `POST /api/login`, `GET /api/me`, and `POST /api/logout` using Sanctum session auth.                        |
+| Auth API                 | Implemented: `POST /api/login`, `GET /api/me`, and `POST /api/logout` using Sanctum session auth, plus role/permission payloads and permission middleware. |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
 | Review Knowledge         | Deterministic review patterns and knowledge levels are stored in review decision metadata.                                    |
 | Workspace Persistence    | MVP endpoint supports list/create/detail/update/delete and stores workflow snapshots.                                         |
@@ -60,7 +60,7 @@ Version: MVP v0.1.0
 | ------------------------- | --------------------------------- |
 | `datasets`                | Migration and model implemented.  |
 | `dataset_columns`         | Migration and model implemented.  |
-| `users`                   | Laravel default migration exists. |
+| `users`                   | Laravel default migration exists, with role added by milestone 9.1. |
 | `workspaces`              | Migration and model implemented.  |
 | `workspace_users`         | Not started.                      |
 | `matching_jobs`           | Migration and model implemented.  |
@@ -72,6 +72,23 @@ Version: MVP v0.1.0
 | `exports`                 | Not started.                      |
 | `audit_logs`              | Not started.                      |
 | `ai_recommendations`      | Not started.                      |
+
+## Completed Milestone
+
+Milestone 9.1: Role & Permission Foundation
+
+| Requirement                                 | Status   |
+| ------------------------------------------- | -------- |
+| Central role definition                     | Complete |
+| `users.role` migration                      | Complete |
+| Backend permission registry                 | Complete |
+| Sanctum auth payload with role/permissions  | Complete |
+| Protected backend workflow endpoints        | Complete |
+| Frontend auth permission awareness          | Complete |
+| Role-aware sidebar and topbar               | Complete |
+| Hidden workflow actions by permission       | Complete |
+| Access denied frontend state                | Complete |
+| Workspace ownership and membership boundary | Deferred |
 
 ## Completed Milestone
 

@@ -2,10 +2,13 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
+import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog } from "@/components/feedback-states";
+import { useAuth } from "@/lib/auth";
+import { PERMISSIONS } from "@/lib/authorization";
 import { wizardSteps } from "@/lib/dummy-data";
 import { downloadCsv, downloadXlsx, type ExportTable } from "@/lib/export-files";
 import {
@@ -185,6 +188,7 @@ const MAX_MB = 50;
 
 function MatchingPage() {
   const { t } = usePreferences();
+  const { can } = useAuth();
   const searchParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
   const initialWorkspaceId = searchParams?.get("workspace") ?? null;
   const [step, setStep] = useState(parseInitialStep(searchParams?.get("step")));
@@ -233,6 +237,14 @@ function MatchingPage() {
   });
   const activeStep = Math.min(step, highestAllowedStep);
   const canAdvance = activeStep < wizardSteps.length && activeStep + 1 <= highestAllowedStep;
+  const canViewMatching = can(PERMISSIONS.MATCHING_VIEW);
+  const canViewWorkspaces = can(PERMISSIONS.WORKSPACE_VIEW);
+  const canCreateMatching = can(PERMISSIONS.MATCHING_CREATE);
+  const canUpdateWorkspace = can(PERMISSIONS.WORKSPACE_UPDATE);
+  const canRunMatching = can(PERMISSIONS.MATCHING_RUN);
+  const canReviewDecide = can(PERMISSIONS.REVIEW_DECIDE);
+  const canExecuteSync = can(PERMISSIONS.SYNC_EXECUTE);
+  const canExecuteExport = can(PERMISSIONS.EXPORT_EXECUTE);
   const localizedSteps = wizardSteps.map((s) => ({
     ...s,
     title: t(`step.${stepKey(s.id)}`),
@@ -241,6 +253,17 @@ function MatchingPage() {
     lockedLabel: t("workflow.locked"),
   }));
   const workspaceStatus = deriveWorkspaceStatus(activeStep, runState);
+
+  if (!canViewMatching) {
+    return (
+      <AppLayout>
+        <div className="px-8 py-8 max-w-[1400px] mx-auto">
+          <AccessDeniedState />
+        </div>
+      </AppLayout>
+    );
+  }
+
   const workspaceSnapshot = useMemo<WorkspaceStatePayload>(
     () => ({
       reference: uploadSnapshot(reference),
@@ -273,7 +296,7 @@ function MatchingPage() {
   }, [workspaceId]);
 
   useEffect(() => {
-    if (!initialWorkspaceId) return;
+    if (!initialWorkspaceId || !canViewMatching || !canViewWorkspaces) return;
 
     let mounted = true;
     restoringWorkspaceRef.current = true;
@@ -344,10 +367,10 @@ function MatchingPage() {
     return () => {
       mounted = false;
     };
-  }, [initialWorkspaceId, t]);
+  }, [canViewMatching, canViewWorkspaces, initialWorkspaceId, t]);
 
   useEffect(() => {
-    if (!workspaceId || restoringWorkspaceRef.current) return;
+    if (!workspaceId || restoringWorkspaceRef.current || !canUpdateWorkspace) return;
 
     const timeout = window.setTimeout(() => {
       setWorkspaceSaveState("saving");
@@ -383,6 +406,7 @@ function MatchingPage() {
     workspaceName,
     workspaceSnapshot,
     workspaceStatus,
+    canUpdateWorkspace,
   ]);
 
   const ensureWorkspace = async (role: DatasetRole, result: DatasetInspectResult) => {
@@ -393,6 +417,7 @@ function MatchingPage() {
 
     try {
       if (existingWorkspaceId) {
+        if (!canUpdateWorkspace) return;
         await updateWorkspace(existingWorkspaceId, {
           name: workspaceName,
           status: workspaceStatus,
@@ -405,6 +430,7 @@ function MatchingPage() {
         return;
       }
 
+      if (!canCreateMatching) return;
       setWorkspaceSaveState("saving");
       const workspace = await createWorkspace({
         name: nextName,
@@ -429,6 +455,11 @@ function MatchingPage() {
       setRunState("failed");
       setRunError(t("matching.run.missingConfig"));
       toast.error(t("feedback.toast.runFailed"));
+      return;
+    }
+
+    if (!canRunMatching) {
+      toast.error(t("feedback.toast.accessDenied"));
       return;
     }
 
@@ -465,6 +496,11 @@ function MatchingPage() {
   };
 
   const handleInspectFile = async (role: DatasetRole, file: File) => {
+    if (!canCreateMatching) {
+      toast.error(t("feedback.toast.accessDenied"));
+      return;
+    }
+
     const err = validateFile(file, t);
     const setFile = role === "reference" ? setReference : setInput;
 
@@ -538,6 +574,11 @@ function MatchingPage() {
   }, [runState, t]);
 
   const renameWorkspace = async () => {
+    if (!canUpdateWorkspace) {
+      toast.error(t("feedback.toast.accessDenied"));
+      return;
+    }
+
     const nextName = window.prompt(t("workspace.renamePrompt"), workspaceName)?.trim();
     if (!nextName || nextName === workspaceName) return;
 
@@ -570,12 +611,14 @@ function MatchingPage() {
           title={t("matching.title")}
           description={t("matching.description")}
           actions={
-            <Link
-              to="/workspaces"
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
-            >
-              {t("workspace.title")}
-            </Link>
+            canViewWorkspaces ? (
+              <Link
+                to="/workspaces"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
+              >
+                {t("workspace.title")}
+              </Link>
+            ) : undefined
           }
         />
 
@@ -588,13 +631,15 @@ function MatchingPage() {
           </div>
           <div className="flex items-center gap-2">
             {workspaceError && <span className="text-destructive">{workspaceError}</span>}
-            <button
-              type="button"
-              onClick={renameWorkspace}
-              className="rounded-md border border-border px-2 py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-            >
-              {t("workspace.renameShort")}
-            </button>
+            {canUpdateWorkspace && (
+              <button
+                type="button"
+                onClick={renameWorkspace}
+                className="rounded-md border border-border px-2 py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                {t("workspace.renameShort")}
+              </button>
+            )}
             <span className="rounded-full bg-secondary px-2 py-1 font-medium text-muted-foreground">
               {workspaceStatusLabel(workspaceStatus, t)}
             </span>
@@ -658,18 +703,24 @@ function MatchingPage() {
                 setRunError(null);
               }}
               onBack={() => setStep(4)}
+              canRun={canRunMatching}
             />
           )}
-          {activeStep === 6 && <StepReview jobId={runResult?.job.id ?? null} />}
-          {activeStep === 7 && (
-              <StepSynchronize
-                jobId={runResult?.job.id ?? null}
-                syncState={syncState}
-                onBackToReview={() => setStep(6)}
-                onSyncStateChange={setSyncState}
-              />
+          {activeStep === 6 && (
+            <StepReview jobId={runResult?.job.id ?? null} canDecide={canReviewDecide} />
           )}
-          {activeStep === 8 && <StepExport jobId={runResult?.job.id ?? null} />}
+          {activeStep === 7 && (
+            <StepSynchronize
+              jobId={runResult?.job.id ?? null}
+              syncState={syncState}
+              onBackToReview={() => setStep(6)}
+              onSyncStateChange={setSyncState}
+              canExecute={canExecuteSync}
+            />
+          )}
+          {activeStep === 8 && (
+            <StepExport jobId={runResult?.job.id ?? null} canExecute={canExecuteExport} />
+          )}
 
           {/* Nav */}
           <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
@@ -3067,6 +3118,7 @@ function StepRun({
   onStart,
   onRetry,
   onBack,
+  canRun,
 }: {
   state: RunState;
   progress: number;
@@ -3076,6 +3128,7 @@ function StepRun({
   onStart: () => void;
   onRetry: () => void;
   onBack: () => void;
+  canRun: boolean;
 }) {
   const { t } = usePreferences();
   return (
@@ -3093,12 +3146,14 @@ function StepRun({
                 <p className="text-xs text-muted-foreground">{t("matching.run.estimated")}</p>
               </div>
             </div>
-            <button
-              onClick={onStart}
-              className="px-4 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold hover:opacity-90"
-            >
-              {t("matching.run.start")}
-            </button>
+            {canRun && (
+              <button
+                onClick={onStart}
+                className="px-4 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold hover:opacity-90"
+              >
+                {t("matching.run.start")}
+              </button>
+            )}
           </div>
           {configuration && (
             <div
@@ -3211,7 +3266,13 @@ function StepRun({
 type ReviewFilter = "possible_match" | "matched" | "unmatched" | "all";
 type CaseGroupFilter = "open" | "resolved" | "all";
 
-function StepReview({ jobId }: { jobId: string | null }) {
+function StepReview({
+  jobId,
+  canDecide,
+}: {
+  jobId: string | null;
+  canDecide: boolean;
+}) {
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
   const [loading, setLoading] = useState(false);
@@ -3524,6 +3585,7 @@ function StepReview({ jobId }: { jobId: string | null }) {
           }}
           onDecide={decideCaseGroup}
           onUndo={undoDecision}
+          canDecide={canDecide}
         />
       )}
 
@@ -3653,25 +3715,27 @@ function StepReview({ jobId }: { jobId: string | null }) {
                             {item.candidates.length}
                           </td>
                           <td className="px-4 py-3">
-                            <div
-                              className="flex justify-end gap-1.5"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                onClick={() => decide(item, "accept_match", candidate)}
-                                disabled={!hasReferenceCandidate || saving}
-                                className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
+                            {canDecide ? (
+                              <div
+                                className="flex justify-end gap-1.5"
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                {t("matching.review.accept")}
-                              </button>
-                              <button
-                                onClick={() => decide(item, "mark_unmatched", null)}
-                                disabled={saving}
-                                className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
-                              >
-                                {t("matching.review.markUnmatched")}
-                              </button>
-                            </div>
+                                <button
+                                  onClick={() => decide(item, "accept_match", candidate)}
+                                  disabled={!hasReferenceCandidate || saving}
+                                  className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
+                                >
+                                  {t("matching.review.accept")}
+                                </button>
+                                <button
+                                  onClick={() => decide(item, "mark_unmatched", null)}
+                                  disabled={saving}
+                                  className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
+                                >
+                                  {t("matching.review.markUnmatched")}
+                                </button>
+                              </div>
+                            ) : null}
                           </td>
                         </tr>
                       );
@@ -3732,14 +3796,16 @@ function StepReview({ jobId }: { jobId: string | null }) {
                         {selected.decision.decided_at ?? selected.decision.created_at ?? "-"}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => undo(selected)}
-                      disabled={saving}
-                      className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-40"
-                    >
-                      {t("matching.review.undo")}
-                    </button>
+                    {canDecide && (
+                      <button
+                        type="button"
+                        onClick={() => undo(selected)}
+                        disabled={saving}
+                        className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                      >
+                        {t("matching.review.undo")}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -3808,27 +3874,31 @@ function StepReview({ jobId }: { jobId: string | null }) {
               <DecisionHistory history={selected.decision_history ?? []} />
 
               <div className="mt-6 flex gap-2">
-                <button
-                  onClick={() => decide(selected, "accept_match", selectedCandidate)}
-                  disabled={!selectedCandidate?.reference_record_key || saving}
-                  className="flex-1 px-3 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold disabled:opacity-40"
-                >
-                  {t("matching.review.accept")}
-                </button>
-                <button
-                  onClick={() => decide(selected, "reject_match", selectedCandidate)}
-                  disabled={!selectedCandidate?.reference_record_key || saving}
-                  className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary disabled:opacity-40"
-                >
-                  {t("matching.review.reject")}
-                </button>
-                <button
-                  onClick={() => decide(selected, "mark_unmatched", null)}
-                  disabled={saving}
-                  className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary disabled:opacity-40"
-                >
-                  {t("matching.review.markUnmatched")}
-                </button>
+                {canDecide && (
+                  <>
+                    <button
+                      onClick={() => decide(selected, "accept_match", selectedCandidate)}
+                      disabled={!selectedCandidate?.reference_record_key || saving}
+                      className="flex-1 px-3 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold disabled:opacity-40"
+                    >
+                      {t("matching.review.accept")}
+                    </button>
+                    <button
+                      onClick={() => decide(selected, "reject_match", selectedCandidate)}
+                      disabled={!selectedCandidate?.reference_record_key || saving}
+                      className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary disabled:opacity-40"
+                    >
+                      {t("matching.review.reject")}
+                    </button>
+                    <button
+                      onClick={() => decide(selected, "mark_unmatched", null)}
+                      disabled={saving}
+                      className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary disabled:opacity-40"
+                    >
+                      {t("matching.review.markUnmatched")}
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={() => setSelected(null)}
                   className="px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary"
@@ -3849,6 +3919,7 @@ function CaseGroupsReview({
   filter,
   groups,
   items,
+  canDecide,
   onDecide,
   onFilterChange,
   onOpenRecord,
@@ -3863,6 +3934,7 @@ function CaseGroupsReview({
   groups: ReviewCaseGroup[];
   items: ReviewItem[];
   saving: boolean;
+  canDecide: boolean;
   selectedKeysByGroup: Record<string, string[]>;
   onFilterChange: (filter: CaseGroupFilter) => void;
   onToggleKey: (group: ReviewCaseGroup, key: string) => void;
@@ -3990,7 +4062,7 @@ function CaseGroupsReview({
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
-                  {isResolved && latestDecision ? (
+                  {isResolved && latestDecision && canDecide ? (
                     <button
                       type="button"
                       onClick={() => onUndo(latestDecision.id)}
@@ -4017,30 +4089,34 @@ function CaseGroupsReview({
                       >
                         {t("matching.review.reviewIndividually")}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onDecide(group, "accept_match", "group")}
-                        disabled={!group.eligible_for_bulk || !canAccept || saving}
-                        className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
-                      >
-                        {t("matching.review.applyGroupAccept")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDecide(group, "reject_match", "group")}
-                        disabled={!group.eligible_for_bulk || !canAccept || saving}
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
-                      >
-                        {t("matching.review.applyGroupReject")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDecide(group, "mark_unmatched", "group")}
-                        disabled={!group.eligible_for_bulk || saving}
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
-                      >
-                        {t("matching.review.applyGroupUnmatched")}
-                      </button>
+                      {canDecide && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onDecide(group, "accept_match", "group")}
+                            disabled={!group.eligible_for_bulk || !canAccept || saving}
+                            className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
+                          >
+                            {t("matching.review.applyGroupAccept")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDecide(group, "reject_match", "group")}
+                            disabled={!group.eligible_for_bulk || !canAccept || saving}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                          >
+                            {t("matching.review.applyGroupReject")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDecide(group, "mark_unmatched", "group")}
+                            disabled={!group.eligible_for_bulk || saving}
+                            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                          >
+                            {t("matching.review.applyGroupUnmatched")}
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
@@ -4085,7 +4161,7 @@ function CaseGroupsReview({
                               <input
                                 type="checkbox"
                                 checked={selectedKeys.includes(item.input_record_key)}
-                                disabled={!group.eligible_for_bulk || saving}
+                                disabled={!group.eligible_for_bulk || saving || !canDecide}
                                 onChange={() => onToggleKey(group, item.input_record_key)}
                                 aria-label={t("matching.review.selectRecord")}
                               />
@@ -4142,7 +4218,7 @@ function CaseGroupsReview({
                     </tbody>
                   </table>
                 </div>
-                {!isResolved && (
+                {!isResolved && canDecide && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -4447,11 +4523,13 @@ function StepSynchronize({
   syncState,
   onBackToReview,
   onSyncStateChange,
+  canExecute,
 }: {
   jobId: string | null;
   syncState: SyncState | null;
   onBackToReview: () => void;
   onSyncStateChange: (state: SyncState | null) => void;
+  canExecute: boolean;
 }) {
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
@@ -4704,14 +4782,16 @@ function StepSynchronize({
                   </p>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={confirmSync}
-                disabled={!readyToSync}
-                className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
-              >
-                {t("matching.sync.confirm")}
-              </button>
+              {canExecute && (
+                <button
+                  type="button"
+                  onClick={confirmSync}
+                  disabled={!readyToSync}
+                  className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
+                >
+                  {t("matching.sync.confirm")}
+                </button>
+              )}
             </div>
           </section>
         </div>
@@ -4769,7 +4849,13 @@ function SyncMetric({ label, value, strong }: { label: string; value: string; st
 type ExportStatus = "matched" | "new" | "rejected" | "pending";
 type ExportFormat = "xlsx" | "csv";
 
-function StepExport({ jobId }: { jobId: string | null }) {
+function StepExport({
+  jobId,
+  canExecute,
+}: {
+  jobId: string | null;
+  canExecute: boolean;
+}) {
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
   const [loading, setLoading] = useState(false);
@@ -5049,14 +5135,16 @@ function StepExport({ jobId }: { jobId: string | null }) {
                     {item}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  onClick={runExport}
-                  disabled={exporting || exportRows.rows.length === 0}
-                  className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
-                >
-                  {exporting ? t("matching.export.exporting") : t("matching.export.download")}
-                </button>
+                {canExecute && (
+                  <button
+                    type="button"
+                    onClick={runExport}
+                    disabled={exporting || exportRows.rows.length === 0}
+                    className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
+                  >
+                    {exporting ? t("matching.export.exporting") : t("matching.export.download")}
+                  </button>
+                )}
               </div>
             </div>
           </section>

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ReviewDecisionController;
 use App\Http\Controllers\Api\ReviewResultsController;
 use App\Http\Controllers\Api\UndoReviewDecisionController;
 use App\Http\Controllers\Api\WorkspaceController;
+use App\Support\Auth\PermissionRegistry;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class);
@@ -19,18 +20,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    Route::apiResource('workspaces', WorkspaceController::class)->only([
-        'index',
-        'store',
-        'show',
-        'update',
-        'destroy',
-    ]);
+    Route::get('/workspaces', [WorkspaceController::class, 'index'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
+    Route::post('/workspaces', [WorkspaceController::class, 'store'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_CREATE);
+    Route::get('/workspaces/{workspace}', [WorkspaceController::class, 'show'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
+    Route::patch('/workspaces/{workspace}', [WorkspaceController::class, 'update'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_UPDATE);
+    Route::delete('/workspaces/{workspace}', [WorkspaceController::class, 'destroy'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_DELETE);
 
-    Route::post('/datasets/inspect', DatasetInspectionController::class);
-    Route::post('/matching-jobs/run', MatchingRunController::class);
-    Route::get('/matching-jobs/{job}/status', MatchingStatusController::class);
-    Route::get('/matching-jobs/{job}/review-results', ReviewResultsController::class);
-    Route::post('/matching-jobs/{job}/review-decisions', ReviewDecisionController::class);
-    Route::post('/matching-jobs/{job}/review-decisions/{decision}/undo', UndoReviewDecisionController::class);
+    Route::post('/datasets/inspect', DatasetInspectionController::class)
+        ->middleware('permission:'.PermissionRegistry::MATCHING_CREATE);
+    Route::post('/matching-jobs/run', MatchingRunController::class)
+        ->middleware('permission:'.PermissionRegistry::MATCHING_RUN);
+    Route::get('/matching-jobs/{job}/status', MatchingStatusController::class)
+        ->middleware('permission:'.PermissionRegistry::MATCHING_VIEW);
+    Route::get('/matching-jobs/{job}/review-results', ReviewResultsController::class)
+        ->middleware('permission:'.PermissionRegistry::REVIEW_VIEW);
+    Route::post('/matching-jobs/{job}/review-decisions', ReviewDecisionController::class)
+        ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
+    Route::post('/matching-jobs/{job}/review-decisions/{decision}/undo', UndoReviewDecisionController::class)
+        ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
 });

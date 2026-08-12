@@ -5,9 +5,11 @@ import {
   fetchCurrentUser,
   loginWithSession,
   logoutSession,
+  type AuthSession,
   type AuthUser,
   ApiError,
 } from "@/lib/api";
+import { hasPermission, type PermissionName, type UserRole } from "@/lib/authorization";
 
 type AuthResult = { ok: true } | { ok: false; error: string };
 
@@ -18,6 +20,9 @@ type AuthContextValue = {
   login: (input: { email: string; password: string }) => Promise<AuthResult>;
   logout: () => Promise<void>;
   refreshCurrentUser: () => Promise<AuthUser | null>;
+  permissions: PermissionName[];
+  role: UserRole | null;
+  can: (permission: PermissionName) => boolean;
   user: AuthUser | null;
   hydrated: boolean;
 };
@@ -26,21 +31,27 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [permissions, setPermissions] = useState<PermissionName[]>([]);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+
+  const applySession = useCallback((session: AuthSession | null) => {
+    setCurrentUser(session?.user ?? null);
+    setPermissions(session?.permissions ?? []);
+  }, []);
 
   const refreshCurrentUser = useCallback(async () => {
     setIsLoadingAuth(true);
     try {
-      const user = await fetchCurrentUser();
-      setCurrentUser(user);
-      return user;
+      const session = await fetchCurrentUser();
+      applySession(session);
+      return session?.user ?? null;
     } catch {
-      setCurrentUser(null);
+      applySession(null);
       return null;
     } finally {
       setIsLoadingAuth(false);
     }
-  }, []);
+  }, [applySession]);
 
   useEffect(() => {
     void refreshCurrentUser();
@@ -48,21 +59,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleUnauthorized = () => {
-      setCurrentUser(null);
+      applySession(null);
       setIsLoadingAuth(false);
     };
 
     window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
     return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
-  }, []);
+  }, [applySession]);
 
   const login = useCallback(async (input: { email: string; password: string }): Promise<AuthResult> => {
     try {
-      const user = await loginWithSession(input);
-      setCurrentUser(user);
+      const session = await loginWithSession(input);
+      applySession(session);
       return { ok: true };
     } catch (error) {
-      setCurrentUser(null);
+      applySession(null);
       if (error instanceof ApiError) {
         if (error.status === 401 || error.status === 422) {
           return { ok: false, error: error.message || "Email or password is incorrect" };
@@ -72,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return { ok: false, error: "Unable to connect to the server" };
     }
-  }, []);
+  }, [applySession]);
 
   const logout = useCallback(async () => {
     try {
@@ -80,22 +91,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Clear local state even if the session request fails so the UI does not remain stuck.
     } finally {
-      setCurrentUser(null);
+      applySession(null);
     }
-  }, []);
+  }, [applySession]);
+
+  const can = useCallback(
+    (permission: PermissionName) => hasPermission(permissions, permission),
+    [permissions],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
+      can,
       currentUser,
       isAuthenticated: Boolean(currentUser),
       isLoadingAuth,
       login,
       logout,
+      permissions,
       refreshCurrentUser,
+      role: currentUser?.role ?? null,
       user: currentUser,
       hydrated: !isLoadingAuth,
     }),
-    [currentUser, isLoadingAuth, login, logout, refreshCurrentUser],
+    [can, currentUser, isLoadingAuth, login, logout, permissions, refreshCurrentUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
