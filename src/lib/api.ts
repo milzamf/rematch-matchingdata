@@ -424,10 +424,6 @@ export async function logoutSession(): Promise<void> {
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
-const BACKEND_ORIGIN =
-  typeof window === "undefined"
-    ? "http://127.0.0.1:8000"
-    : new URL(import.meta.env.VITE_BACKEND_ORIGIN ?? API_BASE_URL, window.location.origin).origin;
 
 function buildApiUrl(path: string) {
   return `${API_BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
@@ -468,13 +464,16 @@ async function apiFetch(path: string, init: RequestInit = {}) {
 }
 
 async function ensureCsrfCookie() {
-  await fetch(`${BACKEND_ORIGIN}/sanctum/csrf-cookie`, {
+  await fetch(
+    import.meta.env.VITE_CSRF_URL ?? "/sanctum/csrf-cookie",
+    {
     method: "GET",
     credentials: "include",
     headers: {
       Accept: "application/json",
     },
-  });
+    },
+  );
 }
 
 export async function inspectDataset(input: InspectDatasetInput): Promise<DatasetInspectResult> {

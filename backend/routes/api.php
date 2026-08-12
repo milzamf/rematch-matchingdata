@@ -14,12 +14,13 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class);
 
-Route::post('/login', [AuthController::class, 'login']);
+Route::middleware('web')->group(function () {
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/me', [AuthController::class, 'me'])->middleware('auth:sanctum');
+    Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+});
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/me', [AuthController::class, 'me']);
-    Route::post('/logout', [AuthController::class, 'logout']);
-
     Route::get('/workspaces', [WorkspaceController::class, 'index'])
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
     Route::post('/workspaces', [WorkspaceController::class, 'store'])
