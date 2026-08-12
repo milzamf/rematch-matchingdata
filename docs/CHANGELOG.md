@@ -35,6 +35,8 @@
 - Entity-aware company/name parser for Matching Engine metadata: raw name, core name, legal form, ownership/status qualifier, public status, unit type, and unit name.
 - Case-grouped Review with deterministic fingerprints, confidence labels, representative examples, and bulk eligibility rules.
 - Review Knowledge metadata storing decision patterns and conditions for future matching runs.
+- Traceable Review case groups with Open / Resolved / All filters, decision history, decision source, affected records, and batch undo.
+- Sync finalization preview using latest review decisions, recommended plan, unresolved-review warning, and local idempotent audit.
 
 ### Improved
 
@@ -53,6 +55,8 @@
 - Explicit PT vs CV conflicts are downgraded to review instead of becoming Auto Match; missing legal form or missing Persero/Tbk is not treated as automatic conflict.
 - Review now defaults to Case Groups while preserving All Records review for granular decisions.
 - Bulk review decisions are blocked for mixed or unique groups that are not homogeneous enough.
+- Accepted or rejected case groups remain visible under Resolved instead of disappearing.
+- Sync flow is simplified to Finalize Summary -> Recommended Plan -> Preview -> Confirm Sync.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 

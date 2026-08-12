@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 5C: Case-Grouped Review & Review Knowledge completed.
+Milestone 5D: Review Traceability Fix and Sync Finalization completed.
 
 ## Project Status
 
@@ -11,8 +11,8 @@ Milestone 5C: Case-Grouped Review & Review Knowledge completed.
 - Mapping: Done
 - Configure: Done for UX and workflow state, no backend persistence yet
 - Run: Done for backend MVP execution against inspected preview rows
-- Review: Done for real Matching Engine results and local review decisions
-- Sync: Not started
+- Review: Done for real Matching Engine results, traceable case groups, and local review decisions
+- Sync: Done for frontend finalization preview and local idempotent audit
 - Export: Not started
 
 ## Completed
@@ -28,13 +28,14 @@ Milestone 5C: Case-Grouped Review & Review Knowledge completed.
 - Mapping supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference validation.
 - Configure uses Quick Setup, Summary Configuration, conditional Advanced Settings, validation, and workflow-level configuration state.
 - Matching Engine MVP runs in Laravel with normalization, entity-aware name parsing, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
-- Review uses persisted matching results, groups similar Need Review cases, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
+- Review uses persisted matching results, groups similar cases across open/resolved states, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
+- Sync reads latest review decisions, blocks unresolved review, previews recommended plan, and stores a local idempotent audit per job.
 
 ## Next Milestone
 
-Milestone 6: Sync Strategy Integration.
+Milestone 6: Export and Audit Persistence.
 
-Objective: connect Sync step to reviewed matching results and review decisions without adding Export, AI, Auth, or Workspace.
+Objective: persist Sync/Audit server-side and add export generation without adding AI, Auth, or Workspace.
 
 ## Current Architecture
 
@@ -65,7 +66,8 @@ Upload
 - AI Assistance belum dibuat.
 - Matching Engine MVP baru berjalan dari inspected preview rows, belum full-file processing.
 - Configure dikirim ke backend saat Run, tetapi belum punya save/load configuration terpisah.
-- Sync, Export, dan Results masih mock/local state.
+- Sync sudah memakai review terbaru untuk frontend preview dan local audit, tetapi belum persist server-side.
+- Export dan Results masih mock/local state.
 - Review decisions belum memakai user/workspace ownership karena Auth/Workspace belum dibuat.
 - Export generation dan audit trail persistence belum dibuat.
 
@@ -93,6 +95,11 @@ Upload
 - Case grouping deterministic memakai case feature extraction, fingerprint, confidence High/Mixed/Unique, dan representative example.
 - Bulk decision hanya boleh untuk cluster homogen (`High`); Mixed/Unique harus direview granular.
 - Review Knowledge disimpan di metadata review decision sebagai pola dan kondisi, bukan cluster ID saja.
+- Case Groups memiliki filter Open/Resolved/All; resolved group tetap tampil dan bisa dibuka ulang.
+- Review decision menyimpan previous status, decided_at, source individual/group, reviewer lokal, affected records, dan batch id untuk undo group.
+- Sync default flow: Finalize Summary, Recommended Plan, Preview, Confirm Sync.
+- Sync tidak menampilkan Possible Match handling; unresolved review diarahkan kembali ke Review.
+- Sync frontend idempotent memakai `localStorage` per matching job dan belum mengubah reference secara destruktif.
 - Auto mapping saat ini rule-based sederhana, bukan AI.
 - Reference column tidak boleh dipakai dua kali; input column boleh dipakai ulang.
 - Jangan mengubah Run, Review, Sync, Export, AI, Auth, Workspace, atau Matching Engine kecuali milestone meminta.

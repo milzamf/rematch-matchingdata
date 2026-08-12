@@ -9,7 +9,7 @@ Version: MVP v0.1.0
 | -------------------- | -------: | ------------------------------------------- |
 | Documentation        |      97% | In progress                                 |
 | Frontend UI          |      96% | Mostly complete                             |
-| Frontend Integration |      45% | Upload through grouped Review slices have real data |
+| Frontend Integration |      50% | Upload through Sync preview slices have real data |
 | Backend API          |      35% | Upload/Profile/Run/Review slices exist      |
 | Database             |      25% | Dataset, matching, and review tables exist  |
 | Matching Engine      |      30% | MVP engine slice with entity-aware names    |
@@ -28,8 +28,8 @@ Version: MVP v0.1.0
 | Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
 | Configure | Logic complete with conditional configuration state ready for the future Matching Engine.              |
 | Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                          |
-| Review    | Uses real Matching Engine results with case groups, decision save, bulk eligible actions, and undo.    |
-| Sync      | UI complete, still uses mock/local state.                                                              |
+| Review    | Uses real Matching Engine results with open/resolved case groups, decision history, bulk actions, and undo. |
+| Sync      | Uses latest review decisions for frontend finalization preview and local idempotent audit.             |
 | Export    | UI complete, still uses mock data.                                                                     |
 | Results   | UI complete, still uses mock data.                                                                     |
 | Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete. |
@@ -182,7 +182,7 @@ Milestone 5B.1: Entity-Aware Name Matching
 | Separate branch/unit metadata from parent company | Complete |
 | Case clustering, Sync, Export, AI                | Deferred |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 5C: Case-Grouped Review & Review Knowledge
 
@@ -198,6 +198,25 @@ Milestone 5C: Case-Grouped Review & Review Knowledge
 | Block bulk decision for non-homogeneous clusters | Complete |
 | Store Review Knowledge as pattern and conditions | Complete |
 | Sync/Export/Auth/Workspace/AI                    | Deferred |
+
+## Current Milestone
+
+Milestone 5D: Review Traceability Fix and Sync Finalization
+
+| Requirement                                      | Status   |
+| ------------------------------------------------ | -------- |
+| Keep accepted/rejected case groups visible       | Complete |
+| Case Groups filters Open / Resolved / All        | Complete |
+| Decision metadata: previous status, decided time, source, reviewer, affected records | Complete |
+| Record display status: Need Review, Auto Matched, Manual Accepted, Manual Rejected, Confirmed Unmatched | Complete |
+| Mixed decision summary per group                 | Complete |
+| Decision History in record/group detail          | Complete |
+| Group/bulk undo using batch audit metadata       | Complete |
+| Sync Finalize Summary / Recommended Plan / Preview / Confirm flow | Complete |
+| Sync warning for unresolved review               | Complete |
+| Recommended sync plan from latest review decisions | Complete |
+| Local idempotent sync audit per job              | Complete |
+| Server-side sync persistence, Export, Auth, Workspace, AI | Deferred |
 
 ## Next Milestone
 

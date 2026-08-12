@@ -116,14 +116,16 @@ class ReviewResultsTest extends TestCase
             ->assertJsonPath('data.case_groups.0.eligible_for_bulk', true)
             ->json('data.case_groups.0.id');
 
-        $this->postJson("/api/matching-jobs/{$job->id}/review-decisions", [
+        $decisionId = $this->postJson("/api/matching-jobs/{$job->id}/review-decisions", [
             'input_record_key' => '1',
             'decision' => 'reject_match',
             'scope' => 'group',
             'case_group_id' => $groupId,
         ])
             ->assertOk()
-            ->assertJsonPath('data.decision.affected_records', 2);
+            ->assertJsonPath('data.decision.affected_records', 2)
+            ->assertJsonPath('data.review.case_groups.0.status', 'resolved')
+            ->json('data.decision.id');
 
         $this->assertDatabaseHas('review_decisions', [
             'matching_job_id' => $job->id,
@@ -134,6 +136,11 @@ class ReviewResultsTest extends TestCase
             'LEGAL_FORM_CONFLICT',
             $job->reviewDecisions()->firstOrFail()->metadata['review_knowledge']['pattern'],
         );
+
+        $this->postJson("/api/matching-jobs/{$job->id}/review-decisions/{$decisionId}/undo")
+            ->assertOk()
+            ->assertJsonPath('data.affected_records', 2)
+            ->assertJsonPath('data.review.case_groups.0.status', 'open');
     }
 
     private function dataset(string $role): Dataset

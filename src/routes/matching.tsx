@@ -6,7 +6,7 @@ import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog } from "@/components/feedback-states";
-import { wizardSteps, synchronizationSummary } from "@/lib/dummy-data";
+import { wizardSteps } from "@/lib/dummy-data";
 import {
   ApiError,
   fetchReviewResults,
@@ -344,7 +344,9 @@ function MatchingPage() {
             />
           )}
           {step === 6 && <StepReview jobId={runResult?.job.id ?? null} />}
-          {step === 7 && <StepSynchronize />}
+          {step === 7 && (
+            <StepSynchronize jobId={runResult?.job.id ?? null} onBackToReview={() => setStep(6)} />
+          )}
           {step === 8 && <StepExport />}
 
           {/* Nav */}
@@ -2686,6 +2688,7 @@ function StepRun({
 }
 
 type ReviewFilter = "possible_match" | "matched" | "unmatched" | "all";
+type CaseGroupFilter = "open" | "resolved" | "all";
 
 function StepReview({ jobId }: { jobId: string | null }) {
   const { t } = usePreferences();
@@ -2693,6 +2696,7 @@ function StepReview({ jobId }: { jobId: string | null }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"case_groups" | "all_records">("case_groups");
+  const [caseGroupFilter, setCaseGroupFilter] = useState<CaseGroupFilter>("open");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ReviewFilter>("possible_match");
   const [selectedGroupKeys, setSelectedGroupKeys] = useState<Record<string, string[]>>({});
@@ -2732,6 +2736,7 @@ function StepReview({ jobId }: { jobId: string | null }) {
   const items = review?.items ?? [];
   const caseGroups = review?.case_groups ?? [];
   const visibleCaseGroups = caseGroups.filter((group) => {
+    if (caseGroupFilter !== "all" && (group.status ?? "open") !== caseGroupFilter) return false;
     if (!query) return true;
     const haystack = JSON.stringify([
       group.label,
@@ -2743,6 +2748,11 @@ function StepReview({ jobId }: { jobId: string | null }) {
     ]).toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
+  const caseGroupCounts = {
+    open: caseGroups.filter((group) => (group.status ?? "open") === "open").length,
+    resolved: caseGroups.filter((group) => group.status === "resolved").length,
+    all: caseGroups.length,
+  };
   const filtered = items
     .filter((item) => filter === "all" || item.status === filter)
     .filter((item) => {
@@ -2852,15 +2862,22 @@ function StepReview({ jobId }: { jobId: string | null }) {
   };
 
   const undo = async (item: ReviewItem) => {
-    if (!jobId || !item.decision) return;
+    if (!item.decision) return;
+    await undoDecision(item.decision.id, item.input_record_key);
+  };
+
+  const undoDecision = async (decisionId: string, selectedInputKey?: string) => {
+    if (!jobId) return;
     setSaving(true);
     try {
-      const next = await undoReviewDecision(jobId, item.decision.id);
+      const next = await undoReviewDecision(jobId, decisionId);
       setReview(next);
-      const updated = next.items.find(
-        (nextItem) => nextItem.input_record_key === item.input_record_key,
-      );
-      setSelected(updated ?? null);
+      if (selectedInputKey) {
+        const updated = next.items.find(
+          (nextItem) => nextItem.input_record_key === selectedInputKey,
+        );
+        setSelected(updated ?? null);
+      }
       toast.success(t("matching.review.undoSaved"));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
@@ -2960,9 +2977,12 @@ function StepReview({ jobId }: { jobId: string | null }) {
       {viewMode === "case_groups" && (
         <CaseGroupsReview
           groups={visibleCaseGroups}
+          filter={caseGroupFilter}
+          counts={caseGroupCounts}
           items={items}
           saving={saving}
           selectedKeysByGroup={selectedGroupKeys}
+          onFilterChange={setCaseGroupFilter}
           onToggleKey={toggleSelectedGroupKey}
           onOpenRecord={(item) => {
             const candidate = item.candidates[0] ?? null;
@@ -2970,6 +2990,7 @@ function StepReview({ jobId }: { jobId: string | null }) {
             setSelectedCandidateId(candidate?.id ?? null);
           }}
           onDecide={decideCaseGroup}
+          onUndo={undoDecision}
         />
       )}
 
@@ -3084,8 +3105,8 @@ function StepReview({ jobId }: { jobId: string | null }) {
                             {candidate ? `${candidate.score}%` : "-"}
                           </td>
                           <td className="px-4 py-3">
-                            <span className={statusBadgeClass(item.status)}>
-                              {reviewStatusLabel(item.status, t)}
+                            <span className={statusBadgeClass(item.display_status ?? item.status)}>
+                              {reviewStatusLabel(item.display_status ?? item.status, t)}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums text-xs text-muted-foreground">
@@ -3152,14 +3173,22 @@ function StepReview({ jobId }: { jobId: string | null }) {
               <SheetHeader>
                 <SheetTitle className="text-base">{t("matching.review.compare")}</SheetTitle>
                 <SheetDescription>
-                  {selected.input_record_key} · {reviewStatusLabel(selected.status, t)}
+                  {selected.input_record_key} ·{" "}
+                  {reviewStatusLabel(selected.display_status ?? selected.status, t)}
                 </SheetDescription>
               </SheetHeader>
 
               {selected.decision && (
                 <div className="mt-5 rounded-lg border border-success/30 bg-success/5 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-semibold">{t("matching.review.decisionSaved")}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold">{t("matching.review.decisionSaved")}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {reviewDecisionLabel(selected.decision.decision, t)} ·{" "}
+                        {decisionSourceLabel(selected.decision.source, t)} ·{" "}
+                        {selected.decision.decided_at ?? selected.decision.created_at ?? "-"}
+                      </p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => undo(selected)}
@@ -3233,6 +3262,8 @@ function StepReview({ jobId }: { jobId: string | null }) {
                 </div>
               </details>
 
+              <DecisionHistory history={selected.decision_history ?? []} />
+
               <div className="mt-6 flex gap-2">
                 <button
                   onClick={() => decide(selected, "accept_match", selectedCandidate)}
@@ -3271,20 +3302,28 @@ function StepReview({ jobId }: { jobId: string | null }) {
 }
 
 function CaseGroupsReview({
+  counts,
+  filter,
   groups,
   items,
   onDecide,
+  onFilterChange,
   onOpenRecord,
   onToggleKey,
+  onUndo,
   saving,
   selectedKeysByGroup,
 }: {
+  counts: Record<CaseGroupFilter, number>;
+  filter: CaseGroupFilter;
   groups: ReviewCaseGroup[];
   items: ReviewItem[];
   saving: boolean;
   selectedKeysByGroup: Record<string, string[]>;
+  onFilterChange: (filter: CaseGroupFilter) => void;
   onToggleKey: (group: ReviewCaseGroup, key: string) => void;
   onOpenRecord: (item: ReviewItem) => void;
+  onUndo: (decisionId: string) => void;
   onDecide: (
     group: ReviewCaseGroup,
     decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
@@ -3297,193 +3336,264 @@ function CaseGroupsReview({
     [items],
   );
 
-  if (groups.length === 0) {
-    return (
-      <div className="rounded-lg border border-border">
-        <EmptyState
-          icon={Inbox}
-          title={t("matching.review.noCaseGroups")}
-          description={t("matching.review.noCaseGroupsDesc")}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3">
-      {groups.map((group) => {
-        const selectedKeys = selectedKeysByGroup[group.id] ?? [];
-        const representative = group.representative;
-        const candidate = representative.candidates[0] ?? null;
-        const previewItems = group.item_keys
-          .map((key) => itemsByKey.get(key))
-          .filter((item): item is ReviewItem => Boolean(item));
-        const canAccept = Boolean(candidate?.reference_record_key);
-
-        return (
-          <section
-            key={group.id}
-            className="rounded-lg border border-border bg-background p-4 shadow-sm"
+      <div className="flex flex-wrap gap-2">
+        {(["open", "resolved", "all"] as CaseGroupFilter[]).map((item) => (
+          <button
+            key={item}
+            type="button"
+            onClick={() => onFilterChange(item)}
+            className={[
+              "rounded-md border px-3 py-2 text-xs font-semibold transition-colors",
+              filter === item
+                ? "border-brand bg-brand/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-secondary",
+            ].join(" ")}
           >
-            <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-start">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold">{group.label}</p>
-                  <span className={caseConfidenceClass(group.confidence)}>
-                    {caseConfidenceLabel(group.confidence, t)}
-                  </span>
-                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    {t("matching.review.caseCount", { count: group.item_count })}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {t("matching.review.representative")}:{" "}
-                  <span className="font-medium text-foreground">
-                    {recordHeadline(representative.input_record)}
-                  </span>
-                  {candidate ? (
-                    <span
-                      className={`ml-2 tabular-nums font-semibold ${scoreTone(candidate.score)}`}
-                    >
-                      {candidate.score}%
+            {caseGroupFilterLabel(item, t)}
+            <span className="ml-2 tabular-nums text-muted-foreground">{counts[item]}</span>
+          </button>
+        ))}
+      </div>
+
+      {groups.length === 0 ? (
+        <div className="rounded-lg border border-border">
+          <EmptyState
+            icon={Inbox}
+            title={t("matching.review.noCaseGroups")}
+            description={t("matching.review.noCaseGroupsDesc")}
+          />
+        </div>
+      ) : (
+        groups.map((group) => {
+          const selectedKeys = selectedKeysByGroup[group.id] ?? [];
+          const representative = group.representative;
+          const candidate = representative.candidates[0] ?? null;
+          const previewItems = group.item_keys
+            .map((key) => itemsByKey.get(key))
+            .filter((item): item is ReviewItem => Boolean(item));
+          const canAccept = Boolean(candidate?.reference_record_key);
+          const isResolved = group.status === "resolved";
+          const latestDecision = group.decision_history?.[0] ?? null;
+
+          return (
+            <section
+              key={group.id}
+              className="rounded-lg border border-border bg-background p-4 shadow-sm"
+            >
+              <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-start">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold">{group.label}</p>
+                    <span className={caseGroupStatusClass(group.status ?? "open")}>
+                      {caseGroupStatusLabel(group.status ?? "open", t)}
                     </span>
-                  ) : null}
-                </p>
-              </div>
-              <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
-                <button
-                  type="button"
-                  onClick={() => onDecide(group, "accept_match", "group")}
-                  disabled={!group.eligible_for_bulk || !canAccept || saving}
-                  className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
-                >
-                  {t("matching.review.applyGroupAccept")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDecide(group, "reject_match", "group")}
-                  disabled={!group.eligible_for_bulk || !canAccept || saving}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
-                >
-                  {t("matching.review.applyGroupReject")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDecide(group, "mark_unmatched", "group")}
-                  disabled={!group.eligible_for_bulk || saving}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
-                >
-                  {t("matching.review.applyGroupUnmatched")}
-                </button>
-              </div>
-            </div>
-
-            {!group.eligible_for_bulk && (
-              <div className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
-                {t("matching.review.bulkNotEligible")}
-              </div>
-            )}
-
-            <details className="mt-3">
-              <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
-                {t("matching.review.groupExamples")}
-              </summary>
-              <div className="mt-3 overflow-hidden rounded-lg border border-border">
-                <table className="w-full min-w-[720px] text-sm">
-                  <thead className="bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <tr>
-                      <th className="w-10 px-3 py-2 text-left"></th>
-                      <th className="px-3 py-2 text-left font-medium">
-                        {t("matching.review.input")}
-                      </th>
-                      <th className="px-3 py-2 text-left font-medium">
-                        {t("matching.review.reference")}
-                      </th>
-                      <th className="px-3 py-2 text-right font-medium">
-                        {t("matching.review.similarity")}
-                      </th>
-                      <th className="px-3 py-2 text-right font-medium">{t("common.action")}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {previewItems.map((item) => {
-                      const rowCandidate = item.candidates[0] ?? null;
-                      return (
-                        <tr key={item.input_record_key}>
-                          <td className="px-3 py-2">
-                            <input
-                              type="checkbox"
-                              checked={selectedKeys.includes(item.input_record_key)}
-                              disabled={!group.eligible_for_bulk || saving}
-                              onChange={() => onToggleKey(group, item.input_record_key)}
-                              aria-label={t("matching.review.selectRecord")}
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <p className="truncate font-medium">
-                              {recordHeadline(item.input_record)}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {recordMeta(item.input_record)}
-                            </p>
-                          </td>
-                          <td className="px-3 py-2">
-                            <p className="truncate font-medium">
-                              {rowCandidate?.reference_record_key
-                                ? recordHeadline(rowCandidate.reference_record)
-                                : t("matching.review.noCandidate")}
-                            </p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {rowCandidate?.reference_record_key
-                                ? recordMeta(rowCandidate.reference_record)
-                                : t("matching.review.noCandidateDesc")}
-                            </p>
-                          </td>
-                          <td
-                            className={`px-3 py-2 text-right tabular-nums font-semibold ${scoreTone(rowCandidate?.score ?? 0)}`}
-                          >
-                            {rowCandidate ? `${rowCandidate.score}%` : "-"}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <button
-                              type="button"
-                              onClick={() => onOpenRecord(item)}
-                              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
-                            >
-                              {t("matching.review.compare")}
-                            </button>
-                          </td>
-                        </tr>
-                      );
+                    <span className={caseConfidenceClass(group.confidence)}>
+                      {caseConfidenceLabel(group.confidence, t)}
+                    </span>
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      {t("matching.review.caseCount", { count: group.item_count })}
+                    </span>
+                    {group.decision_summary?.mixed && (
+                      <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning">
+                        {t("matching.review.mixedDecision")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("matching.review.representative")}:{" "}
+                    <span className="font-medium text-foreground">
+                      {recordHeadline(representative.input_record)}
+                    </span>
+                    {candidate ? (
+                      <span
+                        className={`ml-2 tabular-nums font-semibold ${scoreTone(candidate.score)}`}
+                      >
+                        {candidate.score}%
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("matching.review.decisionSummary")}:{" "}
+                    {t("matching.review.acceptedCount", {
+                      count: group.decision_summary?.accepted ?? 0,
+                    })}{" "}
+                    ·{" "}
+                    {t("matching.review.rejectedCount", {
+                      count: group.decision_summary?.rejected ?? 0,
+                    })}{" "}
+                    ·{" "}
+                    {t("matching.review.unmatchedCount", {
+                      count: group.decision_summary?.unmatched ?? 0,
                     })}
-                  </tbody>
-                </table>
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
+                  {isResolved && latestDecision ? (
+                    <button
+                      type="button"
+                      onClick={() => onUndo(latestDecision.id)}
+                      disabled={saving}
+                      className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                    >
+                      {t("matching.review.undo")}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onDecide(group, "accept_match", "group")}
+                        disabled={!group.eligible_for_bulk || !canAccept || saving}
+                        className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
+                      >
+                        {t("matching.review.applyGroupAccept")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDecide(group, "reject_match", "group")}
+                        disabled={!group.eligible_for_bulk || !canAccept || saving}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                      >
+                        {t("matching.review.applyGroupReject")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDecide(group, "mark_unmatched", "group")}
+                        disabled={!group.eligible_for_bulk || saving}
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                      >
+                        {t("matching.review.applyGroupUnmatched")}
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => onDecide(group, "accept_match", "selected")}
-                  disabled={
-                    !group.eligible_for_bulk || selectedKeys.length === 0 || !canAccept || saving
-                  }
-                  className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
-                >
-                  {t("matching.review.applySelectedAccept")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDecide(group, "mark_unmatched", "selected")}
-                  disabled={!group.eligible_for_bulk || selectedKeys.length === 0 || saving}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
-                >
-                  {t("matching.review.applySelectedUnmatched")}
-                </button>
-              </div>
-            </details>
-          </section>
-        );
-      })}
+
+              {!group.eligible_for_bulk && !isResolved && (
+                <div className="mt-3 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+                  {t("matching.review.bulkNotEligible")}
+                </div>
+              )}
+
+              <details className="mt-3">
+                <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
+                  {t("matching.review.groupExamples")}
+                </summary>
+                <div className="mt-3 overflow-hidden rounded-lg border border-border">
+                  <table className="w-full min-w-[780px] text-sm">
+                    <thead className="bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <tr>
+                        <th className="w-10 px-3 py-2 text-left"></th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          {t("matching.review.input")}
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          {t("matching.review.reference")}
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          {t("matching.review.group")}
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium">
+                          {t("matching.review.similarity")}
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium">{t("common.action")}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {previewItems.map((item) => {
+                        const rowCandidate = item.candidates[0] ?? null;
+                        return (
+                          <tr key={item.input_record_key}>
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                checked={selectedKeys.includes(item.input_record_key)}
+                                disabled={!group.eligible_for_bulk || saving}
+                                onChange={() => onToggleKey(group, item.input_record_key)}
+                                aria-label={t("matching.review.selectRecord")}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <p className="truncate font-medium">
+                                {recordHeadline(item.input_record)}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {recordMeta(item.input_record)}
+                              </p>
+                            </td>
+                            <td className="px-3 py-2">
+                              <p className="truncate font-medium">
+                                {rowCandidate?.reference_record_key
+                                  ? recordHeadline(rowCandidate.reference_record)
+                                  : t("matching.review.noCandidate")}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {rowCandidate?.reference_record_key
+                                  ? recordMeta(rowCandidate.reference_record)
+                                  : t("matching.review.noCandidateDesc")}
+                              </p>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={statusBadgeClass(item.display_status ?? item.status)}
+                              >
+                                {reviewStatusLabel(item.display_status ?? item.status, t)}
+                              </span>
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right tabular-nums font-semibold ${scoreTone(rowCandidate?.score ?? 0)}`}
+                            >
+                              {rowCandidate ? `${rowCandidate.score}%` : "-"}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => onOpenRecord(item)}
+                                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+                              >
+                                {t("matching.review.compare")}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {!isResolved && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onDecide(group, "accept_match", "selected")}
+                      disabled={
+                        !group.eligible_for_bulk ||
+                        selectedKeys.length === 0 ||
+                        !canAccept ||
+                        saving
+                      }
+                      className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
+                    >
+                      {t("matching.review.applySelectedAccept")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDecide(group, "mark_unmatched", "selected")}
+                      disabled={!group.eligible_for_bulk || selectedKeys.length === 0 || saving}
+                      className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                    >
+                      {t("matching.review.applySelectedUnmatched")}
+                    </button>
+                  </div>
+                )}
+              </details>
+
+              <DecisionHistory history={group.decision_history ?? []} />
+            </section>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -3561,6 +3671,39 @@ function FieldComparison({
   );
 }
 
+function DecisionHistory({ history }: { history: NonNullable<ReviewItem["decision_history"]> }) {
+  const { t } = usePreferences();
+
+  if (history.length === 0) return null;
+
+  return (
+    <details className="mt-5 rounded-lg border border-border p-3">
+      <summary className="cursor-pointer text-xs font-semibold">
+        {t("matching.review.decisionHistory")}
+      </summary>
+      <div className="mt-3 space-y-2">
+        {history.map((item) => (
+          <div key={item.id} className="rounded-md bg-secondary/30 px-3 py-2 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold">{reviewDecisionLabel(item.decision, t)}</p>
+              <span className="text-muted-foreground">{item.decided_at ?? item.created_at}</span>
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              {t("matching.review.previousStatus")}:{" "}
+              {reviewStatusLabel(item.previous_result_type ?? "-", t)} ·{" "}
+              {t("matching.review.decisionSource")}: {decisionSourceLabel(item.source, t)} ·{" "}
+              {t("matching.review.affectedRecords")}: {item.affected_records ?? 1}
+            </p>
+            <p className="mt-1 text-muted-foreground">
+              {t("matching.review.reviewer")}: {item.reviewer ?? "-"}
+            </p>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function candidateScore(item: ReviewItem) {
   return item.candidates[0]?.score ?? 0;
 }
@@ -3594,8 +3737,13 @@ function scoreTone(score: number) {
 
 function statusBadgeClass(status: string) {
   const base = "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold";
-  if (status === "matched") return `${base} bg-success/10 text-success`;
-  if (status === "possible_match") return `${base} bg-warning/10 text-warning`;
+  if (["matched", "auto_matched", "manual_accepted"].includes(status)) {
+    return `${base} bg-success/10 text-success`;
+  }
+  if (["possible_match", "need_review", "manual_rejected"].includes(status)) {
+    return `${base} bg-warning/10 text-warning`;
+  }
+  if (status === "confirmed_unmatched") return `${base} bg-destructive/10 text-destructive`;
   return `${base} bg-secondary text-muted-foreground`;
 }
 
@@ -3612,9 +3760,52 @@ function reviewFilterLabel(filter: ReviewFilter, t: ReturnType<typeof usePrefere
 }
 
 function reviewStatusLabel(status: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (status === "need_review") return t("matching.review.statusNeedReview");
+  if (status === "auto_matched") return t("matching.review.statusAutoMatched");
+  if (status === "manual_accepted") return t("matching.review.statusManualAccepted");
+  if (status === "manual_rejected") return t("matching.review.statusManualRejected");
+  if (status === "confirmed_unmatched") return t("matching.review.statusConfirmedUnmatched");
   if (status === "matched") return t("matching.review.groupMatched");
   if (status === "possible_match") return t("matching.review.groupPossible");
+  if (status === "unmatched") return t("matching.review.groupUnmatched");
   return t("matching.review.groupUnmatched");
+}
+
+function caseGroupFilterLabel(filter: CaseGroupFilter, t: ReturnType<typeof usePreferences>["t"]) {
+  if (filter === "open") return t("matching.review.openGroups");
+  if (filter === "resolved") return t("matching.review.resolvedGroups");
+  return t("matching.review.allGroups");
+}
+
+function caseGroupStatusLabel(status: string, t: ReturnType<typeof usePreferences>["t"]) {
+  return status === "resolved"
+    ? t("matching.review.resolvedGroups")
+    : t("matching.review.openGroups");
+}
+
+function caseGroupStatusClass(status: string) {
+  const base = "rounded-full px-2 py-0.5 text-[11px] font-semibold";
+  return status === "resolved"
+    ? `${base} bg-success/10 text-success`
+    : `${base} bg-warning/10 text-warning`;
+}
+
+function reviewDecisionLabel(decision: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (decision === "accept_match" || decision === "select_candidate") {
+    return t("matching.review.decisionAccepted");
+  }
+  if (decision === "reject_match") return t("matching.review.decisionRejected");
+  if (decision === "mark_unmatched") return t("matching.review.decisionUnmatched");
+  return decision;
+}
+
+function decisionSourceLabel(
+  source: string | null | undefined,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  return source === "group"
+    ? t("matching.review.sourceGroup")
+    : t("matching.review.sourceIndividual");
 }
 
 function caseConfidenceLabel(confidence: string, t: ReturnType<typeof usePreferences>["t"]) {
@@ -3641,193 +3832,304 @@ function comparisonLabel(comparison: string, t: ReturnType<typeof usePreferences
   return t("matching.review.different");
 }
 
-function StepSynchronize() {
+function StepSynchronize({
+  jobId,
+  onBackToReview,
+}: {
+  jobId: string | null;
+  onBackToReview: () => void;
+}) {
   const { t } = usePreferences();
-  const [matchedAction, setMatchedAction] = useState("Drop / Skip matched input records");
-  const [unmatchedAction, setUnmatchedAction] = useState("Append unmatched input records");
-  const [possibleAction, setPossibleAction] = useState("Send to manual review");
-  const [conflictAction, setConflictAction] = useState("Merge non-empty fields");
+  const [review, setReview] = useState<ReviewResults | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"recommended" | "custom">("recommended");
+  const [updateExisting, setUpdateExisting] = useState(false);
+  const [conflictAction, setConflictAction] = useState("Keep reference and fill blanks");
+  const [syncAudit, setSyncAudit] = useState<null | { id: string; createdAt: string }>(null);
+
+  useEffect(() => {
+    if (!jobId) return;
+
+    const existing = localStorage.getItem(syncAuditKey(jobId));
+    setSyncAudit(existing ? JSON.parse(existing) : null);
+    setLoading(true);
+    setError(null);
+    fetchReviewResults(jobId)
+      .then(setReview)
+      .catch((err) =>
+        setError(err instanceof ApiError ? err.message : t("matching.review.loadFailed")),
+      )
+      .finally(() => setLoading(false));
+  }, [jobId, t]);
+
+  const items = review?.items ?? [];
+  const pendingReview = items.filter(
+    (item) =>
+      !item.decision &&
+      ((item.display_status ?? item.status) === "need_review" || item.status === "possible_match"),
+  ).length;
+  const matched = items.filter((item) =>
+    ["auto_matched", "manual_accepted", "matched"].includes(item.display_status ?? item.status),
+  ).length;
+  const newEntities = items.filter((item) =>
+    ["confirmed_unmatched", "unmatched"].includes(item.display_status ?? item.status),
+  ).length;
+  const excluded = items.filter((item) => item.display_status === "manual_rejected").length;
+  const referenceKeys = new Set(
+    items.flatMap((item) =>
+      item.candidates
+        .map((candidate) => candidate.reference_record_key)
+        .filter((key): key is string => Boolean(key)),
+    ),
+  );
+  const referenceBefore = referenceKeys.size;
+  const referenceAfter = referenceBefore + newEntities;
+  const readyToSync = Boolean(jobId && !loading && !error && pendingReview === 0);
+
+  const confirmSync = () => {
+    if (!jobId || !readyToSync) return;
+    const existing = localStorage.getItem(syncAuditKey(jobId));
+
+    if (existing) {
+      setSyncAudit(JSON.parse(existing));
+      toast.info(t("matching.sync.alreadySynced"));
+      return;
+    }
+
+    const audit = {
+      id: `sync-${jobId}`,
+      createdAt: new Date().toISOString(),
+      planMode: mode,
+      matched,
+      newEntities,
+      excluded,
+      referenceBefore,
+      referenceAfter,
+      conflictAction,
+    };
+    localStorage.setItem(syncAuditKey(jobId), JSON.stringify(audit));
+    setSyncAudit(audit);
+    toast.success(t("matching.sync.confirmed"));
+  };
 
   return (
     <>
       <SectionTitle title={t("matching.sync.title")} desc={t("matching.sync.desc")} />
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6">
-        <div className="space-y-4">
-          <SyncOptionGroup
-            title={t("matching.sync.matchedTitle")}
-            desc={t("matching.sync.matchedDesc")}
-            value={matchedAction}
-            onChange={setMatchedAction}
-            options={[
-              "Drop / Skip matched input records",
-              "Update existing reference records",
-              "Keep both records",
-            ]}
-          />
+      {!jobId && (
+        <EmptyState
+          icon={ClipboardCheck}
+          title={t("matching.sync.noReviewTitle")}
+          description={t("matching.sync.noReviewDesc")}
+        />
+      )}
 
-          <SyncOptionGroup
-            title={t("matching.sync.unmatchedTitle")}
-            desc={t("matching.sync.unmatchedDesc")}
-            value={unmatchedAction}
-            onChange={setUnmatchedAction}
-            options={[
-              "Append unmatched input records",
-              "Export unmatched separately",
-              "Ignore unmatched records",
-            ]}
-          />
-
-          <SyncOptionGroup
-            title={t("matching.sync.possibleTitle")}
-            desc={t("matching.sync.possibleDesc")}
-            value={possibleAction}
-            onChange={setPossibleAction}
-            options={["Send to manual review", "Export separately", "Ignore until reviewed"]}
-          />
-
-          <SyncOptionGroup
-            title={t("matching.sync.conflictTitle")}
-            desc={t("matching.sync.conflictDesc")}
-            value={conflictAction}
-            onChange={setConflictAction}
-            options={[
-              "Keep reference value",
-              "Replace with input value",
-              "Merge non-empty fields",
-              "Send conflict to manual review",
-            ]}
-          />
-        </div>
-
-        <aside className="h-fit rounded-lg border border-border bg-secondary/20 p-5">
-          <div className="mb-4">
-            <p className="text-sm font-semibold">{t("matching.sync.summaryPreview")}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t("matching.sync.summaryDesc")}</p>
+      {jobId && loading && (
+        <div className="rounded-lg border border-border bg-secondary/20 p-6">
+          <div className="flex items-center gap-3">
+            <Loader2 className="size-5 animate-spin text-accent" />
+            <p className="text-sm font-semibold">{t("matching.sync.loading")}</p>
           </div>
-          <div className="space-y-3">
+        </div>
+      )}
+
+      {jobId && error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
+          <p className="text-sm font-semibold">{t("feedback.error.title")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{error}</p>
+        </div>
+      )}
+
+      {jobId && review && (
+        <div className="space-y-5">
+          {pendingReview > 0 && (
+            <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">{t("matching.sync.pendingTitle")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("matching.sync.pendingDesc", { count: pendingReview })}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onBackToReview}
+                  className="rounded-md bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
+                >
+                  {t("matching.sync.backToReview")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <SyncMetric label={t("matching.sync.previewMatched")} value={String(matched)} />
+            <SyncMetric label={t("matching.sync.previewNew")} value={String(newEntities)} />
+            <SyncMetric label={t("matching.sync.previewExcluded")} value={String(excluded)} />
+            <SyncMetric label={t("matching.sync.previewPending")} value={String(pendingReview)} />
             <SyncMetric
-              label={t("matching.sync.drop")}
-              value={synchronizationSummary.droppedMatched}
+              label={t("matching.sync.referenceBefore")}
+              value={String(referenceBefore)}
             />
             <SyncMetric
-              label={t("matching.sync.append")}
-              value={synchronizationSummary.appendedUnmatched}
+              label={t("matching.sync.referenceAfter")}
+              value={String(referenceAfter)}
+              strong
             />
-            <SyncMetric
-              label={t("matching.sync.conflictReview")}
-              value={synchronizationSummary.conflictsToReview}
-            />
-            <div className="border-t border-border pt-3">
-              <SyncMetric
-                label={t("matching.sync.finalSize")}
-                value={synchronizationSummary.finalReferenceSize}
-                strong
+          </div>
+
+          <section className="rounded-lg border border-border p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold">{t("matching.sync.recommendedPlan")}</p>
+                <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+                  {t("matching.sync.recommendedDesc")}
+                </p>
+              </div>
+              <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
+                {(["recommended", "custom"] as const).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setMode(item)}
+                    className={[
+                      "rounded-md px-3 py-1.5 text-xs font-semibold",
+                      mode === item
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground",
+                    ].join(" ")}
+                  >
+                    {item === "recommended"
+                      ? t("matching.sync.useRecommendation")
+                      : t("matching.sync.customize")}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <SyncPlanLine
+                title={t("matching.sync.planMatched")}
+                desc={t("matching.sync.planMatchedDesc")}
+              />
+              <SyncPlanLine
+                title={t("matching.sync.planNew")}
+                desc={t("matching.sync.planNewDesc")}
+              />
+              <SyncPlanLine
+                title={t("matching.sync.planRejected")}
+                desc={t("matching.sync.planRejectedDesc")}
+              />
+              <SyncPlanLine
+                title={t("matching.sync.planConflict")}
+                desc={t("matching.sync.planConflictDesc")}
               />
             </div>
-          </div>
 
-          <div className="mt-5 rounded-md border border-border bg-background px-3 py-3">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {t("matching.sync.selectedPlan")}
-            </p>
-            <ul className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-              <li>
-                {t("matching.sync.matched")}: {syncLabel(matchedAction, t)}
-              </li>
-              <li>
-                {t("matching.sync.unmatched")}: {syncLabel(unmatchedAction, t)}
-              </li>
-              <li>
-                {t("matching.sync.possible")}: {syncLabel(possibleAction, t)}
-              </li>
-              <li>
-                {t("matching.sync.conflicts")}: {syncLabel(conflictAction, t)}
-              </li>
-            </ul>
-          </div>
-        </aside>
-      </div>
+            {mode === "custom" && (
+              <details className="mt-5 rounded-lg border border-border p-4" open>
+                <summary className="cursor-pointer text-sm font-semibold">
+                  {t("matching.sync.manualSettings")}
+                </summary>
+                <label className="mt-4 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={updateExisting}
+                    onChange={(event) => setUpdateExisting(event.target.checked)}
+                  />
+                  {t("matching.sync.updateExistingReference")}
+                </label>
+                {updateExisting && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold">{t("matching.sync.conflictTitle")}</p>
+                    <div className="mt-2 grid gap-2 md:grid-cols-3">
+                      {[
+                        "Keep reference and fill blanks",
+                        "Keep reference value",
+                        "Merge non-empty fields",
+                      ].map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => setConflictAction(option)}
+                          className={[
+                            "rounded-md border px-3 py-2 text-left text-xs font-medium",
+                            conflictAction === option
+                              ? "border-brand bg-brand/10"
+                              : "border-border text-muted-foreground hover:bg-secondary",
+                          ].join(" ")}
+                        >
+                          {syncLabel(option, t)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </details>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-border p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">{t("matching.sync.previewTitle")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {readyToSync ? t("matching.sync.readyDesc") : t("matching.sync.notReadyDesc")}
+                </p>
+                {syncAudit && (
+                  <p className="mt-2 text-xs text-success">
+                    {t("matching.sync.auditSaved")}: {syncAudit.id} · {syncAudit.createdAt}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={confirmSync}
+                disabled={!readyToSync}
+                className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
+              >
+                {t("matching.sync.confirm")}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }
 
-function SyncOptionGroup({
-  title,
-  desc,
-  options,
-  value,
-  onChange,
-}: {
-  title: string;
-  desc: string;
-  options: string[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const { t } = usePreferences();
-
+function SyncPlanLine({ title, desc }: { title: string; desc: string }) {
   return (
-    <section className="rounded-lg border border-border p-5">
-      <div className="mb-4">
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        {options.map((option) => {
-          const selected = option === value;
-          return (
-            <button
-              key={option}
-              type="button"
-              onClick={() => {
-                onChange(option);
-                toast.info(t("feedback.toast.syncUpdated"));
-              }}
-              className={[
-                "min-h-16 rounded-md border px-3 py-2 text-left text-xs font-medium transition-colors",
-                selected
-                  ? "border-brand bg-brand/10 text-foreground"
-                  : "border-border text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
-              ].join(" ")}
-            >
-              {syncLabel(option, t)}
-            </button>
-          );
-        })}
-      </div>
-    </section>
+    <div className="rounded-md bg-secondary/30 px-3 py-3">
+      <p className="text-xs font-semibold">{title}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
+    </div>
   );
+}
+
+function syncAuditKey(jobId: string) {
+  return `batchmatch.sync.${jobId}`;
 }
 
 function syncLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
   const labels: Record<string, Parameters<typeof t>[0]> = {
-    "Drop / Skip matched input records": "matching.sync.dropMatched",
-    "Update existing reference records": "matching.sync.updateReference",
-    "Keep both records": "matching.sync.keepBoth",
-    "Append unmatched input records": "matching.sync.appendUnmatched",
-    "Export unmatched separately": "matching.sync.exportUnmatched",
-    "Ignore unmatched records": "matching.sync.ignoreUnmatched",
-    "Send to manual review": "matching.sync.sendReview",
-    "Export separately": "matching.sync.exportSeparately",
-    "Ignore until reviewed": "matching.sync.ignoreUntilReviewed",
+    "Keep reference and fill blanks": "matching.sync.keepReferenceFillBlanks",
     "Keep reference value": "matching.sync.keepReference",
-    "Replace with input value": "matching.sync.replaceInput",
     "Merge non-empty fields": "matching.sync.mergeNonEmpty",
-    "Send conflict to manual review": "matching.sync.sendConflict",
   };
   return labels[value] ? t(labels[value]) : value;
 }
 
 function SyncMetric({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="rounded-lg border border-border bg-secondary/20 px-3 py-3">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <span
-        className={`tabular-nums ${strong ? "text-lg font-semibold" : "text-sm font-semibold"}`}
+      <p
+        className={`mt-1 tabular-nums ${strong ? "text-lg font-semibold" : "text-sm font-semibold"}`}
       >
         {value}
-      </span>
+      </p>
     </div>
   );
 }

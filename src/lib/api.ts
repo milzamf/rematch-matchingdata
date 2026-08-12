@@ -125,16 +125,29 @@ export type ReviewCandidate = {
   decision_reason: string | null;
 };
 
+export type ReviewDecisionSummary = {
+  id: string;
+  decision: string;
+  previous_result_type?: string | null;
+  new_result_type?: string | null;
+  selected_reference_record_key: string | null;
+  created_at: string | null;
+  decided_at?: string | null;
+  undone_at?: string | null;
+  source?: "individual" | "group" | string;
+  reviewer?: string | null;
+  affected_records?: number;
+  case_group_id?: string | null;
+  batch_id?: string | null;
+};
+
 export type ReviewItem = {
   input_record_key: string;
   status: "matched" | "possible_match" | "unmatched" | string;
+  display_status?: string;
   review_status: string;
-  decision: null | {
-    id: string;
-    decision: string;
-    selected_reference_record_key: string | null;
-    created_at: string | null;
-  };
+  decision: ReviewDecisionSummary | null;
+  decision_history?: ReviewDecisionSummary[];
   input_record: Record<string, string | number | boolean | null>;
   candidates: ReviewCandidate[];
   case_features?: {
@@ -148,6 +161,7 @@ export type ReviewItem = {
 export type ReviewCaseGroup = {
   id: string;
   fingerprint: string;
+  status?: "open" | "resolved" | string;
   pattern: string;
   label: string;
   reason: string;
@@ -156,6 +170,14 @@ export type ReviewCaseGroup = {
   eligible_for_bulk: boolean;
   item_count: number;
   reviewed_count: number;
+  decision_summary?: {
+    accepted: number;
+    rejected: number;
+    unmatched: number;
+    pending: number;
+    mixed: boolean;
+  };
+  decision_history?: ReviewDecisionSummary[];
   item_keys: string[];
   representative_input_key: string | null;
   representative: ReviewItem;
