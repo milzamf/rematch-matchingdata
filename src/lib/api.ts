@@ -439,7 +439,29 @@ function readCookie(name: string) {
   return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : null;
 }
 
-async function apiFetch(path: string, init: RequestInit = {}) {
+async function apiFetch(
+  path: string,
+  init: RequestInit = {},
+  options: { skipUnauthorizedHandling?: boolean } = {},
+) {
+  const response = await sendApiRequest(path, init);
+
+  if (
+    response.status === 401 &&
+    typeof window !== "undefined" &&
+    !options.skipUnauthorizedHandling &&
+    shouldProbeUnauthorized(path)
+  ) {
+    const sessionExpired = await confirmSessionExpired();
+    if (sessionExpired) {
+      window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
+    }
+  }
+
+  return response;
+}
+
+async function sendApiRequest(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
 
@@ -451,24 +473,11 @@ async function apiFetch(path: string, init: RequestInit = {}) {
     }
   }
 
-  const response = await fetch(buildApiUrl(path), {
+  return fetch(buildApiUrl(path), {
     ...init,
     headers,
     credentials: "include",
   });
-
-  if (
-    response.status === 401 &&
-    typeof window !== "undefined" &&
-    shouldProbeUnauthorized(path)
-  ) {
-    const sessionExpired = await confirmSessionExpired();
-    if (sessionExpired) {
-      window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
-    }
-  }
-
-  return response;
 }
 
 function shouldProbeUnauthorized(path: string) {
@@ -483,13 +492,16 @@ async function confirmSessionExpired() {
 
   pendingUnauthorizedProbe = (async () => {
     try {
-      const response = await fetch(buildApiUrl("/me"), {
+      const response = await apiFetch(
+        "/me",
+        {
         method: "GET",
-        credentials: "include",
         headers: {
           Accept: "application/json",
         },
-      });
+        },
+        { skipUnauthorizedHandling: true },
+      );
 
       return response.status === 401;
     } catch {

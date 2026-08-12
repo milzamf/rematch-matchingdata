@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   AUTH_UNAUTHORIZED_EVENT,
@@ -33,48 +42,94 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [permissions, setPermissions] = useState<PermissionName[]>([]);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const currentUserRef = useRef<AuthUser | null>(null);
+  const bootstrapStartedRef = useRef(false);
+  const refreshRequestVersionRef = useRef(0);
+  const inFlightRefreshRef = useRef<Promise<AuthUser | null> | null>(null);
 
   const applySession = useCallback((session: AuthSession | null) => {
     setCurrentUser(session?.user ?? null);
     setPermissions(session?.permissions ?? []);
   }, []);
 
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  const invalidateAuthRefreshes = useCallback(() => {
+    refreshRequestVersionRef.current += 1;
+    inFlightRefreshRef.current = null;
+  }, []);
+
   const refreshCurrentUser = useCallback(async () => {
-    setIsLoadingAuth(true);
-    try {
-      const session = await fetchCurrentUser();
-      applySession(session);
-      return session?.user ?? null;
-    } catch {
-      return currentUser;
-    } finally {
-      setIsLoadingAuth(false);
+    if (inFlightRefreshRef.current) {
+      return inFlightRefreshRef.current;
     }
-  }, [applySession, currentUser]);
+
+    setIsLoadingAuth(true);
+    const requestVersion = refreshRequestVersionRef.current + 1;
+    refreshRequestVersionRef.current = requestVersion;
+
+    const refreshPromise = (async () => {
+      try {
+        const session = await fetchCurrentUser();
+        if (refreshRequestVersionRef.current === requestVersion) {
+          applySession(session);
+        }
+        return session?.user ?? null;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          if (refreshRequestVersionRef.current === requestVersion) {
+            applySession(null);
+          }
+          return null;
+        }
+
+        return currentUserRef.current;
+      } finally {
+        if (refreshRequestVersionRef.current === requestVersion) {
+          setIsLoadingAuth(false);
+        }
+        if (inFlightRefreshRef.current === refreshPromise) {
+          inFlightRefreshRef.current = null;
+        }
+      }
+    })();
+
+    inFlightRefreshRef.current = refreshPromise;
+    return refreshPromise;
+  }, [applySession]);
 
   useEffect(() => {
+    if (bootstrapStartedRef.current) return;
+    bootstrapStartedRef.current = true;
     void refreshCurrentUser();
   }, [refreshCurrentUser]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
+      invalidateAuthRefreshes();
       applySession(null);
       setIsLoadingAuth(false);
     };
 
     window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
     return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
-  }, [applySession]);
+  }, [applySession, invalidateAuthRefreshes]);
 
   const login = useCallback(async (input: { email: string; password: string }): Promise<AuthResult> => {
     try {
       const session = await loginWithSession(input);
+      invalidateAuthRefreshes();
       applySession(session);
+      setIsLoadingAuth(false);
       return { ok: true };
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 401 || error.status === 422) {
+          invalidateAuthRefreshes();
           applySession(null);
+          setIsLoadingAuth(false);
           return { ok: false, error: error.message || "Email or password is incorrect" };
         }
         return { ok: false, error: "Unable to connect to the server" };
@@ -90,9 +145,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Clear local state even if the session request fails so the UI does not remain stuck.
     } finally {
+      invalidateAuthRefreshes();
       applySession(null);
+      setIsLoadingAuth(false);
     }
-  }, [applySession]);
+  }, [applySession, invalidateAuthRefreshes]);
 
   const can = useCallback(
     (permission: PermissionName) => hasPermission(permissions, permission),
