@@ -78,6 +78,14 @@ type UploadedFile = {
   result?: DatasetInspectResult;
   error?: string;
 };
+type SyncState = {
+  confirmed: boolean;
+  id?: string;
+  auditId?: string;
+  createdAt?: string;
+  confirmedAt?: string;
+  planMode?: "recommended" | "custom";
+};
 type RunState = "idle" | "running" | "success" | "failed";
 type MatchingAlgorithm =
   "Exact" | "Normalized Exact" | "Contains" | "Starts With" | "Ends With" | "Fuzzy";
@@ -177,11 +185,12 @@ const MAX_MB = 50;
 
 function MatchingPage() {
   const { t } = usePreferences();
-  const initialWorkspaceId =
-    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("workspace");
-  const [step, setStep] = useState(1);
+  const searchParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const initialWorkspaceId = searchParams?.get("workspace") ?? null;
+  const [step, setStep] = useState(parseInitialStep(searchParams?.get("step")));
   const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
   const [workspaceName, setWorkspaceName] = useState(t("workspace.untitled"));
+  const [workspaceNameEdited, setWorkspaceNameEdited] = useState(false);
   const [workspaceSaveState, setWorkspaceSaveState] = useState<"idle" | "saving" | "saved" | "error">(
     initialWorkspaceId ? "saving" : "idle",
   );
@@ -199,35 +208,64 @@ function MatchingPage() {
   const [matchingConfiguration, setMatchingConfiguration] = useState<MatchingConfiguration | null>(
     null,
   );
+  const [syncState, setSyncState] = useState<SyncState | null>(null);
   const workspaceIdRef = useRef<string | null>(initialWorkspaceId);
   const suppressMappingSuggestRef = useRef(false);
   const restoringWorkspaceRef = useRef(false);
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
-  const hasCompletedMapping = columnMappings.some((mapping) => mapping.inputColumnId);
-  const canAdvance =
-    (step !== 1 || (reference?.status === "success" && input?.status === "success")) &&
-    (step !== 3 || hasCompletedMapping) &&
-    (step !== 4 || configureValid);
+  const validMappings = columnMappings.filter(
+    (mapping) => mapping.referenceColumnId && mapping.inputColumnId,
+  );
+  const hasCompletedMapping = validMappings.length > 0 && !hasDuplicateReference(validMappings);
+  const highestAllowedStep = deriveHighestAllowedStep({
+    reference,
+    input,
+    referenceColumns,
+    inputColumns,
+    hasCompletedMapping,
+    matchingConfiguration,
+    configureValid,
+    runResult,
+    runState,
+    syncState,
+  });
+  const activeStep = Math.min(step, highestAllowedStep);
+  const canAdvance = activeStep < wizardSteps.length && activeStep + 1 <= highestAllowedStep;
   const localizedSteps = wizardSteps.map((s) => ({
     ...s,
     title: t(`step.${stepKey(s.id)}`),
     desc: t(`step.${stepKey(s.id)}Desc`),
+    locked: s.id > highestAllowedStep,
+    lockedLabel: t("workflow.locked"),
   }));
-  const workspaceStatus = deriveWorkspaceStatus(step, runState);
+  const workspaceStatus = deriveWorkspaceStatus(activeStep, runState);
   const workspaceSnapshot = useMemo<WorkspaceStatePayload>(
     () => ({
       reference: uploadSnapshot(reference),
       input: uploadSnapshot(input),
       columnMappings,
       matchingConfiguration,
+      workspaceNameEdited,
       runState,
       progress,
       runResult,
       runError,
+      syncState,
     }),
-    [columnMappings, input, matchingConfiguration, progress, reference, runError, runResult, runState],
+    [
+      columnMappings,
+      input,
+      matchingConfiguration,
+      progress,
+      reference,
+      runError,
+      runResult,
+      runState,
+      syncState,
+      workspaceNameEdited,
+    ],
   );
 
   useEffect(() => {
@@ -245,22 +283,29 @@ function MatchingPage() {
         if (!mounted) return;
 
         const snapshot = workspace.workflow_state;
+        const restoredReference = mergeUploadSnapshot(
+          snapshot?.reference as UploadedFile | null | undefined,
+          workspace.reference_dataset,
+        );
+        const restoredInput = mergeUploadSnapshot(
+          snapshot?.input as UploadedFile | null | undefined,
+          workspace.input_dataset,
+        );
         suppressMappingSuggestRef.current = true;
         setWorkspaceId(workspace.id);
         setWorkspaceName(workspace.name);
+        setWorkspaceNameEdited(
+          Boolean(snapshot?.workspaceNameEdited) ||
+            !isGeneratedWorkspaceName(
+              workspace.name,
+              restoredReference,
+              restoredInput,
+              t("workspace.untitled"),
+            ),
+        );
         setStep(workspace.current_step || 1);
-        setReference(
-          mergeUploadSnapshot(
-            snapshot?.reference as UploadedFile | null | undefined,
-            workspace.reference_dataset,
-          ),
-        );
-        setInput(
-          mergeUploadSnapshot(
-            snapshot?.input as UploadedFile | null | undefined,
-            workspace.input_dataset,
-          ),
-        );
+        setReference(restoredReference);
+        setInput(restoredInput);
         setColumnMappings((snapshot?.columnMappings as ColumnMappingDraft[] | undefined) ?? []);
         setMatchingConfiguration(
           (snapshot?.matchingConfiguration as MatchingConfiguration | null | undefined) ?? null,
@@ -277,6 +322,11 @@ function MatchingPage() {
         setProgress(snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0);
         setRunResult(restoredRunResult);
         setRunError(snapshot?.runError ?? restoredRunResult?.job.error_message ?? null);
+        setSyncState(
+          (snapshot?.syncState as SyncState | null | undefined) ??
+            (workspace.sync_state as SyncState | null | undefined) ??
+            null,
+        );
         setWorkspaceSaveState("saved");
       })
       .catch((error) => {
@@ -304,11 +354,12 @@ function MatchingPage() {
       updateWorkspace(workspaceId, {
         name: workspaceName,
         status: workspaceStatus,
-        currentStep: step,
+        currentStep: activeStep,
         referenceDatasetId: reference?.result?.dataset.id ?? null,
         inputDatasetId: input?.result?.dataset.id ?? null,
         matchingJobId: runResult?.job.id ?? null,
         workflowState: workspaceSnapshot,
+        syncState: syncState as Record<string, unknown> | null,
       })
         .then(() => {
           setWorkspaceSaveState("saved");
@@ -325,7 +376,8 @@ function MatchingPage() {
     input,
     reference,
     runResult,
-    step,
+    activeStep,
+    syncState,
     t,
     workspaceId,
     workspaceName,
@@ -335,7 +387,9 @@ function MatchingPage() {
 
   const ensureWorkspace = async (role: DatasetRole, result: DatasetInspectResult) => {
     const existingWorkspaceId = workspaceIdRef.current;
-    const nextName = buildWorkspaceName(role, result, reference, input, t("workspace.untitled"));
+    const nextName = workspaceNameEdited
+      ? workspaceName
+      : buildWorkspaceName(role, result, reference, input, t("workspace.untitled"));
 
     try {
       if (existingWorkspaceId) {
@@ -345,7 +399,7 @@ function MatchingPage() {
           referenceDatasetId:
             role === "reference" ? result.dataset.id : reference?.result?.dataset.id ?? null,
           inputDatasetId: role === "input" ? result.dataset.id : input?.result?.dataset.id ?? null,
-          currentStep: step,
+          currentStep: activeStep,
         });
         setWorkspaceSaveState("saved");
         return;
@@ -355,7 +409,7 @@ function MatchingPage() {
       const workspace = await createWorkspace({
         name: nextName,
         status: "draft",
-        currentStep: step,
+        currentStep: activeStep,
         referenceDatasetId: role === "reference" ? result.dataset.id : null,
         inputDatasetId: role === "input" ? result.dataset.id : null,
       });
@@ -383,6 +437,7 @@ function MatchingPage() {
     setProgress(0);
     setRunError(null);
     setRunResult(null);
+    setSyncState(null);
 
     try {
       setProgress(20);
@@ -427,6 +482,7 @@ function MatchingPage() {
       const result = await inspectDataset({ file, datasetRole: role });
       setColumnMappings([]);
       setMatchingConfiguration(null);
+      setSyncState(null);
       setFile({ name: file.name, size: file.size, status: "success", result });
       await ensureWorkspace(role, result);
       toast.success(t("feedback.toast.uploaded", { name: file.name }));
@@ -458,9 +514,54 @@ function MatchingPage() {
   }, [columnMappings.length, reference?.result, input?.result]);
 
   useEffect(() => {
+    if (step > highestAllowedStep) {
+      setStep(highestAllowedStep);
+    }
+  }, [highestAllowedStep, step]);
+
+  useEffect(() => {
+    if (workspaceNameEdited || !reference?.result || !input?.result) return;
+    const suggestedName = buildWorkspaceNameFromUploads(reference, input, t("workspace.untitled"));
+    if (workspaceName !== suggestedName) {
+      setWorkspaceName(suggestedName);
+    }
+  }, [input, reference, t, workspaceName, workspaceNameEdited]);
+
+  useEffect(() => {
+    if (workspaceId || workspaceNameEdited || reference || input) return;
+    setWorkspaceName(t("workspace.untitled"));
+  }, [input, reference, t, workspaceId, workspaceNameEdited]);
+
+  useEffect(() => {
     if (runState === "success") toast.success(t("feedback.toast.runComplete"));
     if (runState === "failed") toast.error(t("feedback.toast.runFailed"));
   }, [runState, t]);
+
+  const renameWorkspace = async () => {
+    const nextName = window.prompt(t("workspace.renamePrompt"), workspaceName)?.trim();
+    if (!nextName || nextName === workspaceName) return;
+
+    setWorkspaceName(nextName);
+    setWorkspaceNameEdited(true);
+
+    if (!workspaceIdRef.current) return;
+
+    try {
+      setWorkspaceSaveState("saving");
+      const updated = await updateWorkspace(workspaceIdRef.current, { name: nextName });
+      setWorkspaceName(updated.name);
+      setWorkspaceSaveState("saved");
+      setWorkspaceError(null);
+      toast.success(t("workspace.renamed"));
+    } catch (error) {
+      setWorkspaceSaveState("error");
+      setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.saveFailed"));
+    }
+  };
+
+  const selectStep = (nextStep: number) => {
+    if (nextStep <= highestAllowedStep) setStep(nextStep);
+  };
 
   return (
     <AppLayout>
@@ -487,6 +588,13 @@ function MatchingPage() {
           </div>
           <div className="flex items-center gap-2">
             {workspaceError && <span className="text-destructive">{workspaceError}</span>}
+            <button
+              type="button"
+              onClick={renameWorkspace}
+              className="rounded-md border border-border px-2 py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              {t("workspace.renameShort")}
+            </button>
             <span className="rounded-full bg-secondary px-2 py-1 font-medium text-muted-foreground">
               {workspaceStatusLabel(workspaceStatus, t)}
             </span>
@@ -498,11 +606,11 @@ function MatchingPage() {
 
         {/* Horizontal stepper */}
         <Card className="p-5 mb-6 sticky top-16 z-10">
-          <Stepper steps={localizedSteps} current={step} onSelect={setStep} />
+          <Stepper steps={localizedSteps} current={activeStep} onSelect={selectStep} />
         </Card>
 
         <Card className="p-6">
-          {step === 1 && (
+          {activeStep === 1 && (
             <StepUpload
               reference={reference}
               input={input}
@@ -518,8 +626,8 @@ function MatchingPage() {
               error={uploadError}
             />
           )}
-          {step === 2 && <StepProfile reference={reference?.result} input={input?.result} />}
-          {step === 3 && (
+          {activeStep === 2 && <StepProfile reference={reference?.result} input={input?.result} />}
+          {activeStep === 3 && (
             <StepColumnMapping
               referenceColumns={referenceColumns}
               inputColumns={inputColumns}
@@ -527,7 +635,7 @@ function MatchingPage() {
               setMappings={setColumnMappings}
             />
           )}
-          {step === 4 && (
+          {activeStep === 4 && (
             <StepConfig
               mappings={columnMappings}
               configuration={matchingConfiguration}
@@ -535,7 +643,7 @@ function MatchingPage() {
               onValidityChange={setConfigureValid}
             />
           )}
-          {step === 5 && (
+          {activeStep === 5 && (
             <StepRun
               state={runState}
               progress={progress}
@@ -552,16 +660,21 @@ function MatchingPage() {
               onBack={() => setStep(4)}
             />
           )}
-          {step === 6 && <StepReview jobId={runResult?.job.id ?? null} />}
-          {step === 7 && (
-            <StepSynchronize jobId={runResult?.job.id ?? null} onBackToReview={() => setStep(6)} />
+          {activeStep === 6 && <StepReview jobId={runResult?.job.id ?? null} />}
+          {activeStep === 7 && (
+              <StepSynchronize
+                jobId={runResult?.job.id ?? null}
+                syncState={syncState}
+                onBackToReview={() => setStep(6)}
+                onSyncStateChange={setSyncState}
+              />
           )}
-          {step === 8 && <StepExport jobId={runResult?.job.id ?? null} />}
+          {activeStep === 8 && <StepExport jobId={runResult?.job.id ?? null} />}
 
           {/* Nav */}
           <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
             <button
-              disabled={step === 1}
+              disabled={activeStep === 1}
               onClick={() => setStep((s) => Math.max(1, s - 1))}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -569,9 +682,9 @@ function MatchingPage() {
               {t("common.back")}
             </button>
             <p className="text-xs text-muted-foreground">
-              {t("common.stepOf", { current: step, total: wizardSteps.length })}
+              {t("common.stepOf", { current: activeStep, total: wizardSteps.length })}
             </p>
-            {step === wizardSteps.length ? (
+            {activeStep === wizardSteps.length ? (
               <Link
                 to="/results"
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90"
@@ -609,6 +722,56 @@ function stepKey(id: number) {
   return ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
     id - 1
   ] as "upload" | "profiling" | "mapping" | "configure" | "run" | "review" | "sync" | "export";
+}
+
+function parseInitialStep(value: string | null | undefined) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return 1;
+  return Math.min(8, Math.max(1, parsed));
+}
+
+function hasDuplicateReference(mappings: { referenceColumnId: string }[]) {
+  const references = mappings.map((mapping) => mapping.referenceColumnId).filter(Boolean);
+  return new Set(references).size !== references.length;
+}
+
+function deriveHighestAllowedStep({
+  reference,
+  input,
+  referenceColumns,
+  inputColumns,
+  hasCompletedMapping,
+  matchingConfiguration,
+  configureValid,
+  runResult,
+  runState,
+  syncState,
+}: {
+  reference: UploadedFile | null;
+  input: UploadedFile | null;
+  referenceColumns: DatasetInspectResult["columns"];
+  inputColumns: DatasetInspectResult["columns"];
+  hasCompletedMapping: boolean;
+  matchingConfiguration: MatchingConfiguration | null;
+  configureValid: boolean;
+  runResult: MatchingRunResult | null;
+  runState: RunState;
+  syncState: SyncState | null;
+}) {
+  const datasetsReady = reference?.status === "success" && input?.status === "success";
+  const profilingReady = datasetsReady && referenceColumns.length > 0 && inputColumns.length > 0;
+  const configurationReady = Boolean(
+    matchingConfiguration?.isValid && configureValid && hasCompletedMapping,
+  );
+  const matchingReady = Boolean(runResult && runState === "success");
+
+  if (!datasetsReady) return 1;
+  if (!profilingReady) return 2;
+  if (!hasCompletedMapping) return 3;
+  if (!configurationReady) return 4;
+  if (!matchingReady) return 5;
+  if (!syncState?.confirmed) return 7;
+  return 8;
 }
 
 function SectionTitle({ title, desc }: { title: string; desc: string }) {
@@ -709,11 +872,45 @@ function buildWorkspaceName(
   fallback: string,
 ) {
   const referenceName =
-    role === "reference" ? result.dataset.name : reference?.result?.dataset.name;
-  const inputName = role === "input" ? result.dataset.name : input?.result?.dataset.name;
+    role === "reference" ? datasetDisplayName(result) : uploadDisplayName(reference);
+  const inputName = role === "input" ? datasetDisplayName(result) : uploadDisplayName(input);
 
   if (referenceName && inputName) return `${referenceName} vs ${inputName}`;
   return referenceName ?? inputName ?? fallback;
+}
+
+function buildWorkspaceNameFromUploads(
+  reference: UploadedFile | null,
+  input: UploadedFile | null,
+  fallback: string,
+) {
+  const referenceName = uploadDisplayName(reference);
+  const inputName = uploadDisplayName(input);
+
+  if (referenceName && inputName) return `${referenceName} vs ${inputName}`;
+  return referenceName ?? inputName ?? fallback;
+}
+
+function isGeneratedWorkspaceName(
+  name: string,
+  reference: UploadedFile | null,
+  input: UploadedFile | null,
+  fallback: string,
+) {
+  return name === buildWorkspaceNameFromUploads(reference, input, fallback);
+}
+
+function uploadDisplayName(file: UploadedFile | null) {
+  if (!file?.result) return null;
+  return datasetDisplayName(file.result);
+}
+
+function datasetDisplayName(result: DatasetInspectResult) {
+  return stripFileExtension(result.dataset.name || result.dataset.original_filename || "");
+}
+
+function stripFileExtension(value: string) {
+  return value.replace(/\.[a-z0-9]{2,8}$/i, "").trim();
 }
 
 function deriveWorkspaceStatus(step: number, runState: RunState): WorkspaceStatus {
@@ -4247,10 +4444,14 @@ function comparisonLabel(comparison: string, t: ReturnType<typeof usePreferences
 
 function StepSynchronize({
   jobId,
+  syncState,
   onBackToReview,
+  onSyncStateChange,
 }: {
   jobId: string | null;
+  syncState: SyncState | null;
   onBackToReview: () => void;
+  onSyncStateChange: (state: SyncState | null) => void;
 }) {
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
@@ -4259,13 +4460,15 @@ function StepSynchronize({
   const [mode, setMode] = useState<"recommended" | "custom">("recommended");
   const [updateExisting, setUpdateExisting] = useState(false);
   const [conflictAction, setConflictAction] = useState("Keep reference and fill blanks");
-  const [syncAudit, setSyncAudit] = useState<null | { id: string; createdAt: string }>(null);
+  const [syncAudit, setSyncAudit] = useState<SyncState | null>(syncState);
 
   useEffect(() => {
     if (!jobId) return;
 
     const existing = localStorage.getItem(syncAuditKey(jobId));
-    setSyncAudit(existing ? JSON.parse(existing) : null);
+    const restored = existing ? normalizeSyncState(JSON.parse(existing)) : syncState;
+    setSyncAudit(restored ?? null);
+    if (restored?.confirmed && !syncState?.confirmed) onSyncStateChange(restored);
     setLoading(true);
     setError(null);
     fetchReviewResults(jobId)
@@ -4274,7 +4477,7 @@ function StepSynchronize({
         setError(err instanceof ApiError ? err.message : t("matching.review.loadFailed")),
       )
       .finally(() => setLoading(false));
-  }, [jobId, t]);
+  }, [jobId, onSyncStateChange, syncState, t]);
 
   const items = review?.items ?? [];
   const pendingReview = items.filter(
@@ -4311,8 +4514,11 @@ function StepSynchronize({
     }
 
     const audit = {
+      confirmed: true,
       id: `sync-${jobId}`,
+      auditId: `sync-${jobId}`,
       createdAt: new Date().toISOString(),
+      confirmedAt: new Date().toISOString(),
       planMode: mode,
       matched,
       newEntities,
@@ -4323,6 +4529,7 @@ function StepSynchronize({
     };
     localStorage.setItem(syncAuditKey(jobId), JSON.stringify(audit));
     setSyncAudit(audit);
+    onSyncStateChange(audit);
     toast.success(t("matching.sync.confirmed"));
   };
 
@@ -4492,7 +4699,8 @@ function StepSynchronize({
                 </p>
                 {syncAudit && (
                   <p className="mt-2 text-xs text-success">
-                    {t("matching.sync.auditSaved")}: {syncAudit.id} · {syncAudit.createdAt}
+                    {t("matching.sync.auditSaved")}: {syncAudit.auditId ?? syncAudit.id} ·{" "}
+                    {syncAudit.confirmedAt ?? syncAudit.createdAt}
                   </p>
                 )}
               </div>
@@ -4523,6 +4731,17 @@ function SyncPlanLine({ title, desc }: { title: string; desc: string }) {
 
 function syncAuditKey(jobId: string) {
   return `batchmatch.sync.${jobId}`;
+}
+
+function normalizeSyncState(value: unknown): SyncState | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as SyncState;
+  return {
+    ...state,
+    confirmed: state.confirmed ?? Boolean(state.id || state.auditId),
+    auditId: state.auditId ?? state.id,
+    confirmedAt: state.confirmedAt ?? state.createdAt,
+  };
 }
 
 function syncLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {

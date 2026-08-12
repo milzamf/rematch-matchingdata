@@ -299,6 +299,23 @@ Milestone 8.1.1: Dashboard Shell Cleanup, RE-MATCH Rebranding, and Organizationa
 | Generic SaaS/dashboard copy removed                   | Complete |
 | UX writing rules documented                           | Complete |
 
+## Completed Milestone
+
+Milestone 8.1.2: UI Language Consistency, Workflow Step Guard, Workspace Naming, and Copy Cleanup
+
+| Requirement                                           | Status   |
+| ----------------------------------------------------- | -------- |
+| Main workflow copy follows translation resources      | Complete |
+| Indonesian and English workflow copy aligned          | Complete |
+| Stepper labels and helper text follow language switch | Complete |
+| Future workflow steps locked by prerequisite state    | Complete |
+| Manual future-step URL bypass clamped                 | Complete |
+| Export locked until Sync is confirmed                 | Complete |
+| Workspace default name changed to New Workspace / Workspace Baru | Complete |
+| Workspace rename added to workflow header             | Complete |
+| Workspace name persisted through workspace autosave   | Complete |
+| UX writing rules expanded for translation and guards  | Complete |
+
 ## Next Milestone
 
 Stabilization & QA

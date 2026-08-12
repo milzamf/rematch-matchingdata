@@ -1,6 +1,12 @@
-import { Check } from "lucide-react";
+import { Check, Lock } from "lucide-react";
 
-export type StepperItem = { id: number; title: string; desc?: string };
+export type StepperItem = {
+  id: number;
+  title: string;
+  desc?: string;
+  locked?: boolean;
+  lockedLabel?: string;
+};
 
 export function Stepper({
   steps,
@@ -20,6 +26,7 @@ export function Stepper({
         const done = s.id < current;
         const active = s.id === current;
         const isLast = i === steps.length - 1;
+        const disabled = Boolean(s.locked);
         return (
           <li key={s.id} className="relative flex min-w-0 flex-col items-center px-1">
             {/* connector */}
@@ -34,25 +41,36 @@ export function Stepper({
 
             <button
               type="button"
-              onClick={() => onSelect?.(s.id)}
-              className="group relative z-10 flex w-full min-w-0 flex-col items-center gap-1.5"
+              onClick={() => {
+                if (!disabled) onSelect?.(s.id);
+              }}
+              disabled={disabled}
+              title={disabled ? s.lockedLabel : undefined}
+              aria-disabled={disabled}
+              className="group relative z-10 flex w-full min-w-0 flex-col items-center gap-1.5 disabled:cursor-not-allowed"
             >
               <span
                 className={[
                   "size-7 rounded-full grid place-items-center text-[11px] font-semibold shrink-0 transition-colors",
-                  done
+                  disabled
+                    ? "bg-secondary/60 text-muted-foreground/60"
+                    : done
                     ? "bg-brand text-brand-foreground"
                     : active
                       ? "bg-accent text-accent-foreground ring-4 ring-accent/15"
                       : "bg-secondary text-muted-foreground",
                 ].join(" ")}
               >
-                {done ? <Check className="size-3.5" /> : s.id}
+                {disabled ? <Lock className="size-3.5" /> : done ? <Check className="size-3.5" /> : s.id}
               </span>
               <div className="hidden w-full min-w-0 px-1 text-center md:block">
                 <p
                   className={`mx-auto max-w-full text-[10px] font-semibold leading-tight lg:text-[11px] ${
-                    active || done ? "text-foreground" : "text-muted-foreground"
+                    disabled
+                      ? "text-muted-foreground/60"
+                      : active || done
+                        ? "text-foreground"
+                        : "text-muted-foreground"
                   }`}
                 >
                   {s.title}

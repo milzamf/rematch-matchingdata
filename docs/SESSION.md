@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 8.1.1: Dashboard Shell Cleanup, RE-MATCH Rebranding, and Organizational UI Copy completed.
+Milestone 8.1.2: UI Language Consistency, Workflow Step Guard, Workspace Naming, and Copy Cleanup completed.
 
 ## Project Status
 
@@ -17,6 +17,9 @@ Milestone 8.1.1: Dashboard Shell Cleanup, RE-MATCH Rebranding, and Organizationa
 - Workspace Persistence: Done MVP
 - Dashboard Real Data: Done
 - RE-MATCH Branding and Shell Cleanup: Done
+- Language Consistency: Done for main workflow and shell
+- Workflow Step Guard: Done
+- Workspace Rename: Done
 
 ## Completed
 
@@ -34,6 +37,10 @@ Milestone 8.1.1: Dashboard Shell Cleanup, RE-MATCH Rebranding, and Organizationa
 - Product-facing UI is rebranded from BatchMatch to RE-MATCH.
 - Sidebar and application shell no longer show dummy user identity, search, notification, help, or fake account controls.
 - Organization identity is shown lightly in the sidebar and Settings.
+- Matching workflow copy now follows the language switcher for Indonesian and English.
+- Future workflow steps are locked until their prerequisites are available.
+- Manual `/matching?step=` bypass is clamped back to the highest allowed step.
+- Workspace name can be changed from the workflow header and persisted through workspace autosave.
 
 ## Next Milestone
 
@@ -85,6 +92,9 @@ Upload
 - Dashboard tidak boleh memakai dummy user greeting, dummy score, dummy insight, atau dummy analytics.
 - Product-facing name is RE-MATCH; internal technical identifiers may still use `batchmatch`.
 - Main UI copy uses formal, concise Bahasa Indonesia.
+- Visible workflow copy should come from translation resources, not hardcoded component strings.
+- Workflow step availability must be based on actual workflow state, not step number alone.
+- Export remains locked until Sync is confirmed.
 - Organization identity: Direktorat Statistik Sumber Daya Mineral dan Konstruksi, Badan Pusat Statistik.
 - Workspace snapshot menyimpan workflow UI state; dataset/result utama tetap memakai tabel domain existing.
 - Autosave workspace dilakukan melalui endpoint `/api/workspaces`.

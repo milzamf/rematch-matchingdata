@@ -354,6 +354,16 @@ Technical algorithm names boleh tetap menggunakan istilah aslinya.
 
 Jangan menampilkan analytics, score, insight, atau rekomendasi jika belum berasal dari data nyata.
 
+Semua visible copy harus berasal dari translation resource.
+
+Jangan hardcode teks Bahasa Indonesia atau Bahasa Inggris langsung di component.
+
+Language switcher adalah source of truth untuk UI copy.
+
+Future workflow step harus locked sampai prerequisite tahap sebelumnya terpenuhi.
+
+Workspace dapat diberi nama sejak awal workflow dan rename harus dipersist ke backend.
+
 ---
 
 # Responsive

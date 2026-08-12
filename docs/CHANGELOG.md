@@ -74,6 +74,11 @@
 - App shell dummy search, notification, help, account dropdown, and demo identity were removed.
 - Upload copy now uses Data Acuan and Data Input terminology.
 - Main UI defaults to Bahasa Indonesia.
+- Main workflow copy now follows the language switcher for Indonesian and English.
+- Workflow stepper now locks future steps until prerequisite state is available.
+- Manual future-step URL access is clamped to the highest allowed workflow step.
+- Workspace name can be changed from the Matching header and persists through backend autosave.
+- Export remains unavailable until Sync is confirmed.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 

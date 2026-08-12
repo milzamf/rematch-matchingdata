@@ -99,6 +99,8 @@ export type WorkspaceStatePayload = {
   progress?: number;
   runResult?: MatchingRunResult | null;
   runError?: string | null;
+  workspaceNameEdited?: boolean;
+  syncState?: Record<string, unknown> | null;
 };
 
 export type WorkspaceSummary = {
