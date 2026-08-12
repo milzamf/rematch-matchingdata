@@ -24,6 +24,14 @@ export const PERMISSIONS = {
 
 export type PermissionName = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
+export function defaultRouteForRole(role: UserRole | null) {
+  if (role === "pimpinan") {
+    return "/monitoring" as const;
+  }
+
+  return "/" as const;
+}
+
 export function hasPermission(
   permissions: readonly string[],
   permission: PermissionName | string,

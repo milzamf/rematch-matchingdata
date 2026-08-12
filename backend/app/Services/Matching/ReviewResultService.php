@@ -5,6 +5,8 @@ namespace App\Services\Matching;
 use App\Models\MatchingJob;
 use App\Models\MatchingResult;
 use App\Models\ReviewDecision;
+use App\Models\User;
+use App\Support\Auth\ResourceOwnership;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -12,12 +14,16 @@ use InvalidArgumentException;
 
 class ReviewResultService
 {
+    public function __construct(private readonly ResourceOwnership $ownership)
+    {
+    }
+
     /**
      * @return array<string, mixed>
      */
-    public function list(string $jobId): array
+    public function list(User $user, string $jobId): array
     {
-        $job = MatchingJob::findOrFail($jobId);
+        $job = $this->ownership->findMatchingJob($user, $jobId);
         $results = $job->results()
             ->orderByRaw("case result_type when 'possible_match' then 0 when 'matched' then 1 else 2 end")
             ->orderBy('input_record_key')
@@ -79,13 +85,13 @@ class ReviewResultService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    public function decide(string $jobId, array $payload): array
+    public function decide(User $user, string $jobId, array $payload): array
     {
-        return DB::transaction(function () use ($jobId, $payload) {
-            $job = MatchingJob::findOrFail($jobId);
+        return DB::transaction(function () use ($user, $jobId, $payload) {
+            $job = $this->ownership->findMatchingJob($user, $jobId);
             $decision = (string) $payload['decision'];
             $scope = (string) ($payload['scope'] ?? 'one');
-            $reviewSnapshot = $this->list($job->id);
+            $reviewSnapshot = $this->list($user, $job->id);
             $itemsByKey = collect($reviewSnapshot['items'])->keyBy('input_record_key');
             $caseGroupsById = collect($reviewSnapshot['case_groups'])->keyBy('id');
             $inputKeys = $this->targetInputKeys($payload, $scope, $caseGroupsById);
@@ -183,7 +189,7 @@ class ReviewResultService
                     'skipped_records' => array_values($safetyFailures),
                     'skipped_count' => count($safetyFailures),
                 ],
-                'review' => $this->list($job->id),
+                'review' => $this->list($user, $job->id),
             ];
         });
     }
@@ -191,9 +197,10 @@ class ReviewResultService
     /**
      * @return array<string, mixed>
      */
-    public function undo(string $jobId, string $decisionId): array
+    public function undo(User $user, string $jobId, string $decisionId): array
     {
-        return DB::transaction(function () use ($jobId, $decisionId) {
+        return DB::transaction(function () use ($user, $jobId, $decisionId) {
+            $this->ownership->findMatchingJob($user, $jobId);
             $decision = ReviewDecision::where('matching_job_id', $jobId)
                 ->whereNull('undone_at')
                 ->findOrFail($decisionId);
@@ -231,7 +238,7 @@ class ReviewResultService
             return [
                 'undone_decision_id' => $decision->id,
                 'affected_records' => $decisions->count(),
-                'review' => $this->list($jobId),
+                'review' => $this->list($user, $jobId),
             ];
         });
     }

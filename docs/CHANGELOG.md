@@ -8,6 +8,11 @@
 - Workspace-linked export history metadata persisted from Step 8 for later reading in Results
 - Authentication foundation with Laravel Sanctum session/cookie login, current user, and logout endpoints.
 - Role and permission foundation with centralized backend permission mapping for `admin`, `user`, and `pimpinan`.
+- Direct workflow ownership on datasets, matching jobs, and workspaces through authenticated `user_id`.
+- Admin area MVP for user role management and workspace owner reassignment.
+- Pimpinan monitoring dashboard with organization-wide read-only workspace visibility.
+- Dedicated monitoring and administration frontend routes using the existing RE-MATCH shell.
+- Multi-account development seeding through role-specific environment variables.
 - Backend permission middleware for protected workspace, inspect, matching, and review APIs.
 - Frontend permission-aware auth state, role-aware shell navigation, and access-denied pages for restricted sections.
 - Protected app access for authenticated users only, with login redirect and dummy registration/password-reset routes disabled.
@@ -66,6 +71,8 @@
 - Results now reads real workflow data instead of dummy latest-global metrics, fake review history, and fake exports
 - Results actions now route users back to Review, Sync, or Export workflow steps instead of duplicating those workflows
 - `/api/me` and login session payloads now return user identity plus permissions for frontend authorization.
+- Protected workflow resources now scope by authenticated owner for `user`, by read-all for `pimpinan`, and by full access for `admin`.
+- Login now redirects `pimpinan` to the monitoring surface after session bootstrap resolves the active role.
 - Review, sync, export, workspace rename/delete, and new matching actions are now hidden when the active role lacks permission.
 - UI polish for navigation, dashboard tables, workflow stepper, column mapping, matching configuration, manual review, and results tabs.
 - Results experience with Overview, Matched, Possible Match, Unmatched, Statistics, Audit Trail, and Export History tabs.
@@ -102,7 +109,7 @@
 
 ### Notes
 
-- AI service integration, server-side export history, audit persistence, workspace ownership, and membership enforcement are not implemented yet.
+- AI service integration, server-side export history, audit persistence, and workspace membership/collaboration are not implemented yet.
 - Sync still uses local audit state; Export is frontend-generated from latest Review results; Results still uses mock/local state.
 - Matching Engine MVP currently runs against inspected preview rows, not full stored file contents.
-- Review decisions are stored without user/workspace ownership enforcement until those milestones are implemented.
+- Review decisions remain tied indirectly to owned matching jobs; dedicated membership and reviewer audit tables are still future work.

@@ -66,6 +66,13 @@ export type AuthSession = {
   permissions: PermissionName[];
 };
 
+export type WorkspaceOwnerSummary = {
+  id: string | number;
+  name: string;
+  email: string;
+  role: UserRole;
+};
+
 export const AUTH_UNAUTHORIZED_EVENT = "batchmatch:auth-unauthorized";
 
 type InspectDatasetInput = {
@@ -128,6 +135,7 @@ export type WorkspaceSummary = {
   input_dataset_id: string | null;
   matching_job_id: string | null;
   record_count: number | null;
+  owner: WorkspaceOwnerSummary | null;
   workflow_state: WorkspaceStatePayload | null;
   sync_state: Record<string, unknown> | null;
   export_history: unknown[] | null;
@@ -146,6 +154,45 @@ export type WorkspaceSummary = {
   } | null;
   created_at: string | null;
   updated_at: string | null;
+};
+
+export type AdminUserSummary = {
+  id: string | number;
+  name: string;
+  email: string;
+  role: UserRole;
+  workspace_count: number;
+  dataset_count: number;
+  matching_job_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type MonitoringOverview = {
+  summary: {
+    workspace_total: number;
+    user_total: number;
+    matching_job_total: number;
+    pending_review_total: number;
+    status_counts: Record<string, number>;
+  };
+  owner_breakdown: {
+    owner: string;
+    user_id: string | number | null;
+    role: UserRole | null;
+    workspace_count: number;
+    pending_review: number;
+  }[];
+  recent_workspaces: Array<{
+    id: string;
+    name: string;
+    status: string;
+    current_step: number;
+    record_count: number | null;
+    pending_review: number;
+    owner: WorkspaceOwnerSummary | null;
+    updated_at: string | null;
+  }>;
 };
 
 type WorkspaceInput = {
@@ -649,6 +696,112 @@ export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
   if (!response.ok || !payload || payload.success === false) {
     throw new ApiError(
       payload?.message ?? "Workspaces could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function listAdminUsers(): Promise<AdminUserSummary[]> {
+  const response = await apiFetch("/admin/users", {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<AdminUserSummary[]> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Users could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function updateAdminUser(
+  id: string | number,
+  input: { name?: string; role?: UserRole },
+): Promise<AdminUserSummary> {
+  const response = await apiFetch(`/admin/users/${id}`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<AdminUserSummary> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "User could not be updated.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function listAdminWorkspaces(): Promise<WorkspaceSummary[]> {
+  const response = await apiFetch("/admin/workspaces", {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<WorkspaceSummary[]> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Admin workspaces could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function reassignWorkspaceOwner(
+  workspaceId: string,
+  userId: string | number,
+): Promise<WorkspaceSummary> {
+  const response = await apiFetch(`/admin/workspaces/${workspaceId}/owner`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<WorkspaceSummary> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Workspace owner could not be updated.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function fetchMonitoringOverview(): Promise<MonitoringOverview> {
+  const response = await apiFetch("/monitoring/overview", {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<MonitoringOverview> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Monitoring overview could not be loaded.",
       response.status,
       payload?.success === false ? payload.errors : undefined,
     );

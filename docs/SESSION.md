@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 9A: Core Session & Workspace Integration Stabilization completed.
+Milestone 9.2-9.4: Workspace Ownership, Admin Area, and Pimpinan Monitoring completed.
 
 ## Project Status
 
@@ -22,6 +22,9 @@ Milestone 9A: Core Session & Workspace Integration Stabilization completed.
 - Workflow Step Guard: Done
 - Workspace Rename: Done
 - Role & Permission Foundation: Done
+- Workspace Ownership: Done MVP
+- Admin Area: Done MVP
+- Pimpinan Monitoring: Done MVP
 
 ## Completed
 
@@ -48,7 +51,7 @@ Milestone 9A: Core Session & Workspace Integration Stabilization completed.
 - User role is now part of the session identity with backend permission mapping as the source of truth.
 - Frontend shell and workflow actions now hide or deny access based on returned permissions.
 - Register and forgot-password dummy routes now redirect to Login.
-- The first development user can be created by setting `BATCHMATCH_DEV_PASSWORD` and optional `BATCHMATCH_DEV_ROLE`, then running `php artisan db:seed`, which provisions `dev@re-match.local`.
+- Development users can be provisioned by setting `BATCHMATCH_DEV_USER_PASSWORD`, `BATCHMATCH_DEV_ADMIN_PASSWORD`, and `BATCHMATCH_DEV_PIMPINAN_PASSWORD`, then running `php artisan db:seed`.
 - Product-facing UI is rebranded from BatchMatch to RE-MATCH.
 - Sidebar and application shell no longer show dummy user identity, search, notification, help, or fake account controls.
 - Organization identity is shown lightly in the sidebar and Settings.
@@ -59,9 +62,9 @@ Milestone 9A: Core Session & Workspace Integration Stabilization completed.
 
 ## Next Milestone
 
-Milestone 9.2: Workspace Ownership.
+Milestone 10: Stabilization and QA.
 
-Objective: scope workspaces, datasets, jobs, review decisions, and exports to the authenticated user or membership boundary.
+Objective: verify auth, ownership, admin, and monitoring flows end to end before moving to deeper backend hardening.
 
 ## Current Architecture
 
@@ -72,7 +75,7 @@ Backend:
 Laravel REST API. Handles health, authentication, dataset inspection/profiling, matching engine run/status, review decisions, and workspace persistence.
 
 Database:
-Implemented MVP tables include `users` with role, `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, `matching_results`, `review_decisions`, and `workspaces`.
+Implemented MVP tables include `users` with role, `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, `matching_results`, `review_decisions`, and `workspaces` with direct `user_id` ownership on workflow resources.
 
 Workflow:
 
@@ -87,17 +90,17 @@ Upload
 
 ## Known Limitations
 
-- User/workspace membership ownership belum dibuat.
-- Role-based ownership boundary belum dibuat; current authorization is permission-based only.
 - AI Assistance belum dibuat.
 - Matching Engine MVP masih memakai inspected preview rows, belum full-file processing.
 - Sync persistence masih berupa frontend/local state, belum server-side sync plan table.
 - Export history masih frontend/local download, belum server-side export table.
 - Results page sudah memakai data nyata dari workspace, matching job, review results, sync state, dan export history.
 - Audit trail table belum dibuat.
-- Authentication now uses session/cookie auth only; ownership and role enforcement are intentionally deferred.
 - Backend permission map sekarang menjadi source of truth; frontend hanya membaca `role` dan `permissions` dari `/api/me`.
 - Role yang tersedia saat ini: `admin`, `user`, `pimpinan`.
+- Workspace ownership saat ini memakai direct owner `user_id`, belum membership/collaboration multi-user.
+- Admin area saat ini fokus pada role update dan reassign owner, belum ada suspend/delete user.
+- Pimpinan monitoring bersifat read-only dan belum punya filter lanjutan atau export.
 
 ## Notes
 
@@ -119,6 +122,9 @@ Upload
 - Resume workspace harus membuka URL `/matching?workspace={id}`.
 - Jangan rerun matching jika `runResult` sudah dipulihkan dari workspace state.
 - Hapus workspace hanya menghapus row workspace, bukan dataset atau reference data utama.
+- User biasa hanya boleh melihat resource yang `user_id`-nya milik sendiri.
+- Admin dapat melihat semua workspace, mengubah role user, dan memindahkan owner workspace.
+- Pimpinan mendarat ke `/monitoring` setelah login dan hanya mendapat akses baca lintas workspace.
 - Results bersifat read-only dan harus mengarahkan user kembali ke step Review, Sync, atau Export bila masih ada tindakan.
 - Matching hydration harus tetap backend-first; jangan mengandalkan state React lama saat membuka workspace lagi.
 - Lifecycle auth harus terpisah dari lifecycle workspace; navigasi step atau hydrate workspace tidak boleh mereset sesi.

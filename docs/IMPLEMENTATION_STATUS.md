@@ -10,12 +10,12 @@ Version: MVP v0.1.0
 | Documentation        |      97% | In progress                                                |
 | Frontend UI          |      97% | Mostly complete with RE-MATCH product-facing copy          |
 | Frontend Integration |      85% | Upload through Export plus stabilized auth/workspace/results integration |
-| Backend API          |      46% | Upload/Profile/Run/Review/Workspace and auth slices exist |
-| Database             |      32% | Dataset, matching, review, and workspace tables exist      |
+| Backend API          |      58% | Upload/Profile/Run/Review/Workspace/Auth/Admin/Monitoring slices exist |
+| Database             |      39% | Workflow tables plus direct ownership columns exist      |
 | Matching Engine      |      30% | MVP engine slice with entity-aware names                   |
 | AI Assistant         |       0% | Not started                                                |
 | Export Engine        |      20% | Frontend CSV/XLSX generation exists                        |
-| Authentication       |      38% | Session auth plus role, permission, and lifecycle stabilization exist |
+| Authentication       |      52% | Session auth, role/permission foundation, and ownership scoping exist |
 | Testing              |      28% | In progress                                                |
 
 ## Frontend
@@ -49,6 +49,9 @@ Version: MVP v0.1.0
 | XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing.                                           |
 | Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                                              |
 | Auth API                 | Implemented: `POST /api/login`, `GET /api/me`, and `POST /api/logout` using Sanctum session auth, plus role/permission payloads and permission middleware. |
+| Workspace Ownership      | Implemented MVP with direct `user_id` ownership on datasets, matching jobs, and workspaces plus backend scoping by role. |
+| Admin Area               | Implemented MVP endpoints for user list/update and workspace owner reassignment. |
+| Pimpinan Monitoring      | Implemented MVP monitoring overview endpoint with cross-workspace read-only summary. |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
 | Review Knowledge         | Deterministic review patterns and knowledge levels are stored in review decision metadata.                                    |
 | Workspace Persistence    | MVP endpoint supports list/create/detail/update/delete and stores workflow snapshots.                                         |
@@ -58,12 +61,12 @@ Version: MVP v0.1.0
 
 | Table                     | Status                            |
 | ------------------------- | --------------------------------- |
-| `datasets`                | Migration and model implemented.  |
+| `datasets`                | Migration and model implemented with direct owner `user_id`.  |
 | `dataset_columns`         | Migration and model implemented.  |
 | `users`                   | Laravel default migration exists, with role added by milestone 9.1. |
-| `workspaces`              | Migration and model implemented.  |
+| `workspaces`              | Migration and model implemented with direct owner `user_id`.  |
 | `workspace_users`         | Not started.                      |
-| `matching_jobs`           | Migration and model implemented.  |
+| `matching_jobs`           | Migration and model implemented with direct owner `user_id`.  |
 | `column_mappings`         | Migration and model implemented.  |
 | `matching_configurations` | Migration and model implemented.  |
 | `matching_results`        | Migration and model implemented.  |
@@ -88,7 +91,24 @@ Milestone 9.1: Role & Permission Foundation
 | Role-aware sidebar and topbar               | Complete |
 | Hidden workflow actions by permission       | Complete |
 | Access denied frontend state                | Complete |
-| Workspace ownership and membership boundary | Deferred |
+| Workspace ownership and membership boundary | Partial |
+
+## Completed Milestone
+
+Milestone 9.2-9.4: Workspace Ownership, Admin Area, and Pimpinan Monitoring
+
+| Requirement                                         | Status   |
+| --------------------------------------------------- | -------- |
+| Direct owner on workspaces, datasets, jobs          | Complete |
+| Backend scoping by authenticated user and role      | Complete |
+| Admin access to all workspaces                      | Complete |
+| Admin user list and role update                     | Complete |
+| Admin workspace owner reassignment                  | Complete |
+| Pimpinan read-only monitoring overview              | Complete |
+| Pimpinan post-login landing to monitoring           | Complete |
+| Frontend monitoring and admin routes                | Complete |
+| Membership collaboration model                      | Deferred |
+| Fine-grained admin operations beyond role/owner     | Deferred |
 
 ## Completed Milestone
 

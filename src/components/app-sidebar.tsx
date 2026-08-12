@@ -1,5 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
+  ShieldCheck,
+  ChartColumnIncreasing,
   LayoutDashboard,
   GitCompareArrows,
   ClipboardCheck,
@@ -17,11 +19,27 @@ const nav = [
   { labelKey: "nav.settings", url: "/settings", icon: SettingsIcon },
 ] as const;
 
+const secondaryNav = [
+  {
+    labelKey: "nav.monitoring",
+    url: "/monitoring",
+    icon: ChartColumnIncreasing,
+    permission: PERMISSIONS.MONITORING_VIEW,
+  },
+  {
+    labelKey: "nav.admin",
+    url: "/admin",
+    icon: ShieldCheck,
+    permission: PERMISSIONS.ADMIN_ACCESS,
+  },
+] as const;
+
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const { t } = usePreferences();
   const { can, currentUser } = useAuth();
   const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
+  const visibleSecondaryNav = secondaryNav.filter((item) => can(item.permission));
 
   return (
     <aside className="hidden lg:flex w-60 shrink-0 border-r border-border bg-sidebar flex-col sticky top-0 h-screen">
@@ -57,6 +75,35 @@ export function AppSidebar() {
             </Link>
           );
         })}
+        {visibleSecondaryNav.length > 0 && (
+          <div className="mt-5 pt-4">
+            <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {t("nav.roleArea")}
+            </p>
+            <div className="space-y-0.5">
+              {visibleSecondaryNav.map((item) => {
+                const active = pathname.startsWith(item.url);
+                const Icon = item.icon;
+
+                return (
+                  <Link
+                    key={item.url}
+                    to={item.url}
+                    className={[
+                      "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                      active
+                        ? "bg-secondary text-foreground"
+                        : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                    ].join(" ")}
+                  >
+                    <Icon className="size-4" />
+                    <span>{t(item.labelKey)}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </nav>
 
       <div className="p-3 border-t border-border">

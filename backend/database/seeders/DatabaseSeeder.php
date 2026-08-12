@@ -16,18 +16,55 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $password = env('BATCHMATCH_DEV_PASSWORD');
-        $role = UserRole::tryFrom((string) env('BATCHMATCH_DEV_ROLE', UserRole::User->value))
+        $legacyPassword = env('BATCHMATCH_DEV_PASSWORD');
+        $legacyRole = UserRole::tryFrom((string) env('BATCHMATCH_DEV_ROLE', UserRole::User->value))
             ?? UserRole::User;
 
-        if (! is_string($password) || $password === '') {
-            return;
+        if (is_string($legacyPassword) && $legacyPassword !== '') {
+            $this->upsertUser('dev@re-match.local', 'RE-MATCH Developer', $legacyRole, $legacyPassword);
         }
 
-        User::updateOrCreate(
-            ['email' => 'dev@re-match.local'],
+        $accounts = [
             [
-                'name' => 'RE-MATCH Developer',
+                'email' => 'user@re-match.local',
+                'name' => 'RE-MATCH User',
+                'role' => UserRole::User,
+                'password' => env('BATCHMATCH_DEV_USER_PASSWORD'),
+            ],
+            [
+                'email' => 'admin@re-match.local',
+                'name' => 'RE-MATCH Admin',
+                'role' => UserRole::Admin,
+                'password' => env('BATCHMATCH_DEV_ADMIN_PASSWORD'),
+            ],
+            [
+                'email' => 'pimpinan@re-match.local',
+                'name' => 'RE-MATCH Pimpinan',
+                'role' => UserRole::Pimpinan,
+                'password' => env('BATCHMATCH_DEV_PIMPINAN_PASSWORD'),
+            ],
+        ];
+
+        foreach ($accounts as $account) {
+            if (! is_string($account['password']) || $account['password'] === '') {
+                continue;
+            }
+
+            $this->upsertUser(
+                $account['email'],
+                $account['name'],
+                $account['role'],
+                $account['password'],
+            );
+        }
+    }
+
+    private function upsertUser(string $email, string $name, UserRole $role, string $password): void
+    {
+        User::updateOrCreate(
+            ['email' => $email],
+            [
+                'name' => $name,
                 'role' => $role->value,
                 'password' => $password,
             ],

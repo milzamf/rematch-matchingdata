@@ -3,6 +3,7 @@
 namespace App\Services\Datasets;
 
 use App\Models\Dataset;
+use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +19,7 @@ class DatasetInspectionService
      * @param array<string, mixed> $input
      * @return array<string, mixed>
      */
-    public function inspect(UploadedFile $file, array $input): array
+    public function inspect(User $user, UploadedFile $file, array $input): array
     {
         $parser = $this->parserFactory->make($file);
         $parsed = $parser->parse($file, [

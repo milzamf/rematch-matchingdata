@@ -1,10 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\AdminUserController;
+use App\Http\Controllers\Api\AdminWorkspaceController;
 use App\Http\Controllers\Api\DatasetInspectionController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\MatchingRunController;
 use App\Http\Controllers\Api\MatchingStatusController;
+use App\Http\Controllers\Api\MonitoringOverviewController;
 use App\Http\Controllers\Api\ReviewDecisionController;
 use App\Http\Controllers\Api\ReviewResultsController;
 use App\Http\Controllers\Api\UndoReviewDecisionController;
@@ -44,4 +47,16 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
     Route::post('/matching-jobs/{job}/review-decisions/{decision}/undo', UndoReviewDecisionController::class)
         ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
+
+    Route::get('/monitoring/overview', MonitoringOverviewController::class)
+        ->middleware('permission:'.PermissionRegistry::MONITORING_VIEW);
+
+    Route::get('/admin/users', [AdminUserController::class, 'index'])
+        ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
+    Route::patch('/admin/users/{user}', [AdminUserController::class, 'update'])
+        ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
+    Route::get('/admin/workspaces', [AdminWorkspaceController::class, 'index'])
+        ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
+    Route::patch('/admin/workspaces/{workspace}/owner', [AdminWorkspaceController::class, 'assignOwner'])
+        ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
 });

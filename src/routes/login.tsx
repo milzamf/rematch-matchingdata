@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
+import { defaultRouteForRole } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 
 export const Route = createFileRoute("/login")({
@@ -26,9 +27,9 @@ function LoginPage() {
 
   useEffect(() => {
     if (!isLoadingAuth && isAuthenticated) {
-      navigate({ to: "/", replace: true });
+      navigate({ to: defaultRouteForRole(currentUser?.role ?? null), replace: true });
     }
-  }, [isAuthenticated, isLoadingAuth, navigate]);
+  }, [currentUser?.role, isAuthenticated, isLoadingAuth, navigate]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -49,8 +50,6 @@ function LoginPage() {
       setError(authError(result.error, t));
       return;
     }
-
-    navigate({ to: "/", replace: true });
   };
 
   return (

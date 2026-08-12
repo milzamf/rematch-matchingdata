@@ -7,13 +7,20 @@ use App\Http\Requests\WorkspaceRequest;
 use App\Models\Dataset;
 use App\Models\MatchingJob;
 use App\Models\Workspace;
+use App\Support\Auth\ResourceOwnership;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class WorkspaceController extends Controller
 {
-    public function index(): JsonResponse
+    public function __construct(private readonly ResourceOwnership $ownership)
     {
-        $workspaces = Workspace::with(['referenceDataset', 'inputDataset', 'matchingJob'])
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        $workspaces = $this->ownership
+            ->scopeWorkspaces(Workspace::with(['user', 'referenceDataset', 'inputDataset', 'matchingJob']), $request->user())
             ->latest('updated_at')
             ->get()
             ->map(fn (Workspace $workspace) => $this->payload($workspace));
@@ -27,8 +34,10 @@ class WorkspaceController extends Controller
     public function store(WorkspaceRequest $request): JsonResponse
     {
         $data = $request->validated();
+        $this->assertLinkedResources($request, $data);
 
         $workspace = Workspace::create([
+            'user_id' => $request->user()->getKey(),
             'name' => $data['name'] ?? 'Untitled Workspace',
             'status' => $data['status'] ?? 'draft',
             'current_step' => $data['current_step'] ?? 1,
@@ -46,11 +55,14 @@ class WorkspaceController extends Controller
         ], 201);
     }
 
-    public function show(Workspace $workspace): JsonResponse
+    public function show(Request $request, string $workspace): JsonResponse
     {
+        $model = $this->ownership->findWorkspace($request->user(), $workspace);
+
         return response()->json([
             'success' => true,
-            'data' => $this->payload($workspace->load([
+            'data' => $this->payload($model->load([
+                'user',
                 'referenceDataset.columns',
                 'inputDataset.columns',
                 'matchingJob',
@@ -58,20 +70,25 @@ class WorkspaceController extends Controller
         ]);
     }
 
-    public function update(WorkspaceRequest $request, Workspace $workspace): JsonResponse
+    public function update(WorkspaceRequest $request, string $workspace): JsonResponse
     {
-        $workspace->update($request->validated());
+        $model = $this->ownership->findWorkspace($request->user(), $workspace);
+        $data = $request->validated();
+        $this->assertLinkedResources($request, $data);
+
+        $model->update($data);
 
         return response()->json([
             'success' => true,
-            'data' => $this->payload($workspace->load(['referenceDataset', 'inputDataset', 'matchingJob'])),
+            'data' => $this->payload($model->load(['user', 'referenceDataset', 'inputDataset', 'matchingJob'])),
         ]);
     }
 
-    public function destroy(Workspace $workspace): JsonResponse
+    public function destroy(Request $request, string $workspace): JsonResponse
     {
-        $deletedId = $workspace->id;
-        $workspace->delete();
+        $model = $this->ownership->findWorkspace($request->user(), $workspace);
+        $deletedId = $model->id;
+        $model->delete();
 
         return response()->json([
             'success' => true,
@@ -93,6 +110,12 @@ class WorkspaceController extends Controller
             'input_dataset_id' => $workspace->input_dataset_id,
             'matching_job_id' => $workspace->matching_job_id,
             'record_count' => $workspace->inputDataset?->row_count ?? $workspace->matchingJob?->total_count,
+            'owner' => $workspace->user ? [
+                'id' => $workspace->user->getKey(),
+                'name' => $workspace->user->name,
+                'email' => $workspace->user->email,
+                'role' => $workspace->user->roleEnum()->value,
+            ] : null,
             'workflow_state' => $workspace->workflow_state,
             'sync_state' => $workspace->sync_state,
             'export_history' => $workspace->export_history,
@@ -173,5 +196,23 @@ class WorkspaceController extends Controller
             'started_at' => optional($job->started_at)->toISOString(),
             'finished_at' => optional($job->finished_at)->toISOString(),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function assertLinkedResources(Request $request, array $data): void
+    {
+        if (! empty($data['reference_dataset_id'])) {
+            $this->ownership->findDataset($request->user(), (string) $data['reference_dataset_id']);
+        }
+
+        if (! empty($data['input_dataset_id'])) {
+            $this->ownership->findDataset($request->user(), (string) $data['input_dataset_id']);
+        }
+
+        if (! empty($data['matching_job_id'])) {
+            $this->ownership->findMatchingJob($request->user(), (string) $data['matching_job_id']);
+        }
     }
 }

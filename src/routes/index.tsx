@@ -16,7 +16,7 @@ import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorPanel, LoadingPanel } from "@/components/feedback-states";
 import { useAuth } from "@/lib/auth";
-import { PERMISSIONS } from "@/lib/authorization";
+import { defaultRouteForRole, PERMISSIONS } from "@/lib/authorization";
 import { ApiError, listWorkspaces, type WorkspaceSummary } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
 import { buildMatchingSearch } from "@/lib/workflow-route";
@@ -36,7 +36,8 @@ export const Route = createFileRoute("/")({
 
 function DashboardPage() {
   const { t } = usePreferences();
-  const { can } = useAuth();
+  const { can, role } = useAuth();
+  const navigate = Route.useNavigate();
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,6 +70,12 @@ function DashboardPage() {
   const actionItems = summary.actionItems;
   const reviewItems = summary.reviewItems;
   const canCreateMatching = can(PERMISSIONS.MATCHING_CREATE);
+
+  useEffect(() => {
+    if (role === "pimpinan") {
+      navigate({ to: defaultRouteForRole(role), replace: true });
+    }
+  }, [navigate, role]);
 
   if (!canViewDashboard) {
     return (

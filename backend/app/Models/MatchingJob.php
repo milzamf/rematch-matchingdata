@@ -41,7 +41,6 @@ class MatchingJob extends Model
     {
         return $this->belongsTo(Dataset::class, 'reference_dataset_id');
     }
-
     public function inputDataset(): BelongsTo
     {
         return $this->belongsTo(Dataset::class, 'input_dataset_id');

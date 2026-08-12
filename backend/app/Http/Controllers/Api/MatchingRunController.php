@@ -7,6 +7,7 @@ use App\Http\Requests\RunMatchingRequest;
 use App\Services\Matching\MatchingEngineService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Throwable;
 
@@ -21,7 +22,7 @@ class MatchingRunController extends Controller
         try {
             return response()->json([
                 'success' => true,
-                'data' => $this->engine->run($request->validated()),
+                'data' => $this->engine->run($request->user(), $request->validated()),
             ]);
         } catch (InvalidArgumentException $exception) {
             return response()->json([
@@ -31,7 +32,7 @@ class MatchingRunController extends Controller
         } catch (ModelNotFoundException) {
             return response()->json([
                 'success' => false,
-                'message' => 'The requested dataset or matching job was not found.',
+                'message' => 'The requested dataset, workspace, or matching job was not found.',
             ], 404);
         } catch (Throwable) {
             return response()->json([

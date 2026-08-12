@@ -7,7 +7,7 @@ Status: API contract draft with implemented MVP slices called out explicitly.
 - Backend: Laravel REST API.
 - Frontend: React app consuming JSON APIs only.
 - Authentication should protect the main workflow and session-backed workspace state.
-- Workspace ownership and membership checks are deferred to a later milestone.
+- Workflow resources now use direct authenticated ownership with role-based read/write scope.
 - File parsing, profiling, matching, AI calls, export generation, and audit logging happen in the backend.
 
 ## Implemented MVP Vertical Slice
@@ -23,7 +23,7 @@ Status: API contract draft with implemented MVP slices called out explicitly.
 | `/api/datasets/inspect` | `POST` | Upload and inspect one CSV/XLSX dataset for the current frontend workflow. Requires `matching.create`. | `file`, `dataset_role`, `sheet_name`, `delimiter`, `header_row` | `dataset`, `columns`, `preview_rows`, `profiling_summary` |
 | `/api/matching-jobs/run` | `POST` | Run the Matching Engine MVP and optionally attach the job to a workspace. Requires `matching.run`. | `workspace_id`, `name`, `reference_dataset_id`, `input_dataset_id`, `mappings`, `configuration` | `job`, `progress`, `summary`, `top_results` |
 
-Note: implemented workflow endpoints are now behind Laravel Sanctum session auth. Workspace ownership still comes later.
+Note: implemented workflow endpoints are now behind Laravel Sanctum session auth and are scoped by authenticated owner unless the role is `admin` or `pimpinan`.
 
 ## 1. Auth
 
@@ -32,6 +32,11 @@ Note: implemented workflow endpoints are now behind Laravel Sanctum session auth
 | `/api/login` | `POST` | Login with email and password using session/cookie auth. | `email`, `password` | `user.id`, `user.name`, `user.email`, `user.role`, `permissions[]` |
 | `/api/me` | `GET` | Get the currently authenticated user and permissions. | none | `user.id`, `user.name`, `user.email`, `user.role`, `permissions[]` |
 | `/api/logout` | `POST` | Invalidate the current authenticated session. | none | `message` |
+| `/api/admin/users` | `GET` | List authenticated users for administration. Requires `admin.access`. | none | `id`, `name`, `email`, `role`, `workspace_count`, `dataset_count`, `matching_job_count` |
+| `/api/admin/users/{userId}` | `PATCH` | Update user display name or role. Requires `admin.access`. | `name`, `role` | `user` |
+| `/api/admin/workspaces` | `GET` | List all workspaces for administration. Requires `admin.access`. | none | `id`, `name`, `status`, `owner`, `record_count`, `updated_at` |
+| `/api/admin/workspaces/{workspaceId}/owner` | `PATCH` | Reassign workspace owner and rebind linked dataset/job ownership. Requires `admin.access`. | `user_id` | `workspace` |
+| `/api/monitoring/overview` | `GET` | Cross-workspace monitoring summary for leadership/admin. Requires `monitoring.view`. | none | `summary`, `owner_breakdown`, `recent_workspaces` |
 
 ### Implemented permission codes
 
@@ -57,7 +62,7 @@ Note: implemented workflow endpoints are now behind Laravel Sanctum session auth
 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
-| `/api/me` | `GET` | Get the current authenticated user session. | none | `id`, `name`, `email` |
+| `/api/me` | `GET` | Get the current authenticated user session. | none | `id`, `name`, `email`, `role`, `permissions[]` |
 | `/api/user/preferences` | `PATCH` | Save theme, language, defaults, AI, and privacy preferences. | `theme`, `language`, `matching_defaults`, `ai_preferences`, `privacy_settings` | `preferences` |
 | `/api/workspaces` | `GET` | List accessible workspaces. | none | `workspaces` |
 | `/api/workspaces` | `POST` | Create a workspace/session. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `workflow_state` | `workspace` |
@@ -166,6 +171,7 @@ Note: implemented workflow endpoints are now behind Laravel Sanctum session auth
 
 ## Notes
 
+- User role behavior currently is: `user` = own resources only, `admin` = full access, `pimpinan` = read-only cross-workspace monitoring and workflow visibility.
 - Endpoint paths are draft names and can be adjusted during Laravel implementation.
 - Mutating endpoints should create `audit_logs` entries where the action changes data, workflow state, AI recommendation status, sync strategy, review decision, or export state.
 - AI tokens must never be exposed to frontend code. AI requests should use masked/redacted data where configured by user privacy settings.

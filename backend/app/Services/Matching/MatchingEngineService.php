@@ -7,7 +7,9 @@ use App\Models\Dataset;
 use App\Models\MatchingConfiguration;
 use App\Models\MatchingJob;
 use App\Models\MatchingResult;
+use App\Models\User;
 use App\Models\Workspace;
+use App\Support\Auth\ResourceOwnership;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -22,6 +24,7 @@ class MatchingEngineService
         private readonly EntityNameParser $entityNameParser,
         private readonly CandidateGenerator $candidateGenerator,
         private readonly SimilarityScorer $scorer,
+        private readonly ResourceOwnership $ownership,
     ) {
     }
 
@@ -29,10 +32,15 @@ class MatchingEngineService
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    public function run(array $payload): array
+    public function run(User $user, array $payload): array
     {
-        $reference = Dataset::with('columns')->findOrFail($payload['reference_dataset_id']);
-        $input = Dataset::with('columns')->findOrFail($payload['input_dataset_id']);
+        $reference = $this->ownership->scopeDatasets(Dataset::with('columns'), $user)
+            ->findOrFail($payload['reference_dataset_id']);
+        $input = $this->ownership->scopeDatasets(Dataset::with('columns'), $user)
+            ->findOrFail($payload['input_dataset_id']);
+        $workspace = ! empty($payload['workspace_id'])
+            ? $this->ownership->findWorkspace($user, (string) $payload['workspace_id'])
+            : null;
         $configuration = $this->configResolver->resolve($payload['configuration'] ?? []);
         $mappings = $this->resolveMappings($payload['mappings'] ?? [], $configuration);
         $inputRows = $this->normalizeRows($input->preview_rows ?? [], $mappings, 'input_column_name', $configuration);
@@ -46,7 +54,7 @@ class MatchingEngineService
             throw new InvalidArgumentException('Reference and input datasets must contain preview rows before matching.');
         }
 
-        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $inputRows, $referenceRows) {
+        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $inputRows, $referenceRows, $workspace) {
             $job = MatchingJob::create([
                 'reference_dataset_id' => $reference->id,
                 'input_dataset_id' => $input->id,
@@ -112,8 +120,8 @@ class MatchingEngineService
                 throw $exception;
             }
 
-            if (! empty($payload['workspace_id'])) {
-                Workspace::whereKey($payload['workspace_id'])->update([
+            if ($workspace !== null) {
+                $workspace->update([
                     'matching_job_id' => $job->id,
                     'status' => $job->status === 'completed' ? 'reviewing' : 'failed',
                     'current_step' => $job->status === 'completed' ? 6 : 5,
@@ -127,9 +135,9 @@ class MatchingEngineService
     /**
      * @return array<string, mixed>
      */
-    public function status(string $jobId): array
+    public function status(User $user, string $jobId): array
     {
-        return $this->responseFor(MatchingJob::findOrFail($jobId));
+        return $this->responseFor($this->ownership->findMatchingJob($user, $jobId));
     }
 
     /**

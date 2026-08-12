@@ -20,7 +20,7 @@ class ReviewDecisionController extends Controller
         try {
             return response()->json([
                 'success' => true,
-                'data' => $this->reviewResults->decide($job, $request->validated()),
+                'data' => $this->reviewResults->decide($request->user(), $job, $request->validated()),
             ]);
         } catch (InvalidArgumentException $exception) {
             return response()->json([

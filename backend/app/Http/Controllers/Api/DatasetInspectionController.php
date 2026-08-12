@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\InspectDatasetRequest;
 use App\Services\Datasets\DatasetInspectionService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class DatasetInspectionController extends Controller
 {
@@ -19,6 +20,7 @@ class DatasetInspectionController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $this->inspectionService->inspect(
+                    $request->user(),
                     $request->file('file'),
                     $request->validated(),
                 ),

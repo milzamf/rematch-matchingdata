@@ -7,7 +7,7 @@ BatchMatch uses a separated architecture:
 - Frontend: React + Tailwind CSS
 - Backend: Laravel REST API
 - Authentication: Laravel Sanctum session/cookie auth
-- Authorization: backend role/permission map returned through `/api/me`
+- Authorization: backend role/permission map plus direct workflow ownership returned through `/api/me`
 - Database: MySQL or PostgreSQL
 - Matching Engine: Laravel Service Layer, with optional Python/RapidFuzz service later
 - AI Assistance: External AI API through backend only
@@ -15,6 +15,7 @@ BatchMatch uses a separated architecture:
 
 Frontend must never access database, AI token, or file storage directly. It authenticates through Laravel Sanctum session cookies and reads the current user plus permissions from `/api/me`.
 Frontend auth bootstrap should run once per application load, while persisted workspace hydration should remain a separate backend-first flow keyed by `workspace` and validated `step` search params.
+Direct resource scoping now lives in the backend: `user` sees only owned workflow resources, `admin` can manage all, and `pimpinan` gets read-only cross-workspace visibility.
 
 ---
 
@@ -82,6 +83,9 @@ Handles login, current session lookup, logout, CSRF flow, role payload, and prot
 ### Authorization Layer
 Maps roles (`admin`, `user`, `pimpinan`) to permissions in the backend. Frontend permission awareness must follow backend-returned permissions and must not become the source of truth.
 
+### Ownership Layer
+Direct ownership is stored on `workspaces`, `datasets`, and `matching_jobs` through `user_id`. Backend controllers and services must scope reads and writes through this ownership layer before touching workflow resources.
+
 ### DatasetService
 Handles uploaded datasets, metadata, storage, parser selection, and dataset ownership.
 
@@ -144,7 +148,7 @@ exports
 audit_logs
 ai_recommendations
 
-Current implementation supports authenticated identity plus role/permission awareness. Full workspace ownership and per-user data isolation remain a separate milestone.
+Current implementation supports authenticated identity, role/permission awareness, and direct per-user workflow ownership. Multi-user workspace membership/collaboration remains a separate milestone.
 
 ## 7. API Modules
 Planned REST API groups:

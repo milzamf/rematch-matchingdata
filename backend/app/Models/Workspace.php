@@ -12,6 +12,7 @@ class Workspace extends Model
     use HasFactory, HasUuids;
 
     protected $fillable = [
+        'user_id',
         'name',
         'status',
         'current_step',
@@ -36,6 +37,11 @@ class Workspace extends Model
     public function referenceDataset(): BelongsTo
     {
         return $this->belongsTo(Dataset::class, 'reference_dataset_id');
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function inputDataset(): BelongsTo

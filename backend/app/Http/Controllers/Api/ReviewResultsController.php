@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Matching\ReviewResultService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ReviewResultsController extends Controller
 {
@@ -13,12 +14,12 @@ class ReviewResultsController extends Controller
     {
     }
 
-    public function __invoke(string $job): JsonResponse
+    public function __invoke(Request $request, string $job): JsonResponse
     {
         try {
             return response()->json([
                 'success' => true,
-                'data' => $this->reviewResults->list($job),
+                'data' => $this->reviewResults->list($request->user(), $job),
             ]);
         } catch (ModelNotFoundException) {
             return response()->json([

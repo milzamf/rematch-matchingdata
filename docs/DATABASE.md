@@ -1,6 +1,6 @@
 # BatchMatch Database Design
 
-Status: Initial database design draft. Implemented MVP slices now include `datasets`, `dataset_columns`, matching/review tables, and `workspaces` for session persistence.
+Status: Initial database design draft. Implemented MVP slices now include `datasets`, `dataset_columns`, matching/review tables, `workspaces` for session persistence, and direct `user_id` ownership on workflow resources.
 
 ## 1. Database Overview
 
@@ -70,11 +70,11 @@ erDiagram
 | Table | Key fields |
 | --- | --- |
 | `users` | `id`, `full_name`, `username`, `email`, `role`, `password_hash`, `status`, timestamps. |
-| `workspaces` | `id`, future `owner_user_id`, `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history`, timestamps. |
+| `workspaces` | `id`, `user_id`, `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history`, timestamps. |
 | `workspace_users` | `workspace_id`, `user_id`, `role`, `status`, timestamps. |
-| `datasets` | `id`, `workspace_id`, `uploaded_by_user_id`, `name`, `dataset_role`, `source_type`, `file_format`, `storage_path`, `row_count`, `column_count`, `parse_status`, `schema_snapshot_json`, `profiling_summary_json`, timestamps. |
+| `datasets` | `id`, `user_id`, `workspace_id`, `uploaded_by_user_id`, `name`, `dataset_role`, `source_type`, `file_format`, `storage_path`, `row_count`, `column_count`, `parse_status`, `schema_snapshot_json`, `profiling_summary_json`, timestamps. |
 | `dataset_columns` | `id`, `dataset_id`, `name`, `normalized_name`, `data_type`, `position`, `null_rate`, `unique_count`, `duplicate_rate`, `pattern`, `stats_json`. |
-| `matching_jobs` | `id`, `workspace_id`, `created_by_user_id`, `reference_dataset_id`, `input_dataset_id`, `status`, `current_step`, `record_counts_json`, `started_at`, `finished_at`, timestamps. |
+| `matching_jobs` | `id`, `user_id`, `workspace_id`, `created_by_user_id`, `reference_dataset_id`, `input_dataset_id`, `status`, `current_step`, `record_counts_json`, `started_at`, `finished_at`, timestamps. |
 | `column_mappings` | `id`, `matching_job_id`, `reference_column_id`, `input_column_id`, `algorithm`, `weight`, `required_match`, `normalization_rule`. |
 | `matching_configurations` | `id`, `matching_job_id`, `preset`, `strategy`, `thresholds_json`, `normalization_json`, `search_optimization_json`, `candidate_generation_json`, `output_config_json`, `advanced_settings_json`, `config_hash`. |
 | `matching_results` | `id`, `workspace_id`, `matching_job_id`, `reference_record_key`, `input_record_key`, `result_type`, `overall_score`, `field_scores_json`, `decision_reason`, `candidate_rank`, timestamps. |
@@ -98,9 +98,9 @@ erDiagram
 
 Every job, dataset, result, export, and audit log belongs to a workspace and is attributable to a user where applicable.
 
-- Workspace ownership is enforced with `workspace_id` on operational tables.
+- Current implemented ownership is enforced directly with `user_id` on `workspaces`, `datasets`, and `matching_jobs`.
 - User attribution is stored with fields such as `created_by_user_id`, `uploaded_by_user_id`, `requested_by_user_id`, `reviewer_user_id`, and `user_id`.
-- API queries must always filter by the active workspace and authenticated user membership.
+- API queries must always filter by authenticated ownership or elevated role, with workspace membership reserved for a future collaboration milestone.
 - Cross-workspace access is not allowed, including files, exports, review history, AI recommendations, and audit trail records.
 
 ## 7. Suggested Indexes
@@ -108,11 +108,11 @@ Every job, dataset, result, export, and audit log belongs to a workspace and is 
 | Table | Suggested indexes |
 | --- | --- |
 | `users` | Unique `email`, unique `username`. |
-| `workspaces` | Unique `slug`, `owner_user_id`. |
+| `workspaces` | `user_id`, (`user_id`, `status`), `updated_at`. |
 | `workspace_users` | Unique (`workspace_id`, `user_id`), `user_id`, `role`. |
-| `datasets` | (`workspace_id`, `parse_status`), (`workspace_id`, `uploaded_by_user_id`), (`workspace_id`, `file_format`). |
+| `datasets` | (`user_id`, `dataset_role`), (`workspace_id`, `parse_status`), (`workspace_id`, `uploaded_by_user_id`), (`workspace_id`, `file_format`). |
 | `dataset_columns` | (`dataset_id`, `normalized_name`), (`dataset_id`, `position`). |
-| `matching_jobs` | (`workspace_id`, `status`, `created_at`), (`created_by_user_id`, `created_at`), `reference_dataset_id`, `input_dataset_id`. |
+| `matching_jobs` | (`user_id`, `status`), (`workspace_id`, `status`, `created_at`), (`created_by_user_id`, `created_at`), `reference_dataset_id`, `input_dataset_id`. |
 | `column_mappings` | `matching_job_id`, `reference_column_id`, `input_column_id`. |
 | `matching_configurations` | Unique `matching_job_id`, `config_hash`. |
 | `matching_results` | (`workspace_id`, `matching_job_id`, `result_type`), (`matching_job_id`, `overall_score`), (`matching_job_id`, `input_record_key`), (`matching_job_id`, `reference_record_key`). |
@@ -147,5 +147,6 @@ This order creates parent records before dependent records. `audit_logs` should 
 - `dataset_columns` stores detected column type, position, null count/percentage, unique count, duplicate percentage, and sample values.
 - `workspaces` stores resumable workflow sessions with linked reference/input datasets, matching job, current step, status, and compact workflow snapshot.
 - Current workspace delete removes only the workspace/session row. Linked datasets, matching jobs, and reference data are not deleted by workspace delete.
-- User ownership and workspace membership enforcement are deferred until the Workspace Ownership milestone.
+- Direct owner columns now exist on `datasets`, `matching_jobs`, and `workspaces`.
 - Current implemented auth metadata adds `users.role` with allowed values `admin`, `user`, and `pimpinan`.
+- Admin owner reassignment currently rebinds linked workspace, dataset, and matching job ownership together.
