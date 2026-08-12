@@ -9,7 +9,7 @@ Version: MVP v0.1.0
 | -------------------- | -------: | ---------------------------------------------------------- |
 | Documentation        |      97% | In progress                                                |
 | Frontend UI          |      97% | Mostly complete with RE-MATCH product-facing copy          |
-| Frontend Integration |      79% | Upload through Export plus dashboard/workspace/results integration |
+| Frontend Integration |      82% | Upload through Export plus dashboard/workspace/results integration |
 | Backend API          |      46% | Upload/Profile/Run/Review/Workspace and auth slices exist |
 | Database             |      32% | Dataset, matching, review, and workspace tables exist      |
 | Matching Engine      |      30% | MVP engine slice with entity-aware names                   |
@@ -31,11 +31,11 @@ Version: MVP v0.1.0
 | Review    | Uses real Matching Engine results with smart case groups, safety-validated bulk actions, decision history, and undo. |
 | Sync      | Uses latest review decisions for frontend finalization preview and local idempotent audit.                           |
 | Export    | Generates default/custom CSV and XLSX files from latest Review results.                                              |
-| Workspace | Lists resumable workspaces and restores Matching workflow state from backend.                                        |
+| Workspace | Lists resumable workspaces and restores canonical Matching workflow state from backend.                              |
 | Results   | Uses real workspace, matching job, review, sync summary, and export history data without dummy metrics.             |
 | Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.               |
 | Shell     | Rebranded to RE-MATCH and cleaned of dummy user/search/notification/help controls.                                  |
-| Auth      | Login redirects to the Laravel session, with current user role, permissions, logout, protected routes, and access-denied states exposed in the app shell. |
+| Auth      | Login redirects to the Laravel session, with current user role, permissions, logout, protected routes, access-denied states, and non-destructive 401 handling exposed in the app shell. |
 
 ## Backend
 

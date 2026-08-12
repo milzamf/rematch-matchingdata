@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 8.1.3: Results Real Data and Workflow Integration completed.
+Milestone 8.1.4: Workspace Hydration and Workflow Runtime Stabilization completed.
 
 ## Project Status
 
@@ -37,6 +37,9 @@ Milestone 8.1.3: Results Real Data and Workflow Integration completed.
 - Workspace list supports Open/Continue, Rename, and Delete without deleting datasets.
 - Dashboard reads workspace data from backend and no longer shows dummy analytics.
 - Results now reads real workspace, matching job, review, sync, and export history data without dummy summaries.
+- Matching now rehydrates canonical workflow state from backend workspace data when reopened from Results or direct workspace URLs.
+- Requested workflow steps are now validated against hydrated backend state instead of stale local step state.
+- Non-auth 401 responses no longer clear frontend auth immediately; `/api/me` is used as the final session check.
 - Login now uses Laravel Sanctum session/cookie auth with `/api/login`, `/api/me`, and `/api/logout`.
 - Protected app routes and workflow APIs now require an authenticated session.
 - User role is now part of the session identity with backend permission mapping as the source of truth.
@@ -114,6 +117,7 @@ Upload
 - Jangan rerun matching jika `runResult` sudah dipulihkan dari workspace state.
 - Hapus workspace hanya menghapus row workspace, bukan dataset atau reference data utama.
 - Results bersifat read-only dan harus mengarahkan user kembali ke step Review, Sync, atau Export bila masih ada tindakan.
+- Matching hydration harus tetap backend-first; jangan mengandalkan state React lama saat membuka workspace lagi.
 - One task = one milestone. Jangan mengerjakan fitur di luar milestone aktif.
 
 ## Safe To Continue

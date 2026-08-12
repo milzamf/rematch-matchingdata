@@ -1,6 +1,6 @@
 ﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import type { Dispatch, SetStateAction } from "react";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
@@ -202,7 +202,9 @@ function MatchingPage() {
   const { can } = useAuth();
   const searchParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
   const initialWorkspaceId = searchParams?.get("workspace") ?? null;
-  const [step, setStep] = useState(parseInitialStep(searchParams?.get("step")));
+  const requestedStep = parseInitialStep(searchParams?.get("step"));
+  const hasRequestedStep = searchParams?.has("step") ?? false;
+  const [step, setStep] = useState(requestedStep);
   const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
   const [workspaceName, setWorkspaceName] = useState(t("workspace.untitled"));
   const [workspaceNameEdited, setWorkspaceNameEdited] = useState(false);
@@ -266,16 +268,6 @@ function MatchingPage() {
   }));
   const workspaceStatus = deriveWorkspaceStatus(activeStep, runState);
 
-  if (!canViewMatching) {
-    return (
-      <AppLayout>
-        <div className="px-8 py-8 max-w-[1400px] mx-auto">
-          <AccessDeniedState />
-        </div>
-      </AppLayout>
-    );
-  }
-
   const workspaceSnapshot = useMemo<WorkspaceStatePayload>(
     () => ({
       reference: uploadSnapshot(reference),
@@ -303,20 +295,19 @@ function MatchingPage() {
     ],
   );
 
-  useEffect(() => {
-    workspaceIdRef.current = workspaceId;
-  }, [workspaceId]);
+  const hydrateWorkspace = useCallback(
+    async (
+      nextWorkspaceId: string,
+      options?: {
+        requestedStep?: number;
+        preferRequestedStep?: boolean;
+        replaceUrl?: boolean;
+      },
+    ) => {
+      restoringWorkspaceRef.current = true;
 
-  useEffect(() => {
-    if (!initialWorkspaceId || !canViewMatching || !canViewWorkspaces) return;
-
-    let mounted = true;
-    restoringWorkspaceRef.current = true;
-
-    fetchWorkspace(initialWorkspaceId)
-      .then((workspace) => {
-        if (!mounted) return;
-
+      try {
+        const workspace = await fetchWorkspace(nextWorkspaceId);
         const snapshot = workspace.workflow_state;
         const restoredReference = mergeUploadSnapshot(
           snapshot?.reference as UploadedFile | null | undefined,
@@ -326,7 +317,55 @@ function MatchingPage() {
           snapshot?.input as UploadedFile | null | undefined,
           workspace.input_dataset,
         );
+        const restoredMappings =
+          (snapshot?.columnMappings as ColumnMappingDraft[] | undefined) ?? [];
+        const restoredConfiguration =
+          (snapshot?.matchingConfiguration as MatchingConfiguration | null | undefined) ?? null;
+        const restoredRunResult = snapshot?.runResult ?? jobToRunResult(workspace);
+        const restoredRunState =
+          (snapshot?.runState as RunState | undefined) ??
+          (restoredRunResult
+            ? restoredRunResult.job.status === "completed"
+              ? "success"
+              : restoredRunResult.job.status === "failed"
+                ? "failed"
+                : "running"
+            : "idle");
+        const restoredSyncState = normalizeSyncState(
+          (snapshot?.syncState as SyncState | null | undefined) ??
+            (workspace.sync_state as SyncState | null | undefined) ??
+            null,
+        );
+        const restoredProgress =
+          snapshot?.progress ??
+          restoredRunResult?.progress.percentage ??
+          0;
+        const restoredRunError =
+          snapshot?.runError ??
+          restoredRunResult?.job.error_message ??
+          null;
+        const restoredHasCompletedMapping =
+          restoredMappings.filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
+            .length > 0 && !hasDuplicateReference(restoredMappings);
+        const restoredHighestStep = deriveHighestAllowedStep({
+          reference: restoredReference,
+          input: restoredInput,
+          referenceColumns: restoredReference?.result?.columns ?? [],
+          inputColumns: restoredInput?.result?.columns ?? [],
+          hasCompletedMapping: restoredHasCompletedMapping,
+          matchingConfiguration: restoredConfiguration,
+          configureValid: restoredConfiguration?.isValid ?? true,
+          runResult: restoredRunResult,
+          runState: restoredRunState,
+          syncState: restoredSyncState,
+        });
+        const nextStep =
+          options?.preferRequestedStep && options.requestedStep
+            ? Math.min(options.requestedStep, restoredHighestStep)
+            : restoredHighestStep;
+
         suppressMappingSuggestRef.current = true;
+        workspaceIdRef.current = workspace.id;
         setWorkspaceId(workspace.id);
         setWorkspaceName(workspace.name);
         setWorkspaceNameEdited(
@@ -338,49 +377,74 @@ function MatchingPage() {
               t("workspace.untitled"),
             ),
         );
-        setStep(workspace.current_step || 1);
         setReference(restoredReference);
         setInput(restoredInput);
-        setColumnMappings((snapshot?.columnMappings as ColumnMappingDraft[] | undefined) ?? []);
-        setMatchingConfiguration(
-          (snapshot?.matchingConfiguration as MatchingConfiguration | null | undefined) ?? null,
-        );
-        const restoredRunResult = snapshot?.runResult ?? jobToRunResult(workspace);
-        setRunState(
-          (snapshot?.runState as RunState | undefined) ??
-            (restoredRunResult
-              ? restoredRunResult.job.status === "completed"
-                ? "success"
-                : "failed"
-              : "idle"),
-        );
-        setProgress(snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0);
+        setColumnMappings(restoredMappings);
+        setMatchingConfiguration(restoredConfiguration);
+        setRunState(restoredRunState);
+        setProgress(restoredProgress);
         setRunResult(restoredRunResult);
-        setRunError(snapshot?.runError ?? restoredRunResult?.job.error_message ?? null);
-        setSyncState(
-          (snapshot?.syncState as SyncState | null | undefined) ??
-            (workspace.sync_state as SyncState | null | undefined) ??
-            null,
-        );
+        setRunError(restoredRunError);
+        setSyncState(restoredSyncState);
         setExportHistory(normalizeStoredExportHistory(workspace.export_history));
+        setStep(nextStep);
         setWorkspaceSaveState("saved");
+        setWorkspaceError(null);
+
+        if (options?.replaceUrl !== false && typeof window !== "undefined") {
+          window.history.replaceState(
+            null,
+            "",
+            `/matching?workspace=${workspace.id}&step=${nextStep}`,
+          );
+        }
+
+        return workspace;
+      } finally {
+        window.setTimeout(() => {
+          restoringWorkspaceRef.current = false;
+          suppressMappingSuggestRef.current = false;
+        }, 0);
+      }
+    },
+    [t],
+  );
+
+  useEffect(() => {
+    workspaceIdRef.current = workspaceId;
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!initialWorkspaceId || !canViewMatching || !canViewWorkspaces) return;
+
+    let mounted = true;
+    setWorkspaceSaveState("saving");
+
+    hydrateWorkspace(initialWorkspaceId, {
+      requestedStep,
+      preferRequestedStep: hasRequestedStep,
+    })
+      .then(() => {
+        if (!mounted) return;
       })
       .catch((error) => {
         if (!mounted) return;
         setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.loadFailed"));
         setWorkspaceSaveState("error");
-      })
-      .finally(() => {
-        window.setTimeout(() => {
-          restoringWorkspaceRef.current = false;
-          suppressMappingSuggestRef.current = false;
-        }, 0);
       });
 
     return () => {
       mounted = false;
     };
-  }, [canViewMatching, canViewWorkspaces, initialWorkspaceId, t]);
+  }, [
+    canViewMatching,
+    canViewWorkspaces,
+    hasRequestedStep,
+    hydrateWorkspace,
+    initialWorkspaceId,
+    requestedStep,
+    t,
+  ]);
 
   useEffect(() => {
     if (!workspaceId || restoringWorkspaceRef.current || !canUpdateWorkspace) return;
@@ -429,6 +493,10 @@ function MatchingPage() {
     const nextName = workspaceNameEdited
       ? workspaceName
       : buildWorkspaceName(role, result, reference, input, t("workspace.untitled"));
+    const nextReferenceDatasetId =
+      role === "reference" ? result.dataset.id : reference?.result?.dataset.id ?? null;
+    const nextInputDatasetId =
+      role === "input" ? result.dataset.id : input?.result?.dataset.id ?? null;
 
     try {
       if (existingWorkspaceId) {
@@ -436,12 +504,11 @@ function MatchingPage() {
         await updateWorkspace(existingWorkspaceId, {
           name: workspaceName,
           status: workspaceStatus,
-          referenceDatasetId:
-            role === "reference" ? result.dataset.id : reference?.result?.dataset.id ?? null,
-          inputDatasetId: role === "input" ? result.dataset.id : input?.result?.dataset.id ?? null,
+          referenceDatasetId: nextReferenceDatasetId,
+          inputDatasetId: nextInputDatasetId,
           currentStep: activeStep,
         });
-        setWorkspaceSaveState("saved");
+        await hydrateWorkspace(existingWorkspaceId, { replaceUrl: true });
         return;
       }
 
@@ -451,14 +518,10 @@ function MatchingPage() {
         name: nextName,
         status: "draft",
         currentStep: activeStep,
-        referenceDatasetId: role === "reference" ? result.dataset.id : null,
-        inputDatasetId: role === "input" ? result.dataset.id : null,
+        referenceDatasetId: nextReferenceDatasetId,
+        inputDatasetId: nextInputDatasetId,
       });
-      workspaceIdRef.current = workspace.id;
-      setWorkspaceId(workspace.id);
-      setWorkspaceName(workspace.name);
-      setWorkspaceSaveState("saved");
-      window.history.replaceState(null, "", `/matching?workspace=${workspace.id}`);
+      await hydrateWorkspace(workspace.id, { replaceUrl: true });
     } catch (error) {
       setWorkspaceSaveState("error");
       setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.saveFailed"));
@@ -618,6 +681,16 @@ function MatchingPage() {
   const selectStep = (nextStep: number) => {
     if (nextStep <= highestAllowedStep) setStep(nextStep);
   };
+
+  if (!canViewMatching) {
+    return (
+      <AppLayout>
+        <div className="px-8 py-8 max-w-[1400px] mx-auto">
+          <AccessDeniedState />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

@@ -57,6 +57,9 @@
 
 ### Improved
 
+- Matching workspace hydration now rebuilds workflow state from persisted backend workspace data when reopened from Results or direct workspace links.
+- Requested Matching steps are now clamped against hydrated backend state instead of stale local step values.
+- Protected API 401 responses no longer clear auth immediately unless `/api/me` confirms the session is actually invalid.
 - Results now reads real workflow data instead of dummy latest-global metrics, fake review history, and fake exports
 - Results actions now route users back to Review, Sync, or Export workflow steps instead of duplicating those workflows
 - `/api/me` and login session payloads now return user identity plus permissions for frontend authorization.

@@ -424,6 +424,7 @@ export async function logoutSession(): Promise<void> {
 }
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "/api").replace(/\/$/, "");
+let pendingUnauthorizedProbe: Promise<boolean> | null = null;
 
 function buildApiUrl(path: string) {
   return `${API_BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`;
@@ -456,11 +457,49 @@ async function apiFetch(path: string, init: RequestInit = {}) {
     credentials: "include",
   });
 
-  if (response.status === 401 && typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
+  if (
+    response.status === 401 &&
+    typeof window !== "undefined" &&
+    shouldProbeUnauthorized(path)
+  ) {
+    const sessionExpired = await confirmSessionExpired();
+    if (sessionExpired) {
+      window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
+    }
   }
 
   return response;
+}
+
+function shouldProbeUnauthorized(path: string) {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return !["/me", "/login", "/logout"].includes(normalized);
+}
+
+async function confirmSessionExpired() {
+  if (pendingUnauthorizedProbe) {
+    return pendingUnauthorizedProbe;
+  }
+
+  pendingUnauthorizedProbe = (async () => {
+    try {
+      const response = await fetch(buildApiUrl("/me"), {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      return response.status === 401;
+    } catch {
+      return false;
+    } finally {
+      pendingUnauthorizedProbe = null;
+    }
+  })();
+
+  return pendingUnauthorizedProbe;
 }
 
 async function ensureCsrfCookie() {

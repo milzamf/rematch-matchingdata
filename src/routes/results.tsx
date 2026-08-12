@@ -36,7 +36,6 @@ import { downloadCsv, downloadXlsx } from "@/lib/export-files";
 import { usePreferences } from "@/lib/preferences";
 import {
   buildExportRows,
-  countExportStatuses,
   exportColumns,
   exportSummaryRows,
   normalizeStoredExportHistory,
@@ -181,7 +180,6 @@ function ResultsPage() {
       }),
     [workspace],
   );
-  const latestExport = exportHistory[0] ?? null;
   const syncSummary = normalizeSyncSummary(workspace?.sync_state);
   const inputRecordCount =
     workspace?.input_dataset?.dataset.row_count ??

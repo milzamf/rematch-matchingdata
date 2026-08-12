@@ -46,12 +46,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applySession(session);
       return session?.user ?? null;
     } catch {
-      applySession(null);
-      return null;
+      return currentUser;
     } finally {
       setIsLoadingAuth(false);
     }
-  }, [applySession]);
+  }, [applySession, currentUser]);
 
   useEffect(() => {
     void refreshCurrentUser();
@@ -73,9 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applySession(session);
       return { ok: true };
     } catch (error) {
-      applySession(null);
       if (error instanceof ApiError) {
         if (error.status === 401 || error.status === 422) {
+          applySession(null);
           return { ok: false, error: error.message || "Email or password is incorrect" };
         }
         return { ok: false, error: "Unable to connect to the server" };
