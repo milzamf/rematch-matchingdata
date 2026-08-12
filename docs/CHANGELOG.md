@@ -4,6 +4,8 @@
 
 ### Added
 
+- Results page integration with real workspace context, matching job outputs, review decisions, sync summary, and export history
+- Workspace-linked export history metadata persisted from Step 8 for later reading in Results
 - Authentication foundation with Laravel Sanctum session/cookie login, current user, and logout endpoints.
 - Role and permission foundation with centralized backend permission mapping for `admin`, `user`, and `pimpinan`.
 - Backend permission middleware for protected workspace, inspect, matching, and review APIs.
@@ -55,6 +57,8 @@
 
 ### Improved
 
+- Results now reads real workflow data instead of dummy latest-global metrics, fake review history, and fake exports
+- Results actions now route users back to Review, Sync, or Export workflow steps instead of duplicating those workflows
 - `/api/me` and login session payloads now return user identity plus permissions for frontend authorization.
 - Review, sync, export, workspace rename/delete, and new matching actions are now hidden when the active role lacks permission.
 - UI polish for navigation, dashboard tables, workflow stepper, column mapping, matching configuration, manual review, and results tabs.

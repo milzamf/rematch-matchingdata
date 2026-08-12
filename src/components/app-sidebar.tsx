@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 
-import { useAuth } from "@/lib/auth";
+import { getInitials, useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 
@@ -20,7 +20,7 @@ const nav = [
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const { t } = usePreferences();
-  const { can } = useAuth();
+  const { can, currentUser } = useAuth();
   const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
 
   return (
@@ -60,11 +60,20 @@ export function AppSidebar() {
       </nav>
 
       <div className="p-3 border-t border-border">
-        <div className="px-2 text-[10px] leading-relaxed text-muted-foreground">
-          <p className="font-semibold text-foreground">RE-MATCH</p>
-          <p>{t("brand.organizationUnit")}</p>
-          <p>{t("brand.organization")}</p>
-        </div>
+        {currentUser ? (
+          <div className="flex items-center gap-3 rounded-lg bg-secondary/30 px-3 py-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-full bg-background text-xs font-semibold text-foreground">
+              {getInitials(currentUser.name)}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground">{currentUser.name}</p>
+              <p className="truncate text-[11px] text-muted-foreground">{currentUser.email}</p>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0])}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </aside>
   );

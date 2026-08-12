@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 9.1: Role & Permission Foundation completed.
+Milestone 8.1.3: Results Real Data and Workflow Integration completed.
 
 ## Project Status
 
@@ -36,6 +36,7 @@ Milestone 9.1: Role & Permission Foundation completed.
 - Workspace MVP persists workflow progress to backend and can resume the latest step.
 - Workspace list supports Open/Continue, Rename, and Delete without deleting datasets.
 - Dashboard reads workspace data from backend and no longer shows dummy analytics.
+- Results now reads real workspace, matching job, review, sync, and export history data without dummy summaries.
 - Login now uses Laravel Sanctum session/cookie auth with `/api/login`, `/api/me`, and `/api/logout`.
 - Protected app routes and workflow APIs now require an authenticated session.
 - User role is now part of the session identity with backend permission mapping as the source of truth.
@@ -86,7 +87,7 @@ Upload
 - Matching Engine MVP masih memakai inspected preview rows, belum full-file processing.
 - Sync persistence masih berupa frontend/local state, belum server-side sync plan table.
 - Export history masih frontend/local download, belum server-side export table.
-- Results page masih mock/local state.
+- Results page sudah memakai data nyata dari workspace, matching job, review results, sync state, dan export history.
 - Audit trail table belum dibuat.
 - Authentication now uses session/cookie auth only; ownership and role enforcement are intentionally deferred.
 - Backend permission map sekarang menjadi source of truth; frontend hanya membaca `role` dan `permissions` dari `/api/me`.
@@ -112,6 +113,7 @@ Upload
 - Resume workspace harus membuka URL `/matching?workspace={id}`.
 - Jangan rerun matching jika `runResult` sudah dipulihkan dari workspace state.
 - Hapus workspace hanya menghapus row workspace, bukan dataset atau reference data utama.
+- Results bersifat read-only dan harus mengarahkan user kembali ke step Review, Sync, atau Export bila masih ada tindakan.
 - One task = one milestone. Jangan mengerjakan fitur di luar milestone aktif.
 
 ## Safe To Continue

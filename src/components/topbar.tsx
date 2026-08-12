@@ -1,13 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { LogOut, Plus } from "lucide-react";
 
-import { getInitials, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 
 export function Topbar() {
   const { t } = usePreferences();
-  const { can, currentUser, logout } = useAuth();
+  const { can, logout } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -20,24 +20,6 @@ export function Topbar() {
       <div className="min-w-0" />
 
       <div className="flex items-center gap-2">
-        {currentUser && (
-          <div className="hidden sm:flex items-center gap-2 rounded-md border border-border bg-background px-3 py-1.5">
-            <div className="size-8 rounded-full bg-secondary text-secondary-foreground grid place-items-center text-[11px] font-semibold">
-              {getInitials(currentUser.name)}
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-foreground truncate max-w-40">
-                {currentUser.name}
-              </p>
-              <p className="text-[11px] text-muted-foreground truncate max-w-40">
-                {currentUser.email}
-              </p>
-              <p className="text-[11px] text-muted-foreground truncate max-w-40">
-                {t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0])}
-              </p>
-            </div>
-          </div>
-        )}
         {can(PERMISSIONS.MATCHING_CREATE) && (
           <Link
             to="/matching"

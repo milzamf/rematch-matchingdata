@@ -10,7 +10,18 @@ import { ConfirmationDialog } from "@/components/feedback-states";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { wizardSteps } from "@/lib/dummy-data";
-import { downloadCsv, downloadXlsx, type ExportTable } from "@/lib/export-files";
+import { downloadCsv, downloadXlsx } from "@/lib/export-files";
+import {
+  buildExportRows,
+  buildStoredExportHistoryEntry,
+  countExportStatuses,
+  exportColumns,
+  exportSummaryRows,
+  normalizeStoredExportHistory,
+  type ExportFormat,
+  type ExportStatus,
+  type StoredExportHistoryEntry,
+} from "@/lib/result-exports";
 import {
   ApiError,
   createWorkspace,
@@ -213,6 +224,7 @@ function MatchingPage() {
     null,
   );
   const [syncState, setSyncState] = useState<SyncState | null>(null);
+  const [exportHistory, setExportHistory] = useState<StoredExportHistoryEntry[]>([]);
   const workspaceIdRef = useRef<string | null>(initialWorkspaceId);
   const suppressMappingSuggestRef = useRef(false);
   const restoringWorkspaceRef = useRef(false);
@@ -350,6 +362,7 @@ function MatchingPage() {
             (workspace.sync_state as SyncState | null | undefined) ??
             null,
         );
+        setExportHistory(normalizeStoredExportHistory(workspace.export_history));
         setWorkspaceSaveState("saved");
       })
       .catch((error) => {
@@ -383,6 +396,7 @@ function MatchingPage() {
         matchingJobId: runResult?.job.id ?? null,
         workflowState: workspaceSnapshot,
         syncState: syncState as Record<string, unknown> | null,
+        exportHistory,
       })
         .then(() => {
           setWorkspaceSaveState("saved");
@@ -401,6 +415,7 @@ function MatchingPage() {
     runResult,
     activeStep,
     syncState,
+    exportHistory,
     t,
     workspaceId,
     workspaceName,
@@ -719,7 +734,11 @@ function MatchingPage() {
             />
           )}
           {activeStep === 8 && (
-            <StepExport jobId={runResult?.job.id ?? null} canExecute={canExecuteExport} />
+            <StepExport
+              jobId={runResult?.job.id ?? null}
+              canExecute={canExecuteExport}
+              onExportHistoryChange={setExportHistory}
+            />
           )}
 
           {/* Nav */}
@@ -736,13 +755,13 @@ function MatchingPage() {
               {t("common.stepOf", { current: activeStep, total: wizardSteps.length })}
             </p>
             {activeStep === wizardSteps.length ? (
-              <Link
-                to="/results"
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90"
+              <a
+                href={workspaceId ? `/results?workspace=${workspaceId}` : "/results"}
+                className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
               >
                 {t("common.goToResults")}
                 <ArrowRight className="size-4" />
-              </Link>
+              </a>
             ) : (
               <button
                 disabled={!canAdvance}
@@ -4846,15 +4865,14 @@ function SyncMetric({ label, value, strong }: { label: string; value: string; st
   );
 }
 
-type ExportStatus = "matched" | "new" | "rejected" | "pending";
-type ExportFormat = "xlsx" | "csv";
-
 function StepExport({
   jobId,
   canExecute,
+  onExportHistoryChange,
 }: {
   jobId: string | null;
   canExecute: boolean;
+  onExportHistoryChange: Dispatch<SetStateAction<StoredExportHistoryEntry[]>>;
 }) {
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
@@ -4927,6 +4945,19 @@ function StepExport({
       } else {
         downloadXlsx(exportFileName, [exportRows, summaryRows]);
       }
+      const historyEntry = buildStoredExportHistoryEntry({
+        fileName: exportFileName,
+        format,
+        recordCount: exportRows.rows.length,
+        mode,
+        statuses: activeStatuses,
+        columns: mode === "default" ? allColumns : selectedColumns,
+        includeReferenceKey: mode === "default" || includeReferenceKey,
+        includeReviewFields: mode === "default" || includeReviewFields,
+        includeScore: mode === "default" || includeScore,
+        sourceJobId: jobId,
+      });
+      onExportHistoryChange((current) => [historyEntry, ...current]);
       toast.success(t("matching.export.success"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("matching.export.failed"));
@@ -5160,128 +5191,6 @@ function ExportPlanLine({ title, desc }: { title: string; desc: string }) {
       <p className="text-xs font-semibold">{title}</p>
       <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
     </div>
-  );
-}
-
-function buildExportRows(
-  items: ReviewItem[],
-  options: {
-    columns: string[];
-    includeReferenceKey: boolean;
-    includeReviewFields: boolean;
-    includeScore: boolean;
-    statuses: ExportStatus[];
-  },
-): ExportTable {
-  const rows = items
-    .filter((item) => options.statuses.includes(exportStatus(item)))
-    .map((item) => {
-      const candidate = item.candidates[0] ?? null;
-      const row: Record<string, string | number | boolean | null> = {
-        input_record_key: item.input_record_key,
-        final_status: exportStatus(item),
-      };
-
-      options.columns.forEach((column) => {
-        row[column] = exportColumnValue(item, column);
-      });
-
-      if (options.includeReferenceKey) {
-        row.reference_record_key = candidate?.reference_record_key ?? null;
-      }
-
-      if (options.includeScore) {
-        row.matching_score = candidate?.score ?? null;
-      }
-
-      if (options.includeReviewFields) {
-        row.review_decision = item.decision?.decision ?? null;
-        row.review_decided_at = item.decision?.decided_at ?? item.decision?.created_at ?? null;
-        row.review_source = item.decision?.source ?? null;
-        row.review_reviewer = item.decision?.reviewer ?? null;
-        row.affected_records = item.decision?.affected_records ?? null;
-      }
-
-      return row;
-    });
-  const staticColumns = ["input_record_key", "final_status"];
-  const optionalColumns = [
-    ...(options.includeReferenceKey ? ["reference_record_key"] : []),
-    ...(options.includeScore ? ["matching_score"] : []),
-    ...(options.includeReviewFields
-      ? [
-          "review_decision",
-          "review_decided_at",
-          "review_source",
-          "review_reviewer",
-          "affected_records",
-        ]
-      : []),
-  ];
-
-  return {
-    name: "Final Results",
-    columns: [...staticColumns, ...options.columns, ...optionalColumns],
-    rows,
-  };
-}
-
-function exportSummaryRows(items: ReviewItem[]): ExportTable {
-  const counts = countExportStatuses(items);
-
-  return {
-    name: "Review Summary",
-    columns: ["category", "records"],
-    rows: [
-      { category: "matched", records: counts.matched },
-      { category: "new_entities", records: counts.new },
-      { category: "rejected", records: counts.rejected },
-      { category: "pending_review", records: counts.pending },
-    ],
-  };
-}
-
-function exportColumns(items: ReviewItem[]) {
-  const columns = new Set<string>();
-
-  items.forEach((item) => {
-    Object.keys(item.input_record).forEach((column) => columns.add(`input.${column}`));
-    const reference = item.candidates[0]?.reference_record ?? {};
-    Object.keys(reference).forEach((column) => columns.add(`reference.${column}`));
-  });
-
-  return Array.from(columns);
-}
-
-function exportColumnValue(item: ReviewItem, column: string) {
-  if (column.startsWith("input.")) {
-    return item.input_record[column.slice(6)] ?? null;
-  }
-
-  if (column.startsWith("reference.")) {
-    return item.candidates[0]?.reference_record[column.slice(10)] ?? null;
-  }
-
-  return null;
-}
-
-function exportStatus(item: ReviewItem): ExportStatus {
-  const status = item.display_status ?? item.status;
-
-  if (["matched", "auto_matched", "manual_accepted"].includes(status)) return "matched";
-  if (["unmatched", "confirmed_unmatched"].includes(status)) return "new";
-  if (status === "manual_rejected") return "rejected";
-
-  return "pending";
-}
-
-function countExportStatuses(items: ReviewItem[]) {
-  return items.reduce(
-    (counts, item) => {
-      counts[exportStatus(item)] += 1;
-      return counts;
-    },
-    { matched: 0, new: 0, rejected: 0, pending: 0 } satisfies Record<ExportStatus, number>,
   );
 }
 

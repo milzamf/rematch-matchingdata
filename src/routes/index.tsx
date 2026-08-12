@@ -172,6 +172,12 @@ function DashboardPage() {
             </div>
           </div>
         )}
+
+        <div className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground">
+          <p className="font-medium text-foreground">{t("dashboard.real.poweredBy")}</p>
+          <p className="mt-1">{t("brand.organizationUnit")}</p>
+          <p>{t("brand.organization")}</p>
+        </div>
       </div>
     </AppLayout>
   );

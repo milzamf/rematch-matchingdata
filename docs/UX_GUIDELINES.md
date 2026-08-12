@@ -249,6 +249,33 @@ Semua dipindahkan ke Configure.
 
 ---
 
+# Results Page
+
+Results bersifat read-oriented.
+
+Results harus selalu memakai konteks workspace dan matching job yang nyata.
+
+Results menjawab:
+
+- workspace dan job mana yang sedang dilihat
+- hasil final matching
+- apa yang masih membutuhkan tindakan
+- keputusan review yang sudah dibuat
+- apakah hasil siap untuk Sync atau Export
+
+Results tidak boleh menjadi tempat kedua untuk:
+
+- melakukan review decision
+- mengatur konfigurasi export
+
+Jika tindakan masih diperlukan, arahkan pengguna kembali ke step workflow yang relevan.
+
+Gunakan data nyata.
+
+Jangan tampilkan dummy metrics, dummy audit, atau latest global summary palsu.
+
+---
+
 # Presets
 
 Preset harus mengatur konfigurasi otomatis.
