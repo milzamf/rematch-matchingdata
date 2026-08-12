@@ -1,34 +1,21 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
+  AlertCircle,
   ArrowRight,
-  ArrowUpRight,
   CheckCircle2,
   ClipboardCheck,
-  Clock,
-  Loader2,
   Inbox,
-  Play,
+  Loader2,
   Plus,
   RefreshCw,
-  Sparkles,
-  TrendingUp,
 } from "lucide-react";
 
-import { AppLayout, PageHeader, Card } from "@/components/app-layout";
+import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorPanel, LoadingPanel } from "@/components/feedback-states";
-import { useAuth } from "@/lib/auth";
+import { ApiError, listWorkspaces, type WorkspaceSummary } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
-import {
-  insights,
-  kpis,
-  qualityBreakdown,
-  recentJobs,
-  reviewQueue,
-} from "@/lib/dummy-data";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -36,102 +23,84 @@ export const Route = createFileRoute("/")({
       { title: "Dashboard - BatchMatch" },
       {
         name: "description",
-        content:
-          "Overview of your data matching jobs, records requiring review, data quality and recommendations.",
+        content: "Workspace dashboard for active BatchMatch work",
       },
     ],
   }),
   component: DashboardPage,
 });
 
-function statusStyles(status: string) {
-  if (status === "Completed") return "bg-success/10 text-success";
-  if (status === "Running") return "bg-accent/10 text-accent";
-  return "bg-warning/10 text-warning";
-}
-
-function StatusIcon({ status }: { status: string }) {
-  if (status === "Completed") return <CheckCircle2 className="size-3" />;
-  if (status === "Running") return <Loader2 className="size-3 animate-spin" />;
-  return <Clock className="size-3" />;
-}
-
 function DashboardPage() {
-  const { user } = useAuth();
   const { t } = usePreferences();
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [dashboardError, setDashboardError] = useState<string | null>(null);
-  const firstName = user?.fullName.split(" ")[0] ?? "there";
-  const lastJob = recentJobs[0];
-  const pendingReviews = reviewQueue.length;
-  const kpiText = [
-    { label: t("dashboard.kpi.totalRecords"), delta: t("dashboard.kpi.totalDelta") },
-    { label: t("dashboard.kpi.matchedRecords"), delta: t("dashboard.kpi.matchedDelta") },
-    { label: t("dashboard.kpi.possibleMatches"), delta: t("dashboard.kpi.possibleDelta") },
-    { label: t("dashboard.kpi.integrityScore"), delta: t("dashboard.kpi.integrityDelta") },
-  ];
-  const qualityText = [
-    t("dashboard.quality.complete"),
-    t("dashboard.quality.standardized"),
-    t("dashboard.quality.unique"),
-    t("dashboard.quality.missing"),
-  ];
-  const insightText = [
-    {
-      title: t("dashboard.insights.phoneticTitle"),
-      body: t("dashboard.insights.phoneticBody"),
-      action: t("dashboard.insights.apply"),
-    },
-    {
-      title: t("dashboard.insights.weightTitle"),
-      body: t("dashboard.insights.weightBody"),
-      action: t("dashboard.insights.updateRule"),
-    },
-    {
-      title: t("dashboard.insights.addressTitle"),
-      body: t("dashboard.insights.addressBody"),
-      action: t("dashboard.insights.enablePreset"),
-    },
-  ];
-  const refreshDashboard = () => {
-    setDashboardError(null);
-    setIsRefreshing(true);
-    window.setTimeout(() => {
-      setIsRefreshing(false);
-      toast.success(t("feedback.toast.refreshed"));
-    }, 700);
-  };
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadDashboard = useCallback((mode: "initial" | "refresh" = "initial") => {
+    if (mode === "initial") setLoading(true);
+    if (mode === "refresh") setRefreshing(true);
+    setError(null);
+
+    listWorkspaces()
+      .then(setWorkspaces)
+      .catch((err) => {
+        setError(err instanceof ApiError ? err.message : t("dashboard.real.loadFailed"));
+      })
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  }, [t]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  const summary = useMemo(() => buildDashboardSummary(workspaces), [workspaces]);
+  const latestWorkspace = summary.latestActive ?? workspaces[0] ?? null;
+  const actionItems = summary.actionItems;
+  const reviewItems = summary.reviewItems;
 
   return (
     <AppLayout>
-      <div className="px-8 py-8 max-w-[1400px] mx-auto">
+      <div className="mx-auto max-w-[1400px] px-8 py-8">
         <PageHeader
-          title={t("dashboard.title", { name: firstName })}
-          description={t("dashboard.description")}
+          title={t("dashboard.real.title")}
+          description={t("dashboard.real.description")}
           actions={
-            <button
-              onClick={refreshDashboard}
-              disabled={isRefreshing}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60"
-            >
-              {isRefreshing ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
-              {t("common.refresh")}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => loadDashboard("refresh")}
+                disabled={refreshing || loading}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary disabled:opacity-60"
+              >
+                {refreshing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                {t("common.refresh")}
+              </button>
+              <Link
+                to="/matching"
+                className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
+              >
+                <Plus className="size-4" />
+                {t("topbar.newMatching")}
+              </Link>
+            </div>
           }
         />
 
-        {dashboardError && (
+        {error && (
           <div className="mb-6">
             <ErrorPanel
               title={t("feedback.error.title")}
-              description={dashboardError}
+              description={error}
               action={
                 <button
-                  onClick={refreshDashboard}
+                  onClick={() => loadDashboard()}
                   className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
                 >
                   {t("common.retry")}
@@ -141,309 +110,356 @@ function DashboardPage() {
           </div>
         )}
 
-        {isRefreshing && (
-          <div className="mb-6">
-            <LoadingPanel title={t("feedback.loading.title")} description={t("feedback.loading.desc")} />
+        {loading ? (
+          <LoadingPanel
+            title={t("dashboard.real.loadingTitle")}
+            description={t("dashboard.real.loadingDesc")}
+          />
+        ) : workspaces.length === 0 ? (
+          <Card className="p-8">
+            <EmptyState
+              icon={Inbox}
+              title={t("dashboard.real.emptyTitle")}
+              description={t("dashboard.real.emptyDesc")}
+              action={
+                <Link
+                  to="/matching"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
+                >
+                  <Plus className="size-4" />
+                  {t("topbar.newMatching")}
+                </Link>
+              }
+            />
+            <p className="mt-6 text-center text-xs text-muted-foreground">
+              {t("dashboard.real.workflow")}
+            </p>
+          </Card>
+        ) : (
+          <div className="space-y-6">
+            {latestWorkspace && <ContinueWork workspace={latestWorkspace} />}
+
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="space-y-6">
+                <ActionRequired items={actionItems} />
+                <RecentWorkspaces workspaces={workspaces.slice(0, 8)} />
+              </div>
+              <div className="space-y-6">
+                <WorkspaceSummaryCards summary={summary} />
+                <ReviewQueue items={reviewItems} />
+              </div>
+            </div>
           </div>
         )}
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-          <ActionCard
-            tone="accent"
-            eyebrow={t("dashboard.action.continue")}
-            title={lastJob ? lastJob.name : t("dashboard.action.noJob")}
-            description={
-              lastJob
-                ? `${lastJob.id} - ${lastJob.records} ${t("dashboard.recent.records").toLowerCase()} - ${displayDate(lastJob.date, t)}`
-                : t("dashboard.noJobDesc")
-            }
-            icon={Play}
-            cta={lastJob ? t("dashboard.action.resume") : t("dashboard.action.firstMatch")}
-            to={lastJob ? "/workspaces" : "/matching"}
-          />
-          <ActionCard
-            tone="brand"
-            eyebrow={t("dashboard.action.new")}
-            title={t("dashboard.action.startNewTitle")}
-            description={t("dashboard.action.startNewDesc")}
-            icon={Plus}
-            cta={t("topbar.newMatching")}
-            to="/matching"
-            primary
-          />
-          <ActionCard
-            tone="warning"
-            eyebrow={t("dashboard.action.reviewQueue")}
-            title={t("dashboard.action.pendingReviews", { count: pendingReviews })}
-            description={t("dashboard.action.reviewDesc")}
-            icon={ClipboardCheck}
-            cta={t("dashboard.action.reviewNow")}
-            to="/results"
-            badge={pendingReviews > 0 ? String(pendingReviews) : undefined}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          {kpis.map((k, index) => (
-            <Card key={k.label} className="p-5">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                {kpiText[index]?.label ?? k.label}
-              </p>
-              <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
-                {k.value}
-              </p>
-              {k.progress !== undefined ? (
-                <div className="mt-4 h-1 rounded-full bg-secondary overflow-hidden">
-                  <div className="h-full bg-success" style={{ width: `${k.progress}%` }} />
-                </div>
-              ) : (
-                <p
-                  className={`mt-3 text-xs font-medium ${
-                    k.tone === "warning" ? "text-warning" : "text-muted-foreground"
-                  }`}
-                >
-                  {kpiText[index]?.delta ?? k.delta}
-                </p>
-              )}
-              {k.progress !== undefined && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {kpiText[index]?.delta ?? k.delta}
-                </p>
-              )}
-            </Card>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <Card className="lg:col-span-2 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <div>
-                <h3 className="text-base font-semibold">{t("dashboard.recent.title")}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {t("dashboard.recent.desc")}
-                </p>
-              </div>
-              <Link
-                to="/results"
-                className="text-xs font-medium text-accent inline-flex items-center gap-1 hover:underline"
-              >
-                {t("common.viewAll")} <ArrowUpRight className="size-3" />
-              </Link>
-            </div>
-            <div className="overflow-x-auto">
-              {recentJobs.length === 0 ? (
-                <EmptyState
-                  icon={Inbox}
-                  title={t("dashboard.action.noJob")}
-                  description={t("dashboard.noJobDesc")}
-                />
-              ) : (
-              <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
-                <colgroup>
-                  <col />
-                  <col style={{ width: "110px" }} />
-                  <col style={{ width: "110px" }} />
-                  <col style={{ width: "130px" }} />
-                </colgroup>
-                <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <th className="text-left px-6 py-2.5 font-medium">
-                      {t("dashboard.recent.jobName")}
-                    </th>
-                    <th className="text-right px-6 py-2.5 font-medium">
-                      {t("dashboard.recent.records")}
-                    </th>
-                    <th className="text-right px-6 py-2.5 font-medium">
-                      {t("dashboard.recent.matchRate")}
-                    </th>
-                    <th className="text-left px-6 py-2.5 font-medium">{t("common.status")}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {recentJobs.map((job) => (
-                    <tr key={job.id} className="h-[68px] hover:bg-secondary/30">
-                      <td className="px-6 py-3 align-middle min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <p className="text-sm font-semibold truncate">{job.name}</p>
-                          <span className="font-mono text-[10px] text-muted-foreground shrink-0">
-                            {job.id}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                          {job.reference} <span className="text-muted-foreground/60">-&gt;</span>{" "}
-                          {job.input}
-                        </p>
-                      </td>
-                      <td className="px-6 py-3 align-middle text-right tabular-nums text-sm font-medium">
-                        {job.records}
-                      </td>
-                      <td className="px-6 py-3 align-middle text-right tabular-nums text-sm font-medium">
-                        {job.accuracy}
-                      </td>
-                      <td className="px-6 py-3 align-middle">
-                        <span
-                          className={`inline-flex min-w-24 items-center justify-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium ${statusStyles(job.status)}`}
-                        >
-                          <StatusIcon status={job.status} />
-                          {displayStatus(job.status, t)}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              )}
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-base font-semibold">{t("dashboard.quality.title")}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {t("dashboard.quality.reference")}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-semibold tabular-nums">86</p>
-                <p className="text-[10px] text-success flex items-center gap-1 justify-end">
-                  <TrendingUp className="size-3" /> +4.2
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 space-y-3.5">
-              {qualityBreakdown.map((q, index) => {
-                const color =
-                  q.color === "success"
-                    ? "bg-success"
-                    : q.color === "accent"
-                      ? "bg-accent"
-                      : "bg-warning";
-                return (
-                  <div key={q.label}>
-                    <div className="flex justify-between text-xs mb-1.5">
-                      <span className="text-muted-foreground">{qualityText[index] ?? q.label}</span>
-                      <span className="font-medium tabular-nums">{q.value}%</span>
-                    </div>
-                    <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-                      <div className={`h-full ${color}`} style={{ width: `${q.value}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
-
-        <Card>
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <Sparkles className="size-4 text-accent" />
-              <h3 className="text-base font-semibold">{t("dashboard.insights.title")}</h3>
-            </div>
-            <span className="text-[11px] text-muted-foreground">
-              {t("dashboard.insights.generated")}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
-            {insights.map((ins, i) => (
-              <div key={i} className="p-6 flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="size-4 text-warning" />
-                  <p className="text-sm font-semibold">{insightText[i]?.title ?? ins.title}</p>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed flex-1">
-                  {insightText[i]?.body ?? ins.body}
-                </p>
-                <button
-                  onClick={() => toast.info(t("feedback.toast.actionQueued"))}
-                  className="self-start text-xs font-medium text-accent hover:underline inline-flex items-center gap-1"
-                >
-                  {insightText[i]?.action ?? ins.action} <ArrowRight className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </Card>
       </div>
     </AppLayout>
   );
 }
 
-function displayStatus(status: string, t: ReturnType<typeof usePreferences>["t"]) {
-  if (status === "Completed") return t("common.completed");
-  if (status === "Running") return t("common.running");
-  if (status === "Review") return t("common.review");
+function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
+  const { t } = usePreferences();
+
+  return (
+    <Card className="p-6">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {t("dashboard.real.continueTitle")}
+          </p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">{workspace.name}</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+            <span>{stepLabel(workspace.current_step, t)}</span>
+            <span>{statusLabel(workspace.status, t)}</span>
+            <span>{recordCountLabel(workspace.record_count, t)}</span>
+            <span>{updatedLabel(workspace.updated_at, t)}</span>
+          </div>
+        </div>
+        <a
+          href={`/matching?workspace=${workspace.id}`}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
+        >
+          {t("dashboard.real.continue")}
+          <ArrowRight className="size-4" />
+        </a>
+      </div>
+    </Card>
+  );
+}
+
+function ActionRequired({ items }: { items: DashboardActionItem[] }) {
+  const { t } = usePreferences();
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        title={t("dashboard.real.actionRequired")}
+        description={t("dashboard.real.actionRequiredDesc")}
+      />
+      {items.length === 0 ? (
+        <div className="px-6 py-8 text-sm text-muted-foreground">
+          {t("dashboard.real.noAction")}
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {items.map((item) => {
+            const Icon = item.kind === "failed" ? AlertCircle : item.kind === "ready" ? CheckCircle2 : ClipboardCheck;
+            return (
+              <a
+                key={`${item.workspace.id}-${item.kind}`}
+                href={`/matching?workspace=${item.workspace.id}`}
+                className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-secondary/30"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <Icon className={`size-4 shrink-0 ${item.kind === "failed" ? "text-destructive" : "text-accent"}`} />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">
+                      {actionLabel(item, t)}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{item.workspace.name}</p>
+                  </div>
+                </div>
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function WorkspaceSummaryCards({ summary }: { summary: DashboardSummary }) {
+  const { t } = usePreferences();
+  const items = [
+    { label: t("dashboard.real.summaryWorkspaces"), value: summary.total },
+    { label: t("dashboard.real.summaryActive"), value: summary.active },
+    { label: t("dashboard.real.summaryNeedReview"), value: summary.needReview },
+    { label: t("dashboard.real.summaryCompleted"), value: summary.completed },
+  ];
+
+  return (
+    <Card className="p-5">
+      <h3 className="text-base font-semibold">{t("dashboard.real.summaryTitle")}</h3>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-lg border border-border bg-background px-4 py-3">
+            <p className="text-2xl font-semibold tabular-nums">{item.value}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{item.label}</p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
+  const { t } = usePreferences();
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        title={t("dashboard.real.recentTitle")}
+        description={t("dashboard.real.recentDesc")}
+      />
+      <div className="overflow-x-auto">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col />
+            <col style={{ width: "120px" }} />
+            <col style={{ width: "140px" }} />
+            <col style={{ width: "110px" }} />
+            <col style={{ width: "150px" }} />
+            <col style={{ width: "110px" }} />
+          </colgroup>
+          <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-6 py-3 text-left font-medium">{t("workspace.name")}</th>
+              <th className="px-6 py-3 text-left font-medium">{t("workspace.step")}</th>
+              <th className="px-6 py-3 text-left font-medium">{t("common.status")}</th>
+              <th className="px-6 py-3 text-right font-medium">{t("workspace.records")}</th>
+              <th className="px-6 py-3 text-left font-medium">{t("workspace.updated")}</th>
+              <th className="px-6 py-3 text-right font-medium">{t("common.action")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {workspaces.map((workspace) => (
+              <tr key={workspace.id} className="h-[64px] hover:bg-secondary/30">
+                <td className="min-w-0 px-6 py-3 align-middle">
+                  <p className="truncate font-semibold">{workspace.name}</p>
+                </td>
+                <td className="px-6 py-3 align-middle">{stepLabel(workspace.current_step, t)}</td>
+                <td className="px-6 py-3 align-middle">
+                  <span className="inline-flex rounded-full bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                    {statusLabel(workspace.status, t)}
+                  </span>
+                </td>
+                <td className="px-6 py-3 text-right align-middle tabular-nums">
+                  {workspace.record_count ?? "-"}
+                </td>
+                <td className="px-6 py-3 align-middle text-muted-foreground">
+                  {updatedLabel(workspace.updated_at, t)}
+                </td>
+                <td className="px-6 py-3 text-right align-middle">
+                  <a
+                    href={`/matching?workspace=${workspace.id}`}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+                  >
+                    {t("dashboard.real.open")}
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
+  const { t } = usePreferences();
+
+  return (
+    <Card className="overflow-hidden">
+      <SectionHeader
+        title={t("dashboard.real.reviewQueue")}
+        description={t("dashboard.real.reviewQueueDesc")}
+      />
+      {items.length === 0 ? (
+        <div className="px-6 py-8 text-sm text-muted-foreground">
+          {t("dashboard.real.noReviewQueue")}
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {items.slice(0, 5).map((workspace) => (
+            <a
+              key={workspace.id}
+              href={`/matching?workspace=${workspace.id}`}
+              className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-secondary/30"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{workspace.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("dashboard.real.needReviewCount", { count: needReviewCount(workspace) })}
+                </p>
+              </div>
+              <span className="text-xs font-semibold text-accent">
+                {t("dashboard.real.reviewCases")}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function SectionHeader({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="border-b border-border px-6 py-4">
+      <h3 className="text-base font-semibold">{title}</h3>
+      <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+type DashboardActionItem = {
+  kind: "review" | "failed" | "ready";
+  workspace: WorkspaceSummary;
+};
+
+type DashboardSummary = {
+  total: number;
+  active: number;
+  needReview: number;
+  completed: number;
+  latestActive: WorkspaceSummary | null;
+  actionItems: DashboardActionItem[];
+  reviewItems: WorkspaceSummary[];
+};
+
+function buildDashboardSummary(workspaces: WorkspaceSummary[]): DashboardSummary {
+  const activeStatuses = new Set(["draft", "configuring", "matching", "reviewing", "ready_to_sync"]);
+  const latestActive = workspaces.find((workspace) => activeStatuses.has(workspace.status)) ?? null;
+  const reviewItems = workspaces.filter((workspace) => needReviewCount(workspace) > 0);
+  const actionItems = workspaces.flatMap((workspace) => {
+    const items: DashboardActionItem[] = [];
+    const reviewCount = needReviewCount(workspace);
+
+    if (reviewCount > 0) {
+      items.push({ kind: "review", workspace });
+    }
+
+    if (workspace.status === "failed") {
+      items.push({ kind: "failed", workspace });
+    }
+
+    if (workspace.status === "ready_to_sync") {
+      items.push({ kind: "ready", workspace });
+    }
+
+    return items;
+  });
+
+  return {
+    total: workspaces.length,
+    active: workspaces.filter((workspace) => activeStatuses.has(workspace.status)).length,
+    needReview: reviewItems.reduce((total, workspace) => total + needReviewCount(workspace), 0),
+    completed: workspaces.filter((workspace) => workspace.status === "completed").length,
+    latestActive,
+    actionItems,
+    reviewItems,
+  };
+}
+
+function actionLabel(item: DashboardActionItem, t: ReturnType<typeof usePreferences>["t"]) {
+  if (item.kind === "failed") return t("dashboard.real.actionFailed");
+  if (item.kind === "ready") return t("dashboard.real.actionReadySync");
+  return t("dashboard.real.needReviewCount", { count: needReviewCount(item.workspace) });
+}
+
+function needReviewCount(workspace: WorkspaceSummary) {
+  return Number(workspace.matching_job?.record_counts?.possible_match ?? 0);
+}
+
+function stepLabel(step: number, t: ReturnType<typeof usePreferences>["t"]) {
+  const key = ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
+    Math.max(0, Math.min(7, step - 1))
+  ];
+
+  return t(`step.${key}` as Parameters<typeof t>[0]);
+}
+
+function statusLabel(status: WorkspaceSummary["status"], t: ReturnType<typeof usePreferences>["t"]) {
+  if (status === "draft") return t("workspace.status.draft");
+  if (status === "configuring") return t("workspace.status.configuring");
+  if (status === "matching") return t("workspace.status.matching");
+  if (status === "reviewing") return t("workspace.status.reviewing");
+  if (status === "ready_to_sync") return t("workspace.status.ready_to_sync");
+  if (status === "completed") return t("workspace.status.completed");
+  if (status === "failed") return t("workspace.status.failed");
   return status;
 }
 
-function displayDate(date: string, t: ReturnType<typeof usePreferences>["t"]) {
-  if (date === "Yesterday") return t("results.export.scope.all") === "semua" ? "Kemarin" : date;
-  if (date.startsWith("Today")) return t("results.export.scope.all") === "semua" ? date.replace("Today", "Hari ini") : date;
-  if (date === "2 hours ago") return t("results.export.scope.all") === "semua" ? "2 jam lalu" : date;
-  if (date === "5 hours ago") return t("results.export.scope.all") === "semua" ? "5 jam lalu" : date;
-  return date;
+function recordCountLabel(count: number | null, t: ReturnType<typeof usePreferences>["t"]) {
+  if (count === null) return t("dashboard.real.noRecordCount");
+  return t("dashboard.real.records", { count });
 }
 
-function ActionCard({
-  eyebrow,
-  title,
-  description,
-  icon: Icon,
-  cta,
-  to,
-  tone,
-  primary,
-  badge,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  icon: typeof Play;
-  cta: string;
-  to: string;
-  tone: "brand" | "accent" | "warning";
-  primary?: boolean;
-  badge?: string;
-}) {
-  const toneClass =
-    tone === "brand"
-      ? "text-brand bg-brand/10"
-      : tone === "accent"
-        ? "text-accent bg-accent/10"
-        : "text-warning bg-warning/10";
-  return (
-    <Card className="p-5 flex flex-col gap-4">
-      <div className="flex items-start justify-between">
-        <div className={`size-10 rounded-lg grid place-items-center ${toneClass}`}>
-          <Icon className="size-5" />
-        </div>
-        {badge && (
-          <span className="text-[11px] font-semibold text-warning bg-warning/10 rounded-full px-2 py-0.5">
-            {badge}
-          </span>
-        )}
-      </div>
-      <div className="flex-1">
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-          {eyebrow}
-        </p>
-        <p className="mt-1 text-sm font-semibold text-foreground line-clamp-2">{title}</p>
-        <p className="mt-1 text-xs text-muted-foreground leading-relaxed line-clamp-2">
-          {description}
-        </p>
-      </div>
-      <Link
-        to={to}
-        className={
-          primary
-            ? "inline-flex items-center justify-center gap-1.5 rounded-md bg-brand text-brand-foreground px-3 py-2 text-sm font-semibold hover:opacity-90"
-            : "inline-flex items-center gap-1.5 text-sm font-semibold text-foreground hover:text-accent"
-        }
-      >
-        {cta}
-        <ArrowRight className="size-4" />
-      </Link>
-    </Card>
-  );
+function updatedLabel(value: string | null, t: ReturnType<typeof usePreferences>["t"]) {
+  if (!value) return t("dashboard.real.updatedUnknown");
+
+  const date = new Date(value);
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.max(0, Math.round(diffMs / 60000));
+
+  if (minutes < 1) return t("dashboard.real.updatedNow");
+  if (minutes < 60) return t("dashboard.real.updatedMinutes", { count: minutes });
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return t("dashboard.real.updatedHours", { count: hours });
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+  }).format(date);
 }

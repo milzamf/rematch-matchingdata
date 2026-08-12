@@ -43,6 +43,7 @@
 - Workspace persistence MVP with backend `workspaces` table and REST endpoints.
 - Resumable Matching workflow autosave using backend workspace snapshots.
 - Workspace list page with Continue, Rename, and Delete actions.
+- Dashboard real data integration using saved workspace data from the backend.
 
 ### Improved
 
@@ -66,6 +67,8 @@
 - Sync flow is simplified to Finalize Summary -> Recommended Plan -> Preview -> Confirm Sync.
 - Export now shows record-count preview, generated filename, format selection, loading, success, and error feedback.
 - Matching workflow can be reopened from `/matching?workspace={id}` without losing uploaded dataset/profile/mapping/config/run progress.
+- Dashboard now focuses on Continue Your Work, Action Required, Workspace Summary, Recent Workspaces, and Review Queue.
+- Dashboard dummy jobs, fake scores, fake insights, and generic analytics content were removed.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 

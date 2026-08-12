@@ -330,6 +330,20 @@ Empty State
 
 ---
 
+# UI Writing
+
+Gunakan teks yang sederhana, natural, profesional, dan ringkas.
+
+Jangan gunakan sapaan buatan, nama user dummy, angka dummy, persentase dummy, growth indicator dummy, atau klaim marketing.
+
+Judul, subtitle, helper text, status description, empty state, tooltip, dan keterangan singkat tidak memakai titik di akhir.
+
+Dashboard harus menjawab pekerjaan yang sedang berjalan, hal yang perlu perhatian, dan cara melanjutkan pekerjaan.
+
+Jangan menampilkan analytics, score, insight, atau rekomendasi jika belum berasal dari data nyata.
+
+---
+
 # Responsive
 
 BatchMatch harus nyaman digunakan pada:

@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 8: Workspace / Session Persistence completed.
+Milestone 8.1: Dashboard Real Data Integration completed.
 
 ## Project Status
 
@@ -15,6 +15,7 @@ Milestone 8: Workspace / Session Persistence completed.
 - Sync: Done frontend/local audit
 - Export: Done frontend CSV/XLSX
 - Workspace Persistence: Done MVP
+- Dashboard Real Data: Done
 
 ## Completed
 
@@ -28,6 +29,7 @@ Milestone 8: Workspace / Session Persistence completed.
 - Export generates default/custom CSV and XLSX from final review state in the frontend.
 - Workspace MVP persists workflow progress to backend and can resume the latest step.
 - Workspace list supports Open/Continue, Rename, and Delete without deleting datasets.
+- Dashboard reads workspace data from backend and no longer shows dummy analytics.
 
 ## Next Milestone
 
@@ -75,6 +77,8 @@ Upload
 - `docs/UX_GUIDELINES.md` adalah acuan UX.
 - Sidebar utama tetap hanya Dashboard, Matching, Results, Settings.
 - Workspace page adalah halaman pendukung, bukan menu sidebar baru.
+- Dashboard adalah entry point kerja untuk Continue, Action Required, Review Queue, Recent Workspaces, dan New Matching.
+- Dashboard tidak boleh memakai dummy user greeting, dummy score, dummy insight, atau dummy analytics.
 - Workspace snapshot menyimpan workflow UI state; dataset/result utama tetap memakai tabel domain existing.
 - Autosave workspace dilakukan melalui endpoint `/api/workspaces`.
 - Resume workspace harus membuka URL `/matching?workspace={id}`.

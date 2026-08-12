@@ -9,7 +9,7 @@ Version: MVP v0.1.0
 | -------------------- | -------: | ---------------------------------------------------------- |
 | Documentation        |      97% | In progress                                                |
 | Frontend UI          |      96% | Mostly complete                                            |
-| Frontend Integration |      68% | Upload through Export plus workspace resume/autosave       |
+| Frontend Integration |      72% | Upload through Export plus dashboard/workspace integration |
 | Backend API          |      42% | Upload/Profile/Run/Review/Workspace slices exist           |
 | Database             |      32% | Dataset, matching, review, and workspace tables exist      |
 | Matching Engine      |      30% | MVP engine slice with entity-aware names                   |
@@ -22,7 +22,7 @@ Version: MVP v0.1.0
 
 | Area      | Status                                                                                                               |
 | --------- | -------------------------------------------------------------------------------------------------------------------- |
-| Dashboard | UI complete, still uses mock data.                                                                                   |
+| Dashboard | Integrated with Workspace backend for continue work, action required, summary, review queue, and recent workspaces. |
 | Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                                        |
 | Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                                      |
 | Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.                |
@@ -266,6 +266,22 @@ Milestone 8: Workspace / Session Persistence
 | Workspace list page with continue, rename, delete         | Complete |
 | Workspace delete does not delete datasets/reference data  | Complete |
 | Auth, permissions, collaboration, AI                      | Deferred |
+
+## Completed Milestone
+
+Milestone 8.1: Dashboard Real Data Integration
+
+| Requirement                                      | Status   |
+| ------------------------------------------------ | -------- |
+| Dashboard reads workspace data from backend      | Complete |
+| Removed dummy jobs, scores, insights, analytics  | Complete |
+| Continue Your Work from latest relevant workspace | Complete |
+| Action Required from Need Review, Failed, Ready to Sync | Complete |
+| Workspace Summary from persisted workspace/job data | Complete |
+| Recent Workspaces table with Continue/Open action | Complete |
+| Review Queue entry point                         | Complete |
+| Empty state for no workspaces                    | Complete |
+| Dashboard writing rules added to UX Guidelines   | Complete |
 
 ## Next Milestone
 
