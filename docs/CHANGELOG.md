@@ -37,6 +37,8 @@
 - Review Knowledge metadata storing decision patterns and conditions for future matching runs.
 - Traceable Review case groups with Open / Resolved / All filters, decision history, decision source, affected records, and batch undo.
 - Sync finalization preview using latest review decisions, recommended plan, unresolved-review warning, and local idempotent audit.
+- Export Results step with default and custom export modes sourced from latest review decisions.
+- Client-side CSV and XLSX export generation for final matching rows and review decision summary.
 
 ### Improved
 
@@ -57,12 +59,13 @@
 - Bulk review decisions are blocked for mixed or unique groups that are not homogeneous enough.
 - Accepted or rejected case groups remain visible under Resolved instead of disappearing.
 - Sync flow is simplified to Finalize Summary -> Recommended Plan -> Preview -> Confirm Sync.
+- Export now shows record-count preview, generated filename, format selection, loading, success, and error feedback.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 
 ### Notes
 
-- AI service integration, export generation, audit persistence, and authentication are not implemented yet.
-- Sync, Export, and Results still use mock/local state.
+- AI service integration, server-side export history, audit persistence, and authentication are not implemented yet.
+- Sync still uses local audit state; Export is frontend-generated from latest Review results; Results still uses mock/local state.
 - Matching Engine MVP currently runs against inspected preview rows, not full stored file contents.
 - Review decisions are stored without Auth/Workspace ownership until those milestones are implemented.

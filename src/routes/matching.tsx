@@ -7,6 +7,7 @@ import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog } from "@/components/feedback-states";
 import { wizardSteps } from "@/lib/dummy-data";
+import { downloadCsv, downloadXlsx, type ExportTable } from "@/lib/export-files";
 import {
   ApiError,
   fetchReviewResults,
@@ -347,7 +348,7 @@ function MatchingPage() {
           {step === 7 && (
             <StepSynchronize jobId={runResult?.job.id ?? null} onBackToReview={() => setStep(6)} />
           )}
-          {step === 8 && <StepExport />}
+          {step === 8 && <StepExport jobId={runResult?.job.id ?? null} />}
 
           {/* Nav */}
           <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
@@ -4134,28 +4135,440 @@ function SyncMetric({ label, value, strong }: { label: string; value: string; st
   );
 }
 
-function StepExport() {
+type ExportStatus = "matched" | "new" | "rejected" | "pending";
+type ExportFormat = "xlsx" | "csv";
+
+function StepExport({ jobId }: { jobId: string | null }) {
   const { t } = usePreferences();
-  const options = [
-    { label: "Excel (.xlsx)", desc: t("matching.export.excelDesc") },
-    { label: "CSV (.csv)", desc: t("matching.export.csvDesc") },
-    { label: t("matching.export.referenceLabel"), desc: t("matching.export.referenceDesc") },
-  ];
+  const [review, setReview] = useState<ReviewResults | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"default" | "custom">("default");
+  const [format, setFormat] = useState<ExportFormat>("xlsx");
+  const [selectedStatuses, setSelectedStatuses] = useState<ExportStatus[]>([
+    "matched",
+    "new",
+    "rejected",
+  ]);
+  const [includeScore, setIncludeScore] = useState(true);
+  const [includeReferenceKey, setIncludeReferenceKey] = useState(true);
+  const [includeReviewFields, setIncludeReviewFields] = useState(true);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!jobId) return;
+
+    setLoading(true);
+    setError(null);
+    fetchReviewResults(jobId)
+      .then((data) => {
+        setReview(data);
+        const columns = exportColumns(data.items);
+        setSelectedColumns(columns.slice(0, 16));
+      })
+      .catch((err) =>
+        setError(err instanceof ApiError ? err.message : t("matching.review.loadFailed")),
+      )
+      .finally(() => setLoading(false));
+  }, [jobId, t]);
+
+  const items = review?.items ?? [];
+  const allColumns = exportColumns(items);
+  const activeStatuses =
+    mode === "default" ? (["matched", "new", "rejected"] as ExportStatus[]) : selectedStatuses;
+  const exportRows = buildExportRows(items, {
+    columns: mode === "default" ? allColumns : selectedColumns,
+    includeReferenceKey: mode === "default" || includeReferenceKey,
+    includeReviewFields: mode === "default" || includeReviewFields,
+    includeScore: mode === "default" || includeScore,
+    statuses: activeStatuses,
+  });
+  const summaryRows = exportSummaryRows(items);
+  const exportFileName = `batchmatch-${review?.job.name ?? "matching-results"}-${new Date().toISOString().slice(0, 10)}.${format}`;
+  const statusCounts = countExportStatuses(items);
+
+  const toggleStatus = (status: ExportStatus) => {
+    setSelectedStatuses((current) =>
+      current.includes(status) ? current.filter((item) => item !== status) : [...current, status],
+    );
+  };
+
+  const toggleColumn = (column: string) => {
+    setSelectedColumns((current) =>
+      current.includes(column) ? current.filter((item) => item !== column) : [...current, column],
+    );
+  };
+
+  const runExport = () => {
+    if (!review || exportRows.rows.length === 0) return;
+
+    setExporting(true);
+    try {
+      if (format === "csv") {
+        downloadCsv(exportFileName, exportRows);
+      } else {
+        downloadXlsx(exportFileName, [exportRows, summaryRows]);
+      }
+      toast.success(t("matching.export.success"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("matching.export.failed"));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <SectionTitle title={t("matching.export.title")} desc={t("matching.export.desc")} />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {options.map((o) => (
-          <button
-            key={o.label}
-            onClick={() => toast.success(t("feedback.toast.exportReady"))}
-            className="text-left border border-border rounded-lg p-4 hover:border-accent/40 hover:bg-secondary/40"
-          >
-            <p className="text-sm font-semibold">{o.label}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{o.desc}</p>
-          </button>
-        ))}
-      </div>
+
+      {!jobId && (
+        <EmptyState
+          icon={FileSpreadsheet}
+          title={t("matching.export.noRunTitle")}
+          description={t("matching.export.noRunDesc")}
+        />
+      )}
+
+      {jobId && loading && (
+        <div className="rounded-lg border border-border bg-secondary/20 p-6">
+          <div className="flex items-center gap-3">
+            <Loader2 className="size-5 animate-spin text-accent" />
+            <p className="text-sm font-semibold">{t("matching.export.loading")}</p>
+          </div>
+        </div>
+      )}
+
+      {jobId && error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
+          <p className="text-sm font-semibold">{t("feedback.error.title")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{error}</p>
+        </div>
+      )}
+
+      {jobId && review && (
+        <div className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-4">
+            <SyncMetric
+              label={t("matching.export.previewMatched")}
+              value={String(statusCounts.matched)}
+            />
+            <SyncMetric label={t("matching.export.previewNew")} value={String(statusCounts.new)} />
+            <SyncMetric
+              label={t("matching.export.previewRejected")}
+              value={String(statusCounts.rejected)}
+            />
+            <SyncMetric
+              label={t("matching.export.previewRows")}
+              value={String(exportRows.rows.length)}
+              strong
+            />
+          </div>
+
+          <section className="rounded-lg border border-border p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold">{t("matching.export.defaultTitle")}</p>
+                <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+                  {t("matching.export.defaultDesc")}
+                </p>
+              </div>
+              <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
+                {(["default", "custom"] as const).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setMode(item)}
+                    className={[
+                      "rounded-md px-3 py-1.5 text-xs font-semibold",
+                      mode === item
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground",
+                    ].join(" ")}
+                  >
+                    {item === "default"
+                      ? t("matching.export.defaultMode")
+                      : t("matching.export.customMode")}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <ExportPlanLine
+                title={t("matching.export.finalMatched")}
+                desc={t("matching.export.finalMatchedDesc")}
+              />
+              <ExportPlanLine
+                title={t("matching.export.newEntities")}
+                desc={t("matching.export.newEntitiesDesc")}
+              />
+              <ExportPlanLine
+                title={t("matching.export.rejectedRecords")}
+                desc={t("matching.export.rejectedRecordsDesc")}
+              />
+              <ExportPlanLine
+                title={t("matching.export.reviewSummary")}
+                desc={t("matching.export.reviewSummaryDesc")}
+              />
+            </div>
+
+            {mode === "custom" && (
+              <details className="mt-5 rounded-lg border border-border p-4" open>
+                <summary className="cursor-pointer text-sm font-semibold">
+                  {t("matching.export.customOptions")}
+                </summary>
+
+                <div className="mt-4 grid gap-5 lg:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-semibold">{t("matching.export.statusRecords")}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(["matched", "new", "rejected", "pending"] as ExportStatus[]).map(
+                        (status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => toggleStatus(status)}
+                            className={[
+                              "rounded-md border px-3 py-1.5 text-xs font-semibold",
+                              selectedStatuses.includes(status)
+                                ? "border-brand bg-brand/10"
+                                : "border-border text-muted-foreground hover:bg-secondary",
+                            ].join(" ")}
+                          >
+                            {exportStatusLabel(status, t)}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold">{t("matching.export.includeFields")}</p>
+                    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={includeScore}
+                          onChange={(event) => setIncludeScore(event.target.checked)}
+                        />
+                        {t("matching.export.includeScore")}
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={includeReferenceKey}
+                          onChange={(event) => setIncludeReferenceKey(event.target.checked)}
+                        />
+                        {t("matching.export.includeReferenceKey")}
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={includeReviewFields}
+                          onChange={(event) => setIncludeReviewFields(event.target.checked)}
+                        />
+                        {t("matching.export.includeReviewFields")}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <p className="text-xs font-semibold">{t("matching.export.columns")}</p>
+                  <div className="mt-2 grid max-h-52 gap-2 overflow-auto rounded-md border border-border p-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                    {allColumns.map((column) => (
+                      <label key={column} className="flex min-w-0 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedColumns.includes(column)}
+                          onChange={() => toggleColumn(column)}
+                        />
+                        <span className="truncate">{column}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-border p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold">{t("matching.export.fileReady")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{exportFileName}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("matching.export.previewCount", { count: exportRows.rows.length })}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(["xlsx", "csv"] as ExportFormat[]).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setFormat(item)}
+                    className={[
+                      "rounded-md border px-3 py-2 text-xs font-semibold uppercase",
+                      format === item
+                        ? "border-brand bg-brand/10"
+                        : "border-border text-muted-foreground hover:bg-secondary",
+                    ].join(" ")}
+                  >
+                    {item}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={runExport}
+                  disabled={exporting || exportRows.rows.length === 0}
+                  className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
+                >
+                  {exporting ? t("matching.export.exporting") : t("matching.export.download")}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
+}
+
+function ExportPlanLine({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div className="rounded-md bg-secondary/30 px-3 py-3">
+      <p className="text-xs font-semibold">{title}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
+    </div>
+  );
+}
+
+function buildExportRows(
+  items: ReviewItem[],
+  options: {
+    columns: string[];
+    includeReferenceKey: boolean;
+    includeReviewFields: boolean;
+    includeScore: boolean;
+    statuses: ExportStatus[];
+  },
+): ExportTable {
+  const rows = items
+    .filter((item) => options.statuses.includes(exportStatus(item)))
+    .map((item) => {
+      const candidate = item.candidates[0] ?? null;
+      const row: Record<string, string | number | boolean | null> = {
+        input_record_key: item.input_record_key,
+        final_status: exportStatus(item),
+      };
+
+      options.columns.forEach((column) => {
+        row[column] = exportColumnValue(item, column);
+      });
+
+      if (options.includeReferenceKey) {
+        row.reference_record_key = candidate?.reference_record_key ?? null;
+      }
+
+      if (options.includeScore) {
+        row.matching_score = candidate?.score ?? null;
+      }
+
+      if (options.includeReviewFields) {
+        row.review_decision = item.decision?.decision ?? null;
+        row.review_decided_at = item.decision?.decided_at ?? item.decision?.created_at ?? null;
+        row.review_source = item.decision?.source ?? null;
+        row.review_reviewer = item.decision?.reviewer ?? null;
+        row.affected_records = item.decision?.affected_records ?? null;
+      }
+
+      return row;
+    });
+  const staticColumns = ["input_record_key", "final_status"];
+  const optionalColumns = [
+    ...(options.includeReferenceKey ? ["reference_record_key"] : []),
+    ...(options.includeScore ? ["matching_score"] : []),
+    ...(options.includeReviewFields
+      ? [
+          "review_decision",
+          "review_decided_at",
+          "review_source",
+          "review_reviewer",
+          "affected_records",
+        ]
+      : []),
+  ];
+
+  return {
+    name: "Final Results",
+    columns: [...staticColumns, ...options.columns, ...optionalColumns],
+    rows,
+  };
+}
+
+function exportSummaryRows(items: ReviewItem[]): ExportTable {
+  const counts = countExportStatuses(items);
+
+  return {
+    name: "Review Summary",
+    columns: ["category", "records"],
+    rows: [
+      { category: "matched", records: counts.matched },
+      { category: "new_entities", records: counts.new },
+      { category: "rejected", records: counts.rejected },
+      { category: "pending_review", records: counts.pending },
+    ],
+  };
+}
+
+function exportColumns(items: ReviewItem[]) {
+  const columns = new Set<string>();
+
+  items.forEach((item) => {
+    Object.keys(item.input_record).forEach((column) => columns.add(`input.${column}`));
+    const reference = item.candidates[0]?.reference_record ?? {};
+    Object.keys(reference).forEach((column) => columns.add(`reference.${column}`));
+  });
+
+  return Array.from(columns);
+}
+
+function exportColumnValue(item: ReviewItem, column: string) {
+  if (column.startsWith("input.")) {
+    return item.input_record[column.slice(6)] ?? null;
+  }
+
+  if (column.startsWith("reference.")) {
+    return item.candidates[0]?.reference_record[column.slice(10)] ?? null;
+  }
+
+  return null;
+}
+
+function exportStatus(item: ReviewItem): ExportStatus {
+  const status = item.display_status ?? item.status;
+
+  if (["matched", "auto_matched", "manual_accepted"].includes(status)) return "matched";
+  if (["unmatched", "confirmed_unmatched"].includes(status)) return "new";
+  if (status === "manual_rejected") return "rejected";
+
+  return "pending";
+}
+
+function countExportStatuses(items: ReviewItem[]) {
+  return items.reduce(
+    (counts, item) => {
+      counts[exportStatus(item)] += 1;
+      return counts;
+    },
+    { matched: 0, new: 0, rejected: 0, pending: 0 } satisfies Record<ExportStatus, number>,
+  );
+}
+
+function exportStatusLabel(status: ExportStatus, t: ReturnType<typeof usePreferences>["t"]) {
+  if (status === "matched") return t("matching.export.statusMatched");
+  if (status === "new") return t("matching.export.statusNew");
+  if (status === "rejected") return t("matching.export.statusRejected");
+  return t("matching.export.statusPending");
 }

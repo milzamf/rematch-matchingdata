@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 5D: Review Traceability Fix and Sync Finalization completed.
+Milestone 7: Export Results completed.
 
 ## Project Status
 
@@ -13,7 +13,7 @@ Milestone 5D: Review Traceability Fix and Sync Finalization completed.
 - Run: Done for backend MVP execution against inspected preview rows
 - Review: Done for real Matching Engine results, traceable case groups, and local review decisions
 - Sync: Done for frontend finalization preview and local idempotent audit
-- Export: Not started
+- Export: Done for frontend CSV/XLSX generation from latest review results
 
 ## Completed
 
@@ -30,12 +30,13 @@ Milestone 5D: Review Traceability Fix and Sync Finalization completed.
 - Matching Engine MVP runs in Laravel with normalization, entity-aware name parsing, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
 - Review uses persisted matching results, groups similar cases across open/resolved states, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
 - Sync reads latest review decisions, blocks unresolved review, previews recommended plan, and stores a local idempotent audit per job.
+- Export reads latest review results and generates default/custom CSV or XLSX files from final matching data.
 
 ## Next Milestone
 
-Milestone 6: Export and Audit Persistence.
+Milestone 8: Server-side Export and Audit Persistence.
 
-Objective: persist Sync/Audit server-side and add export generation without adding AI, Auth, or Workspace.
+Objective: persist Sync, Export history, and Audit Trail server-side without adding AI, Auth, or Workspace.
 
 ## Current Architecture
 
@@ -67,9 +68,10 @@ Upload
 - Matching Engine MVP baru berjalan dari inspected preview rows, belum full-file processing.
 - Configure dikirim ke backend saat Run, tetapi belum punya save/load configuration terpisah.
 - Sync sudah memakai review terbaru untuk frontend preview dan local audit, tetapi belum persist server-side.
-- Export dan Results masih mock/local state.
+- Export sudah generate CSV/XLSX di frontend dari review terbaru, tetapi belum punya server-side export history.
+- Results masih mock/local state.
 - Review decisions belum memakai user/workspace ownership karena Auth/Workspace belum dibuat.
-- Export generation dan audit trail persistence belum dibuat.
+- Server-side export history dan audit trail persistence belum dibuat.
 
 ## Notes
 
@@ -100,6 +102,8 @@ Upload
 - Sync default flow: Finalize Summary, Recommended Plan, Preview, Confirm Sync.
 - Sync tidak menampilkan Possible Match handling; unresolved review diarahkan kembali ke Review.
 - Sync frontend idempotent memakai `localStorage` per matching job dan belum mengubah reference secara destruktif.
+- Export memakai `/review-results` sebagai source of truth terbaru, tidak mengubah data, dan mendukung default/custom export.
+- Default Export berisi final matched dataset, new/unmatched entities, rejected records, dan review decision summary.
 - Auto mapping saat ini rule-based sederhana, bukan AI.
 - Reference column tidak boleh dipakai dua kali; input column boleh dipakai ulang.
 - Jangan mengubah Run, Review, Sync, Export, AI, Auth, Workspace, atau Matching Engine kecuali milestone meminta.

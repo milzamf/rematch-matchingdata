@@ -5,50 +5,50 @@ Version: MVP v0.1.0
 
 ## Overall Progress
 
-| Area                 | Progress | Status                                      |
-| -------------------- | -------: | ------------------------------------------- |
-| Documentation        |      97% | In progress                                 |
-| Frontend UI          |      96% | Mostly complete                             |
-| Frontend Integration |      50% | Upload through Sync preview slices have real data |
-| Backend API          |      35% | Upload/Profile/Run/Review slices exist      |
-| Database             |      25% | Dataset, matching, and review tables exist  |
-| Matching Engine      |      30% | MVP engine slice with entity-aware names    |
-| AI Assistant         |       0% | Not started                                 |
-| Export Engine        |       0% | Not started                                 |
-| Authentication       |       0% | Not started                                 |
-| Testing              |      28% | In progress                                 |
+| Area                 | Progress | Status                                                     |
+| -------------------- | -------: | ---------------------------------------------------------- |
+| Documentation        |      97% | In progress                                                |
+| Frontend UI          |      96% | Mostly complete                                            |
+| Frontend Integration |      60% | Upload through Export slices use real workflow/review data |
+| Backend API          |      35% | Upload/Profile/Run/Review slices exist                     |
+| Database             |      25% | Dataset, matching, and review tables exist                 |
+| Matching Engine      |      30% | MVP engine slice with entity-aware names                   |
+| AI Assistant         |       0% | Not started                                                |
+| Export Engine        |      20% | Frontend CSV/XLSX generation exists                        |
+| Authentication       |       0% | Not started                                                |
+| Testing              |      28% | In progress                                                |
 
 ## Frontend
 
-| Area      | Status                                                                                                 |
-| --------- | ------------------------------------------------------------------------------------------------------ |
-| Dashboard | UI complete, still uses mock data.                                                                     |
-| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                          |
-| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                        |
-| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.  |
-| Configure | Logic complete with conditional configuration state ready for the future Matching Engine.              |
-| Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                          |
+| Area      | Status                                                                                                      |
+| --------- | ----------------------------------------------------------------------------------------------------------- |
+| Dashboard | UI complete, still uses mock data.                                                                          |
+| Upload    | Integrated with Laravel `/api/datasets/inspect` for CSV/XLSX.                                               |
+| Profiling | Uses real inspect/profile response for uploaded CSV/XLSX files.                                             |
+| Mapping   | Uses inspected reference/input columns with frontend state only; algorithm choice moved to Configure.       |
+| Configure | Logic complete with conditional configuration state ready for the future Matching Engine.                   |
+| Run       | Calls Laravel Matching Engine MVP and shows returned summary.                                               |
 | Review    | Uses real Matching Engine results with open/resolved case groups, decision history, bulk actions, and undo. |
-| Sync      | Uses latest review decisions for frontend finalization preview and local idempotent audit.             |
-| Export    | UI complete, still uses mock data.                                                                     |
-| Results   | UI complete, still uses mock data.                                                                     |
-| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete. |
+| Sync      | Uses latest review decisions for frontend finalization preview and local idempotent audit.                  |
+| Export    | Generates default/custom CSV and XLSX files from latest Review results.                                     |
+| Results   | UI complete, still uses mock data.                                                                          |
+| Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.      |
 
 ## Backend
 
-| Area                     | Status                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Laravel Foundation       | Installed and running.                                                                                    |
-| API Routing              | Available through `routes/api.php`.                                                                       |
-| Health Endpoint          | Implemented: `GET /api/health`.                                                                           |
-| Dataset Inspect Endpoint | Implemented: `POST /api/datasets/inspect`.                                                                |
-| CSV Parser               | Implemented for inspection milestone.                                                                     |
-| XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing.                       |
-| Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                          |
-| Auth API                 | Not started.                                                                                              |
+| Area                     | Status                                                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Laravel Foundation       | Installed and running.                                                                                                        |
+| API Routing              | Available through `routes/api.php`.                                                                                           |
+| Health Endpoint          | Implemented: `GET /api/health`.                                                                                               |
+| Dataset Inspect Endpoint | Implemented: `POST /api/datasets/inspect`.                                                                                    |
+| CSV Parser               | Implemented for inspection milestone.                                                                                         |
+| XLSX Parser              | Implemented for inspection milestone using internal ZIP reader and OpenXML parsing.                                           |
+| Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                                              |
+| Auth API                 | Not started.                                                                                                                  |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
-| Review Knowledge         | Deterministic review patterns are stored in review decision metadata.                                   |
-| Export Engine            | Not started.                                                                                              |
+| Review Knowledge         | Deterministic review patterns are stored in review decision metadata.                                                         |
+| Export Engine            | Frontend-only CSV/XLSX generation exists; server-side export persistence not started.                                         |
 
 ## Database
 
@@ -171,16 +171,16 @@ Milestone 5B: Review Matching Results
 
 Milestone 5B.1: Entity-Aware Name Matching
 
-| Requirement                                      | Status   |
-| ------------------------------------------------ | -------- |
-| Parse raw and core company/entity names          | Complete |
+| Requirement                                                            | Status   |
+| ---------------------------------------------------------------------- | -------- |
+| Parse raw and core company/entity names                                | Complete |
 | Extract legal form, status qualifier, public status, and unit metadata | Complete |
-| Compare fuzzy/entity names using `core_name`     | Complete |
-| Preserve identity metadata for validation        | Complete |
-| Prevent explicit PT vs CV from becoming Auto Match | Complete |
-| Treat missing legal form or missing Persero/Tbk as non-conflict | Complete |
-| Separate branch/unit metadata from parent company | Complete |
-| Case clustering, Sync, Export, AI                | Deferred |
+| Compare fuzzy/entity names using `core_name`                           | Complete |
+| Preserve identity metadata for validation                              | Complete |
+| Prevent explicit PT vs CV from becoming Auto Match                     | Complete |
+| Treat missing legal form or missing Persero/Tbk as non-conflict        | Complete |
+| Separate branch/unit metadata from parent company                      | Complete |
+| Case clustering, Sync, Export, AI                                      | Deferred |
 
 ## Completed Milestone
 
@@ -199,37 +199,53 @@ Milestone 5C: Case-Grouped Review & Review Knowledge
 | Store Review Knowledge as pattern and conditions | Complete |
 | Sync/Export/Auth/Workspace/AI                    | Deferred |
 
-## Current Milestone
+## Completed Milestone
 
 Milestone 5D: Review Traceability Fix and Sync Finalization
 
-| Requirement                                      | Status   |
-| ------------------------------------------------ | -------- |
-| Keep accepted/rejected case groups visible       | Complete |
-| Case Groups filters Open / Resolved / All        | Complete |
-| Decision metadata: previous status, decided time, source, reviewer, affected records | Complete |
+| Requirement                                                                                             | Status   |
+| ------------------------------------------------------------------------------------------------------- | -------- |
+| Keep accepted/rejected case groups visible                                                              | Complete |
+| Case Groups filters Open / Resolved / All                                                               | Complete |
+| Decision metadata: previous status, decided time, source, reviewer, affected records                    | Complete |
 | Record display status: Need Review, Auto Matched, Manual Accepted, Manual Rejected, Confirmed Unmatched | Complete |
-| Mixed decision summary per group                 | Complete |
-| Decision History in record/group detail          | Complete |
-| Group/bulk undo using batch audit metadata       | Complete |
-| Sync Finalize Summary / Recommended Plan / Preview / Confirm flow | Complete |
-| Sync warning for unresolved review               | Complete |
-| Recommended sync plan from latest review decisions | Complete |
-| Local idempotent sync audit per job              | Complete |
-| Server-side sync persistence, Export, Auth, Workspace, AI | Deferred |
+| Mixed decision summary per group                                                                        | Complete |
+| Decision History in record/group detail                                                                 | Complete |
+| Group/bulk undo using batch audit metadata                                                              | Complete |
+| Sync Finalize Summary / Recommended Plan / Preview / Confirm flow                                       | Complete |
+| Sync warning for unresolved review                                                                      | Complete |
+| Recommended sync plan from latest review decisions                                                      | Complete |
+| Local idempotent sync audit per job                                                                     | Complete |
+| Server-side sync persistence, Export, Auth, Workspace, AI                                               | Deferred |
+
+## Current Milestone
+
+Milestone 7: Export Results
+
+| Requirement                                                             | Status   |
+| ----------------------------------------------------------------------- | -------- |
+| Default export for matched, new/unmatched, rejected, and review summary | Complete |
+| Custom export mode with selectable columns and statuses                 | Complete |
+| Include/exclude matching score, reference key, and review/audit fields  | Complete |
+| CSV generation                                                          | Complete |
+| XLSX workbook generation                                                | Complete |
+| Preview record count and generated filename                             | Complete |
+| Loading, success, and error feedback                                    | Complete |
+| Read-only export from latest review decisions                           | Complete |
+| Server-side export history, Auth, Workspace, AI                         | Deferred |
 
 ## Next Milestone
 
-Milestone 6: Sync Strategy Integration
+Milestone 8: Server-side Export and Audit Persistence
 
-- Connect Sync step to reviewed matching results.
+- Persist Sync plans, Export history, and Audit Trail server-side.
 - Keep AI mapping suggestions deferred until AI Assistance milestone.
 
 ## Remaining MVP Work
 
 - Auth and workspace ownership.
 - Full-file matching beyond inspected preview rows.
-- Sync execution.
-- Export generation.
+- Server-side sync execution/audit persistence.
+- Server-side export history and audit persistence.
 - Audit trail persistence.
 - AI assistance integration.
