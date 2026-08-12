@@ -115,3 +115,62 @@ Pada akhir task, laporkan:
 6. Risiko atau pekerjaan tersisa.
 7. Apakah perubahan aman untuk di-commit.
 8. Rekomendasi commit message.
+
+Development Mode — Token & Time Efficiency
+
+Default policy untuk seluruh milestone selama fase pengembangan MVP adalah development first.
+
+Setelah implementasi fitur
+
+Lakukan hanya smoke check minimal untuk memastikan:
+
+tidak ada syntax error yang jelas
+aplikasi/fitur dapat dijalankan secara dasar
+tidak ada fatal runtime error yang langsung menghalangi fitur
+Jangan lakukan secara default
+full E2E test
+full test suite
+lint seluruh project
+code review panjang
+audit menyeluruh
+pengecekan git diff berulang
+investigasi test artifact
+regenerasi screenshot
+cleanup besar
+refactor di luar scope
+investigasi warning/tooling yang tidak menghalangi fitur
+troubleshooting test/lint environment yang tidak berhubungan langsung dengan implementasi
+
+Jika lint/test gagal karena tooling atau environment tetapi fitur tidak terblokir:
+
+catat singkat
+jangan investigasi lebih lanjut
+selesaikan milestone
+
+Jangan mengubah file yang tidak relevan hanya untuk membuat test atau lint lulus.
+
+Full Verification
+
+Build, lint, full backend tests, E2E, cleanup, optimization, dan code review menyeluruh dilakukan pada milestone khusus:
+
+Stabilization & QA
+
+setelah rangkaian fitur MVP selesai.
+
+Documentation
+
+Setiap milestone tetap update singkat:
+
+docs/SESSION.md
+docs/IMPLEMENTATION_STATUS.md
+docs/CHANGELOG.md
+Completion Output
+
+Maksimal:
+
+Implemented
+Files changed
+Blocker jika ada
+Recommended commit message
+
+Jangan membuat laporan panjang.
