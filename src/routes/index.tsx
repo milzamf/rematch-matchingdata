@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { ApiError, listWorkspaces, type WorkspaceSummary } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
+import { buildMatchingSearch } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -201,13 +202,14 @@ function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
             <span>{updatedLabel(workspace.updated_at, t)}</span>
           </div>
         </div>
-        <a
-          href={`/matching?workspace=${workspace.id}`}
+        <Link
+          to="/matching"
+          search={buildMatchingSearch(workspace.id)}
           className="inline-flex items-center justify-center gap-1.5 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
         >
           {t("dashboard.real.continue")}
           <ArrowRight className="size-4" />
-        </a>
+        </Link>
       </div>
     </Card>
   );
@@ -231,9 +233,10 @@ function ActionRequired({ items }: { items: DashboardActionItem[] }) {
           {items.map((item) => {
             const Icon = item.kind === "failed" ? AlertCircle : item.kind === "ready" ? CheckCircle2 : ClipboardCheck;
             return (
-              <a
+              <Link
                 key={`${item.workspace.id}-${item.kind}`}
-                href={`/matching?workspace=${item.workspace.id}`}
+                to="/matching"
+                search={buildMatchingSearch(item.workspace.id)}
                 className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-secondary/30"
               >
                 <div className="flex min-w-0 items-center gap-3">
@@ -246,7 +249,7 @@ function ActionRequired({ items }: { items: DashboardActionItem[] }) {
                   </div>
                 </div>
                 <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
-              </a>
+              </Link>
             );
           })}
         </div>
@@ -327,12 +330,13 @@ function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
                   {updatedLabel(workspace.updated_at, t)}
                 </td>
                 <td className="px-6 py-3 text-right align-middle">
-                  <a
-                    href={`/matching?workspace=${workspace.id}`}
+                  <Link
+                    to="/matching"
+                    search={buildMatchingSearch(workspace.id)}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
                   >
                     {t("dashboard.real.open")}
-                  </a>
+                  </Link>
                 </td>
               </tr>
             ))}
@@ -359,9 +363,10 @@ function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
       ) : (
         <div className="divide-y divide-border">
           {items.slice(0, 5).map((workspace) => (
-            <a
+            <Link
               key={workspace.id}
-              href={`/matching?workspace=${workspace.id}`}
+              to="/matching"
+              search={buildMatchingSearch(workspace.id)}
               className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-secondary/30"
             >
               <div className="min-w-0">
@@ -373,7 +378,7 @@ function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
               <span className="text-xs font-semibold text-accent">
                 {t("dashboard.real.reviewCases")}
               </span>
-            </a>
+            </Link>
           ))}
         </div>
       )}

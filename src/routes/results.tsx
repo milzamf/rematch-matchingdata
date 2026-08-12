@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -41,8 +41,10 @@ import {
   normalizeStoredExportHistory,
   type StoredExportHistoryEntry,
 } from "@/lib/result-exports";
+import { buildMatchingSearch, validateWorkflowSearch } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/results")({
+  validateSearch: validateWorkflowSearch,
   head: () => ({
     meta: [
       { title: "Results - RE-MATCH" },
@@ -71,9 +73,9 @@ type ReviewHistoryView = "groups" | "records";
 function ResultsPage() {
   const { t } = usePreferences();
   const { can } = useAuth();
-  const searchParams =
-    typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
-  const requestedWorkspaceId = searchParams?.get("workspace") ?? null;
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const requestedWorkspaceId = search.workspace ?? null;
 
   const [tab, setTab] = useState<TabKey>("overview");
   const [historyView, setHistoryView] = useState<ReviewHistoryView>("groups");
@@ -94,6 +96,12 @@ function ResultsPage() {
   const canReview = can(PERMISSIONS.REVIEW_DECIDE);
   const canSync = can(PERMISSIONS.SYNC_EXECUTE);
   const canOpenExport = can(PERMISSIONS.EXPORT_EXECUTE);
+
+  useEffect(() => {
+    setSelectedWorkspaceId((current) =>
+      requestedWorkspaceId && requestedWorkspaceId !== current ? requestedWorkspaceId : current,
+    );
+  }, [requestedWorkspaceId]);
 
   useEffect(() => {
     if (!canViewResults) return;
@@ -134,10 +142,7 @@ function ResultsPage() {
       .then((data) => {
         setWorkspace(data);
         setTab("overview");
-        if (typeof window !== "undefined") {
-          const nextUrl = `/results?workspace=${data.id}`;
-          window.history.replaceState(null, "", nextUrl);
-        }
+        void navigate({ to: "/results", search: { workspace: data.id }, replace: true });
       })
       .catch((err) => {
         setWorkspace(null);
@@ -145,7 +150,7 @@ function ResultsPage() {
         setError(err instanceof ApiError ? err.message : t("results.loadFailed"));
       })
       .finally(() => setLoadingWorkspace(false));
-  }, [canViewResults, refreshNonce, selectedWorkspaceId, t]);
+  }, [canViewResults, navigate, refreshNonce, selectedWorkspaceId, t]);
 
   useEffect(() => {
     const jobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
@@ -285,13 +290,13 @@ function ResultsPage() {
               title={t("results.contextEmptyTitle")}
               description={t("results.contextEmptyDesc")}
               action={
-                <a
-                  href="/matching"
+                <Link
+                  to="/matching"
                   className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
                 >
                   <ArrowRight className="size-4" />
                   {t("results.openMatching")}
-                </a>
+                </Link>
               }
             />
           </Card>
@@ -302,13 +307,14 @@ function ResultsPage() {
               title={t("results.emptyTitle")}
               description={t("results.emptyDesc")}
               action={
-                <a
-                  href={`/matching?workspace=${workspace.id}`}
+                <Link
+                  to="/matching"
+                  search={buildMatchingSearch(workspace.id)}
                   className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
                 >
                   <ArrowRight className="size-4" />
                   {t("results.openMatching")}
-                </a>
+                </Link>
               }
             />
           </Card>
@@ -340,14 +346,15 @@ function ResultsPage() {
                 <div>
                   <p className="text-sm font-semibold">{t("results.nextAction.title")}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{nextAction.description}</p>
-                  {nextAction.href ? (
-                    <a
-                      href={nextAction.href}
+                  {nextAction.step ? (
+                    <Link
+                      to="/matching"
+                      search={buildMatchingSearch(workspace.id, nextAction.step)}
                       className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
                     >
                       {nextAction.label}
                       <ArrowRight className="size-4" />
-                    </a>
+                    </Link>
                   ) : (
                     <div className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">
                       <CheckCircle2 className="size-4 text-success" />
@@ -684,13 +691,14 @@ function NeedReviewTab({
           </p>
         </div>
         {canReview && (
-          <a
-            href={`/matching?workspace=${workspaceId}&step=6`}
+          <Link
+            to="/matching"
+            search={buildMatchingSearch(workspaceId, 6)}
             className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
           >
             {t("results.review.open")}
             <ArrowRight className="size-4" />
-          </a>
+          </Link>
         )}
       </div>
 
@@ -776,12 +784,13 @@ function UnmatchedTab({
               <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
               <td className="px-6 py-4">
                 {isPendingReview(item) && canReview ? (
-                  <a
-                    href={`/matching?workspace=${workspaceId}&step=6`}
+                  <Link
+                    to="/matching"
+                    search={buildMatchingSearch(workspaceId, 6)}
                     className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
                   >
                     {t("results.review.open")}
-                  </a>
+                  </Link>
                 ) : (
                   <span className="text-xs text-muted-foreground">{t("results.readOnly")}</span>
                 )}
@@ -989,13 +998,14 @@ function ExportTab({
           <p className="mt-1 text-xs text-muted-foreground">{t("results.export.desc")}</p>
         </div>
         {canOpenExport && (
-          <a
-            href={`/matching?workspace=${workspaceId}&step=8`}
+          <Link
+            to="/matching"
+            search={buildMatchingSearch(workspaceId, 8)}
             className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
           >
             <FileDown className="size-4" />
             {t("results.export.openSettings")}
-          </a>
+          </Link>
         )}
       </div>
 
@@ -1220,7 +1230,7 @@ function buildNextAction(input: {
     return {
       label: t("results.nextAction.selectWorkspace"),
       description: t("results.nextAction.selectWorkspaceDesc"),
-      href: null,
+      step: null,
     };
   }
 
@@ -1231,7 +1241,7 @@ function buildNextAction(input: {
         records: input.needReviewCount,
         groups: input.reviewCaseCount,
       }),
-      href: input.canReview ? `/matching?workspace=${workspaceId}&step=6` : null,
+      step: input.canReview ? 6 : null,
     };
   }
 
@@ -1239,7 +1249,7 @@ function buildNextAction(input: {
     return {
       label: input.canSync ? t("results.nextAction.sync") : t("results.nextAction.syncPending"),
       description: t("results.nextAction.syncDesc"),
-      href: input.canSync ? `/matching?workspace=${workspaceId}&step=7` : null,
+      step: input.canSync ? 7 : null,
     };
   }
 
@@ -1247,14 +1257,14 @@ function buildNextAction(input: {
     return {
       label: input.canOpenExport ? t("results.nextAction.export") : t("results.nextAction.exportPending"),
       description: t("results.nextAction.exportDesc"),
-      href: input.canOpenExport ? `/matching?workspace=${workspaceId}&step=8` : null,
+      step: input.canOpenExport ? 8 : null,
     };
   }
 
   return {
     label: t("results.nextAction.completed"),
     description: t("results.nextAction.completedDesc"),
-    href: null,
+    step: null,
   };
 }
 

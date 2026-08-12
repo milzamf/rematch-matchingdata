@@ -1,5 +1,6 @@
 ﻿import { createFileRoute, Link } from "@tanstack/react-router";
 import type { Dispatch, SetStateAction } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { AccessDeniedState } from "@/components/access-denied-state";
@@ -44,6 +45,7 @@ import {
   undoReviewDecision,
 } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
+import { buildMatchingSearch, buildResultsSearch, validateWorkflowSearch } from "@/lib/workflow-route";
 import {
   Check,
   Upload,
@@ -72,6 +74,7 @@ import {
 } from "@/components/ui/sheet";
 
 export const Route = createFileRoute("/matching")({
+  validateSearch: validateWorkflowSearch,
   head: () => ({
     meta: [
       { title: "Matching Workflow - RE-MATCH" },
@@ -200,10 +203,11 @@ const MAX_MB = 50;
 function MatchingPage() {
   const { t } = usePreferences();
   const { can } = useAuth();
-  const searchParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
-  const initialWorkspaceId = searchParams?.get("workspace") ?? null;
-  const requestedStep = parseInitialStep(searchParams?.get("step"));
-  const hasRequestedStep = searchParams?.has("step") ?? false;
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const initialWorkspaceId = search.workspace ?? null;
+  const requestedStep = search.step ?? 1;
+  const hasRequestedStep = typeof search.step === "number";
   const [step, setStep] = useState(requestedStep);
   const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
   const [workspaceName, setWorkspaceName] = useState(t("workspace.untitled"));
@@ -227,9 +231,12 @@ function MatchingPage() {
   );
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [exportHistory, setExportHistory] = useState<StoredExportHistoryEntry[]>([]);
+  const [isHydratingWorkspace, setIsHydratingWorkspace] = useState(Boolean(initialWorkspaceId));
+  const [workspaceNotFound, setWorkspaceNotFound] = useState(false);
   const workspaceIdRef = useRef<string | null>(initialWorkspaceId);
   const suppressMappingSuggestRef = useRef(false);
   const restoringWorkspaceRef = useRef(false);
+  const hydratedWorkspaceRouteRef = useRef<string | null>(null);
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
@@ -305,6 +312,8 @@ function MatchingPage() {
       },
     ) => {
       restoringWorkspaceRef.current = true;
+      setIsHydratingWorkspace(true);
+      setWorkspaceNotFound(false);
 
       try {
         const workspace = await fetchWorkspace(nextWorkspaceId);
@@ -390,24 +399,53 @@ function MatchingPage() {
         setStep(nextStep);
         setWorkspaceSaveState("saved");
         setWorkspaceError(null);
+        hydratedWorkspaceRouteRef.current = workspace.id;
 
-        if (options?.replaceUrl !== false && typeof window !== "undefined") {
-          window.history.replaceState(
-            null,
-            "",
-            `/matching?workspace=${workspace.id}&step=${nextStep}`,
-          );
+        if (options?.replaceUrl !== false) {
+          void navigate({
+            to: "/matching",
+            search: buildMatchingSearch(workspace.id, nextStep),
+            replace: true,
+          });
         }
 
         return workspace;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          hydratedWorkspaceRouteRef.current = null;
+          setWorkspaceNotFound(true);
+          setWorkspaceId(null);
+          setWorkspaceName(t("workspace.untitled"));
+          setWorkspaceNameEdited(false);
+          setReference(null);
+          setInput(null);
+          setColumnMappings([]);
+          setMatchingConfiguration(null);
+          setRunState("idle");
+          setProgress(0);
+          setRunResult(null);
+          setRunError(null);
+          setSyncState(null);
+          setExportHistory([]);
+          setStep(1);
+          setWorkspaceSaveState("error");
+          setWorkspaceError(error.message);
+          void navigate({
+            to: "/matching",
+            search: buildMatchingSearch(undefined, 1),
+            replace: true,
+          });
+        }
+        throw error;
       } finally {
+        setIsHydratingWorkspace(false);
         window.setTimeout(() => {
           restoringWorkspaceRef.current = false;
           suppressMappingSuggestRef.current = false;
         }, 0);
       }
     },
-    [t],
+    [navigate, t],
   );
 
   useEffect(() => {
@@ -416,6 +454,7 @@ function MatchingPage() {
 
   useEffect(() => {
     if (!initialWorkspaceId || !canViewMatching || !canViewWorkspaces) return;
+    if (hydratedWorkspaceRouteRef.current === initialWorkspaceId) return;
 
     let mounted = true;
     setWorkspaceSaveState("saving");
@@ -444,6 +483,31 @@ function MatchingPage() {
     initialWorkspaceId,
     requestedStep,
     t,
+  ]);
+
+  useEffect(() => {
+    if (initialWorkspaceId) return;
+    hydratedWorkspaceRouteRef.current = null;
+    setIsHydratingWorkspace(false);
+    setWorkspaceNotFound(false);
+  }, [initialWorkspaceId]);
+
+  useEffect(() => {
+    if (!initialWorkspaceId || isHydratingWorkspace) return;
+    if (workspaceId !== initialWorkspaceId) return;
+
+    const resolvedStep = hasRequestedStep ? Math.min(requestedStep, highestAllowedStep) : highestAllowedStep;
+    if (step !== resolvedStep) {
+      setStep(resolvedStep);
+    }
+  }, [
+    hasRequestedStep,
+    highestAllowedStep,
+    initialWorkspaceId,
+    isHydratingWorkspace,
+    requestedStep,
+    step,
+    workspaceId,
   ]);
 
   useEffect(() => {
@@ -630,8 +694,13 @@ function MatchingPage() {
   useEffect(() => {
     if (step > highestAllowedStep) {
       setStep(highestAllowedStep);
+      void navigate({
+        to: "/matching",
+        search: buildMatchingSearch(workspaceId, highestAllowedStep),
+        replace: true,
+      });
     }
-  }, [highestAllowedStep, step]);
+  }, [highestAllowedStep, navigate, step, workspaceId]);
 
   useEffect(() => {
     if (workspaceNameEdited || !reference?.result || !input?.result) return;
@@ -679,7 +748,13 @@ function MatchingPage() {
   };
 
   const selectStep = (nextStep: number) => {
-    if (nextStep <= highestAllowedStep) setStep(nextStep);
+    if (nextStep > highestAllowedStep) return;
+    setStep(nextStep);
+    void navigate({
+      to: "/matching",
+      search: buildMatchingSearch(workspaceId, nextStep),
+      replace: true,
+    });
   };
 
   if (!canViewMatching) {
@@ -743,6 +818,33 @@ function MatchingPage() {
         </Card>
 
         <Card className="p-6">
+          {isHydratingWorkspace && initialWorkspaceId ? (
+            <div className="rounded-lg border border-border bg-secondary/20 p-6">
+              <div className="flex items-center gap-3">
+                <Loader2 className="size-5 animate-spin text-accent" />
+                <div>
+                  <p className="text-sm font-semibold">{t("workspace.loading")}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t("matching.loadingDesc")}</p>
+                </div>
+              </div>
+            </div>
+          ) : workspaceNotFound ? (
+            <EmptyState
+              icon={AlertCircle}
+              title={t("results.contextEmptyTitle")}
+              description={workspaceError ?? t("workspace.loadFailed")}
+              action={
+                <Link
+                  to="/matching"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
+                >
+                  <ArrowRight className="size-4" />
+                  {t("topbar.newMatching")}
+                </Link>
+              }
+            />
+          ) : (
+            <>
           {activeStep === 1 && (
             <StepUpload
               reference={reference}
@@ -790,7 +892,7 @@ function MatchingPage() {
                 setRunResult(null);
                 setRunError(null);
               }}
-              onBack={() => setStep(4)}
+              onBack={() => selectStep(4)}
               canRun={canRunMatching}
             />
           )}
@@ -801,7 +903,7 @@ function MatchingPage() {
             <StepSynchronize
               jobId={runResult?.job.id ?? null}
               syncState={syncState}
-              onBackToReview={() => setStep(6)}
+              onBackToReview={() => selectStep(6)}
               onSyncStateChange={setSyncState}
               canExecute={canExecuteSync}
             />
@@ -818,7 +920,7 @@ function MatchingPage() {
           <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
             <button
               disabled={activeStep === 1}
-              onClick={() => setStep((s) => Math.max(1, s - 1))}
+              onClick={() => selectStep(Math.max(1, activeStep - 1))}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ArrowLeft className="size-4" />
@@ -828,17 +930,18 @@ function MatchingPage() {
               {t("common.stepOf", { current: activeStep, total: wizardSteps.length })}
             </p>
             {activeStep === wizardSteps.length ? (
-              <a
-                href={workspaceId ? `/results?workspace=${workspaceId}` : "/results"}
+              <Link
+                to="/results"
+                search={buildResultsSearch(workspaceId)}
                 className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
               >
                 {t("common.goToResults")}
                 <ArrowRight className="size-4" />
-              </a>
+              </Link>
             ) : (
               <button
                 disabled={!canAdvance}
-                onClick={() => setStep((s) => Math.min(wizardSteps.length, s + 1))}
+                onClick={() => selectStep(Math.min(wizardSteps.length, activeStep + 1))}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {t("common.continue")}
@@ -846,6 +949,8 @@ function MatchingPage() {
               </button>
             )}
           </div>
+            </>
+          )}
         </Card>
         <ConfirmationDialog
           open={runConfirmOpen}
@@ -865,12 +970,6 @@ function stepKey(id: number) {
   return ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
     id - 1
   ] as "upload" | "profiling" | "mapping" | "configure" | "run" | "review" | "sync" | "export";
-}
-
-function parseInitialStep(value: string | null | undefined) {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed)) return 1;
-  return Math.min(8, Math.max(1, parsed));
 }
 
 function hasDuplicateReference(mappings: { referenceColumnId: string }[]) {

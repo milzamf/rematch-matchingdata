@@ -60,6 +60,9 @@
 - Matching workspace hydration now rebuilds workflow state from persisted backend workspace data when reopened from Results or direct workspace links.
 - Requested Matching steps are now clamped against hydrated backend state instead of stale local step values.
 - Protected API 401 responses no longer clear auth immediately unless `/api/me` confirms the session is actually invalid.
+- Auth bootstrap now runs once safely, deduplicates session verification, and ignores stale `/api/me` responses that would otherwise overwrite a valid authenticated state.
+- Dashboard, Workspaces, Results, and Matching now share router-based workspace navigation/search handling for persisted workflow deep links.
+- Matching now hydrates persisted workspace state before rendering a requested workflow step and falls back safely for invalid workspace or step search params.
 - Results now reads real workflow data instead of dummy latest-global metrics, fake review history, and fake exports
 - Results actions now route users back to Review, Sync, or Export workflow steps instead of duplicating those workflows
 - `/api/me` and login session payloads now return user identity plus permissions for frontend authorization.

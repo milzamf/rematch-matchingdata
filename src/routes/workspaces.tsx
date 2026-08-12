@@ -17,6 +17,7 @@ import {
   type WorkspaceSummary,
 } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
+import { buildMatchingSearch } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/workspaces")({
   head: () => ({
@@ -190,12 +191,13 @@ function WorkspacesPage() {
                       </td>
                       <td className="px-6 py-3 align-middle">
                         <div className="flex justify-end gap-2">
-                          <a
-                            href={`/matching?workspace=${workspace.id}`}
+                          <Link
+                            to="/matching"
+                            search={buildMatchingSearch(workspace.id)}
                             className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90"
                           >
                             {t("workspace.continue")}
-                          </a>
+                          </Link>
                           {can(PERMISSIONS.WORKSPACE_UPDATE) && (
                             <button
                               onClick={() => rename(workspace)}

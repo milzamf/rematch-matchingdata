@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 8.1.4: Workspace Hydration and Workflow Runtime Stabilization completed.
+Milestone 9A: Core Session & Workspace Integration Stabilization completed.
 
 ## Project Status
 
@@ -40,6 +40,9 @@ Milestone 8.1.4: Workspace Hydration and Workflow Runtime Stabilization complete
 - Matching now rehydrates canonical workflow state from backend workspace data when reopened from Results or direct workspace URLs.
 - Requested workflow steps are now validated against hydrated backend state instead of stale local step state.
 - Non-auth 401 responses no longer clear frontend auth immediately; `/api/me` is used as the final session check.
+- Auth bootstrap now runs once safely with deduplicated `/api/me` verification and stale-response protection.
+- Results, Dashboard, Workspaces, and Matching now use shared router-based workspace navigation instead of raw `href` workflow deep links.
+- Matching now shows safe loading/not-found states while hydrating persisted workspace state before rendering the requested step.
 - Login now uses Laravel Sanctum session/cookie auth with `/api/login`, `/api/me`, and `/api/logout`.
 - Protected app routes and workflow APIs now require an authenticated session.
 - User role is now part of the session identity with backend permission mapping as the source of truth.
@@ -118,6 +121,7 @@ Upload
 - Hapus workspace hanya menghapus row workspace, bukan dataset atau reference data utama.
 - Results bersifat read-only dan harus mengarahkan user kembali ke step Review, Sync, atau Export bila masih ada tindakan.
 - Matching hydration harus tetap backend-first; jangan mengandalkan state React lama saat membuka workspace lagi.
+- Lifecycle auth harus terpisah dari lifecycle workspace; navigasi step atau hydrate workspace tidak boleh mereset sesi.
 - One task = one milestone. Jangan mengerjakan fitur di luar milestone aktif.
 
 ## Safe To Continue

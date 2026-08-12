@@ -14,6 +14,7 @@ BatchMatch uses a separated architecture:
 - Export Engine: Backend service for Excel, CSV, JSON, and audit output
 
 Frontend must never access database, AI token, or file storage directly. It authenticates through Laravel Sanctum session cookies and reads the current user plus permissions from `/api/me`.
+Frontend auth bootstrap should run once per application load, while persisted workspace hydration should remain a separate backend-first flow keyed by `workspace` and validated `step` search params.
 
 ---
 
