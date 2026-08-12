@@ -60,7 +60,7 @@ import {
 export const Route = createFileRoute("/matching")({
   head: () => ({
     meta: [
-      { title: "Matching Workflow - BatchMatch" },
+      { title: "Matching Workflow - RE-MATCH" },
       {
         name: "description",
         content:

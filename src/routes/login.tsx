@@ -8,8 +8,8 @@ import { usePreferences } from "@/lib/preferences";
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "Sign in - BatchMatch" },
-      { name: "description", content: "Sign in to your BatchMatch workspace." },
+      { title: "Masuk - RE-MATCH" },
+      { name: "description", content: "Masuk ke RE-MATCH" },
     ],
   }),
   component: LoginPage,
@@ -86,10 +86,6 @@ function LoginPage() {
           {t("auth.createOne")}
         </Link>
       </p>
-      <p className="mt-3 text-center text-[11px] text-muted-foreground">
-        {t("auth.demoAccount")} <span className="font-mono">demo</span> /{" "}
-        <span className="font-mono">demo1234</span>
-      </p>
     </AuthShell>
   );
 }
@@ -122,7 +118,7 @@ export function AuthShell({
           <div className="size-9 bg-brand rounded-lg grid place-items-center">
             <div className="size-3.5 bg-brand-foreground rounded-[3px]" />
           </div>
-          <span className="font-semibold text-lg tracking-tight">BatchMatch</span>
+          <span className="font-semibold text-lg tracking-tight">RE-MATCH</span>
         </div>
         <div className="bg-card border border-border rounded-xl shadow-xs p-8">
           <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>

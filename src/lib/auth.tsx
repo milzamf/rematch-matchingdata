@@ -33,16 +33,8 @@ function readUsers(): StoredUser[] {
   try {
     const raw = window.localStorage.getItem(USERS_KEY);
     if (!raw) {
-      // Seed a demo account
-      const demo: StoredUser = {
-        id: "u_demo",
-        username: "demo",
-        fullName: "Andi Setiawan",
-        email: "andi@demo.id",
-        password: "demo1234",
-      };
-      window.localStorage.setItem(USERS_KEY, JSON.stringify([demo]));
-      return [demo];
+      window.localStorage.setItem(USERS_KEY, JSON.stringify([]));
+      return [];
     }
     return JSON.parse(raw) as StoredUser[];
   } catch {

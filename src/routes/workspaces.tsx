@@ -18,10 +18,10 @@ import { usePreferences } from "@/lib/preferences";
 export const Route = createFileRoute("/workspaces")({
   head: () => ({
     meta: [
-      { title: "Workspaces - BatchMatch" },
+      { title: "Workspace - RE-MATCH" },
       {
         name: "description",
-        content: "Saved BatchMatch matching workspaces and resumable workflow sessions.",
+        content: "Workspace matching tersimpan yang dapat dilanjutkan kembali",
       },
     ],
   }),

@@ -20,10 +20,10 @@ import { usePreferences } from "@/lib/preferences";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Dashboard - BatchMatch" },
+      { title: "Dashboard - RE-MATCH" },
       {
         name: "description",
-        content: "Workspace dashboard for active BatchMatch work",
+        content: "Dashboard pekerjaan matching aktif di RE-MATCH",
       },
     ],
   }),

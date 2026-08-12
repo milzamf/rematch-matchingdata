@@ -1,4 +1,4 @@
-# BatchMatch UX Guidelines
+# RE-MATCH UX Guidelines
 
 Version: 1.0
 
@@ -6,7 +6,7 @@ Version: 1.0
 
 # Purpose
 
-Dokumen ini menjadi standar UX/UI untuk seluruh pengembangan BatchMatch.
+Dokumen ini menjadi standar UX/UI untuk seluruh pengembangan RE-MATCH.
 
 Semua halaman baru maupun perubahan UI harus mengikuti pedoman ini.
 
@@ -18,14 +18,14 @@ UX Guidelines menjelaskan **bagaimana** pengalaman pengguna harus dirancang.
 
 # Target Users
 
-BatchMatch ditujukan untuk:
+RE-MATCH ditujukan untuk:
 
 - Analis Statistik
 - Pegawai BPS
 - Pengguna bisnis
 - Data Analyst
 
-BatchMatch **bukan** ditujukan untuk software engineer atau data scientist.
+RE-MATCH **bukan** ditujukan untuk software engineer atau data scientist.
 
 Gunakan istilah yang mudah dipahami.
 
@@ -137,7 +137,7 @@ gunakan tooltip atau deskripsi singkat.
 
 # Workflow
 
-Workflow utama BatchMatch:
+Workflow utama RE-MATCH:
 
 Upload
 
@@ -334,11 +334,23 @@ Empty State
 
 Gunakan teks yang sederhana, natural, profesional, dan ringkas.
 
-Jangan gunakan sapaan buatan, nama user dummy, angka dummy, persentase dummy, growth indicator dummy, atau klaim marketing.
+Product name adalah RE-MATCH.
+
+UI utama menggunakan Bahasa Indonesia.
+
+Jangan gunakan sapaan buatan, nama user dummy, angka dummy, persentase dummy, growth indicator dummy, dummy analytics, atau klaim marketing.
 
 Judul, subtitle, helper text, status description, empty state, tooltip, dan keterangan singkat tidak memakai titik di akhir.
 
 Dashboard harus menjawab pekerjaan yang sedang berjalan, hal yang perlu perhatian, dan cara melanjutkan pekerjaan.
+
+Jangan gunakan em dash.
+
+Gunakan terminology data usaha/perusahaan dan rekonsiliasi.
+
+Copy harus menjelaskan fungsi nyata.
+
+Technical algorithm names boleh tetap menggunakan istilah aslinya.
 
 Jangan menampilkan analytics, score, insight, atau rekomendasi jika belum berasal dari data nyata.
 
@@ -346,7 +358,7 @@ Jangan menampilkan analytics, score, insight, atau rekomendasi jika belum berasa
 
 # Responsive
 
-BatchMatch harus nyaman digunakan pada:
+RE-MATCH harus nyaman digunakan pada:
 
 Desktop
 

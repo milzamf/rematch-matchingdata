@@ -1,28 +1,32 @@
-# PRD: BatchMatch - Website Matching Data
+# PRD: RE-MATCH - Website Matching Data
 
 ## 0. Identitas Produk dan Versi
 
-Nama produk: `BatchMatch`.
+Nama produk: `RE-MATCH`.
+
+Catatan teknis: repository, folder, namespace, database table, dan API route internal masih boleh memakai nama `batchmatch` selama fase pengembangan. Rebranding ini berlaku untuk identitas produk yang terlihat pengguna.
 
 Versi dokumen:
 
-- `BatchMatch v0.1.0 MVP`: versi awal untuk upload file, konfigurasi kolom, exact/fuzzy/composite matching, review manual, dan export hasil.
-- `BatchMatch v0.2.0`: versi lanjutan untuk template konfigurasi, deduplication dalam satu file, dan peningkatan evaluasi kualitas match.
-- `BatchMatch v0.3.0`: versi lanjutan untuk probabilistic matching, active learning dari keputusan reviewer, dan koneksi database.
-- `BatchMatch v1.0.0`: versi production-ready dengan role/permission, audit trail penuh, job queue, API, dan deployment enterprise.
+- `RE-MATCH v0.1.0 MVP`: versi awal untuk upload file, konfigurasi kolom, exact/fuzzy/composite matching, review manual, dan export hasil.
+- `RE-MATCH v0.2.0`: versi lanjutan untuk template konfigurasi, deduplication dalam satu file, dan peningkatan evaluasi kualitas match.
+- `RE-MATCH v0.3.0`: versi lanjutan untuk probabilistic matching, active learning dari keputusan reviewer, dan koneksi database.
+- `RE-MATCH v1.0.0`: versi production-ready dengan role/permission, audit trail penuh, job queue, API, dan deployment enterprise.
 
 Nama modul utama:
 
-- `BatchMatch Ingest`: upload dan parsing file.
-- `BatchMatch Profiler`: profiling kualitas data.
-- `BatchMatch Mapper`: mapping kolom dan konfigurasi field.
-- `BatchMatch Match Engine`: exact, fuzzy, composite, rule-based, dan probabilistic matching.
-- `BatchMatch Review`: review manual dan validasi hasil.
-- `BatchMatch Export`: export hasil, mapping key, audit trail, dan konfigurasi.
+- `RE-MATCH Ingest`: upload dan parsing file.
+- `RE-MATCH Profiler`: profiling kualitas data.
+- `RE-MATCH Mapper`: mapping kolom dan konfigurasi field.
+- `RE-MATCH Match Engine`: exact, fuzzy, composite, rule-based, dan probabilistic matching.
+- `RE-MATCH Review`: review manual dan validasi hasil.
+- `RE-MATCH Export`: export hasil, mapping key, audit trail, dan konfigurasi.
 
 ## 1. Ringkasan Produk
 
-BatchMatch adalah aplikasi web untuk mencocokkan data dari satu atau lebih file input terhadap file rujukan. Pengguna dapat mengunggah file rujukan dan file yang akan dicocokkan, memilih kolom pembanding, menentukan metode matching, melihat hasil similarity, lalu mengekspor hasil dalam beberapa opsi output.
+RE-MATCH adalah aplikasi web untuk mencocokkan data dari satu atau lebih file input terhadap file rujukan. Pengguna dapat mengunggah file rujukan dan file yang akan dicocokkan, memilih kolom pembanding, menentukan metode matching, melihat hasil similarity, lalu mengekspor hasil dalam beberapa opsi output.
+
+RE-MATCH dikembangkan untuk mendukung proses rekonsiliasi dan pencocokan data usaha/perusahaan di lingkungan Direktorat Statistik Sumber Daya Mineral dan Konstruksi, Badan Pusat Statistik.
 
 Produk ini ditujukan untuk pekerjaan rekonsiliasi data, validasi master data, integrasi data antar sistem, pembersihan data, dan pembuatan relasi antar dataset.
 

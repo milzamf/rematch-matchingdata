@@ -8,8 +8,8 @@ import { AuthShell, Field, authError } from "./login";
 export const Route = createFileRoute("/forgot-password")({
   head: () => ({
     meta: [
-      { title: "Reset password — BatchMatch" },
-      { name: "description", content: "Reset your BatchMatch password." },
+      { title: "Reset password - RE-MATCH" },
+      { name: "description", content: "Reset password RE-MATCH" },
     ],
   }),
   component: ForgotPage,
@@ -59,7 +59,7 @@ function ForgotPage() {
       ) : (
         <>
           <form onSubmit={submit} className="space-y-4">
-            <Field label={t("auth.email")} type="email" value={email} onChange={setEmail} placeholder="you@company.com" autoFocus />
+            <Field label={t("auth.email")} type="email" value={email} onChange={setEmail} placeholder="nama@bps.go.id" autoFocus />
             {error && (
               <p className="text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>
             )}

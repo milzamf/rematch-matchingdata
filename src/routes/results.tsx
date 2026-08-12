@@ -27,11 +27,10 @@ import {
 export const Route = createFileRoute("/results")({
   head: () => ({
     meta: [
-      { title: "Results — BatchMatch" },
+      { title: "Hasil - RE-MATCH" },
       {
         name: "description",
-        content:
-          "Workspace for completed matching jobs — overview, matched, possible, unmatched, statistics, audit trail, and export.",
+        content: "Hasil matching, review, statistik, audit, dan export",
       },
     ],
   }),
@@ -226,8 +225,8 @@ function OverviewTab({ onExport }: { onExport: () => void }) {
   const { t } = usePreferences();
   const summary = [
     { label: t("results.overview.jobId"), value: "MJ-2481" },
-    { label: t("results.overview.reference"), value: "customer_master.xlsx" },
-    { label: t("results.overview.input"), value: "salesforce_export.csv" },
+    { label: t("results.overview.reference"), value: "data_acuan_usaha.xlsx" },
+    { label: t("results.overview.input"), value: "prelist_usaha.csv" },
     { label: t("results.overview.records"), value: "24,109" },
     { label: t("results.overview.duration"), value: "2m 41s" },
     { label: t("results.overview.completed"), value: relativeDate("2 hours ago", t) },
@@ -453,7 +452,7 @@ function UnmatchedTab() {
   const [unmatched, setUnmatched] = useState([
     { id: "UM-4401", value: "Toko Berkah Jaya", reason: t("results.unmatched.reason.noCandidate") },
     { id: "UM-4402", value: "PT Indo Sejahtera Nusantara", reason: t("results.unmatched.reason.country") },
-    { id: "UM-4403", value: "Andi Wijaya (individual)", reason: t("results.unmatched.reason.ambiguous") },
+    { id: "UM-4403", value: "UD Sumber Makmur", reason: t("results.unmatched.reason.ambiguous") },
     { id: "UM-4404", value: "CV Karya Mandiri 2024", reason: t("results.unmatched.reason.nullNpwp") },
   ]);
   const forceMatch = (id: string) => {
@@ -529,7 +528,7 @@ function StatsTab() {
               <div className="flex justify-between text-xs mb-1.5">
                 <span>{m.method}</span>
                 <span className="tabular-nums text-muted-foreground">
-                  {m.count.toLocaleString()} · {m.pct}%
+                  {m.count.toLocaleString()} Â· {m.pct}%
                 </span>
               </div>
               <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
@@ -697,7 +696,7 @@ function ExportTab() {
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium truncate">{r.name}</p>
                 <p className="text-[11px] text-muted-foreground">
-                  {r.size} · {r.date}
+                  {r.size} Â· {r.date}
                 </p>
               </div>
               <button

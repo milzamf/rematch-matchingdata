@@ -8,8 +8,8 @@ import { AuthShell, Field, authError } from "./login";
 export const Route = createFileRoute("/register")({
   head: () => ({
     meta: [
-      { title: "Create account — BatchMatch" },
-      { name: "description", content: "Create a BatchMatch workspace." },
+      { title: "Buat akun - RE-MATCH" },
+      { name: "description", content: "Buat akses RE-MATCH" },
     ],
   }),
   component: RegisterPage,
@@ -45,9 +45,9 @@ function RegisterPage() {
   return (
     <AuthShell title={t("auth.createTitle")} subtitle={t("auth.createSubtitle")}>
       <form onSubmit={submit} className="space-y-4">
-        <Field label={t("auth.fullName")} value={fullName} onChange={setFullName} placeholder="Andi Setiawan" autoFocus />
-        <Field label={t("auth.username")} value={username} onChange={setUsername} placeholder="andi" />
-        <Field label={t("auth.email")} type="email" value={email} onChange={setEmail} placeholder="you@company.com" />
+        <Field label={t("auth.fullName")} value={fullName} onChange={setFullName} placeholder={t("auth.fullNamePlaceholder")} autoFocus />
+        <Field label={t("auth.username")} value={username} onChange={setUsername} placeholder={t("auth.usernamePlaceholder")} />
+        <Field label={t("auth.email")} type="email" value={email} onChange={setEmail} placeholder="nama@bps.go.id" />
         <Field label={t("auth.password")} type="password" value={password} onChange={setPassword} placeholder={t("auth.passwordMin")} />
         {error && (
           <p className="text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>

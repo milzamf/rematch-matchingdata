@@ -1,10 +1,10 @@
-# BatchMatch Changelog
+# RE-MATCH Changelog
 
 ## Unreleased
 
 ### Added
 
-- Initial BatchMatch frontend with Dashboard, Matching, Results, and Settings.
+- Initial RE-MATCH frontend with Dashboard, Matching, Results, and Settings.
 - Matching wizard aligned to the main workflow: Upload -> Profiling -> Mapping -> Configure -> Run -> Review -> Sync -> Export.
 - Synchronization / merge strategy for matched, unmatched, possible match, and conflict records.
 - Preferences support for dark mode, light mode, system theme, English, and Bahasa Indonesia.
@@ -44,13 +44,15 @@
 - Resumable Matching workflow autosave using backend workspace snapshots.
 - Workspace list page with Continue, Rename, and Delete actions.
 - Dashboard real data integration using saved workspace data from the backend.
+- Product-facing rebrand from BatchMatch to RE-MATCH.
+- Lightweight organization identity for Direktorat Statistik Sumber Daya Mineral dan Konstruksi, Badan Pusat Statistik.
 
 ### Improved
 
 - UI polish for navigation, dashboard tables, workflow stepper, column mapping, matching configuration, manual review, and results tabs.
 - Results experience with Overview, Matched, Possible Match, Unmatched, Statistics, Audit Trail, and Export History tabs.
 - Settings page with profile, matching defaults, AI preferences, data privacy, and about sections.
-- Documentation alignment with `PRD.md`, `.codex/PROJECT_RULES.md`, and the BatchMatch workflow.
+- Documentation alignment with `PRD.md`, `.codex/PROJECT_RULES.md`, and the RE-MATCH workflow.
 - Mapping workflow now supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference-column prevention.
 - Mapping page now focuses only on reference/input column pairing; matching algorithm selection is deferred to Configure.
 - Configure technical controls are now grouped under collapsed Advanced Settings for progressive disclosure.
@@ -69,6 +71,9 @@
 - Matching workflow can be reopened from `/matching?workspace={id}` without losing uploaded dataset/profile/mapping/config/run progress.
 - Dashboard now focuses on Continue Your Work, Action Required, Workspace Summary, Recent Workspaces, and Review Queue.
 - Dashboard dummy jobs, fake scores, fake insights, and generic analytics content were removed.
+- App shell dummy search, notification, help, account dropdown, and demo identity were removed.
+- Upload copy now uses Data Acuan and Data Input terminology.
+- Main UI defaults to Bahasa Indonesia.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 

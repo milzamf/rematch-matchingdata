@@ -1,8 +1,8 @@
-# BatchMatch - Session
+# RE-MATCH - Session
 
 ## Current Milestone
 
-Milestone 8.1: Dashboard Real Data Integration completed.
+Milestone 8.1.1: Dashboard Shell Cleanup, RE-MATCH Rebranding, and Organizational UI Copy completed.
 
 ## Project Status
 
@@ -16,6 +16,7 @@ Milestone 8.1: Dashboard Real Data Integration completed.
 - Export: Done frontend CSV/XLSX
 - Workspace Persistence: Done MVP
 - Dashboard Real Data: Done
+- RE-MATCH Branding and Shell Cleanup: Done
 
 ## Completed
 
@@ -30,6 +31,9 @@ Milestone 8.1: Dashboard Real Data Integration completed.
 - Workspace MVP persists workflow progress to backend and can resume the latest step.
 - Workspace list supports Open/Continue, Rename, and Delete without deleting datasets.
 - Dashboard reads workspace data from backend and no longer shows dummy analytics.
+- Product-facing UI is rebranded from BatchMatch to RE-MATCH.
+- Sidebar and application shell no longer show dummy user identity, search, notification, help, or fake account controls.
+- Organization identity is shown lightly in the sidebar and Settings.
 
 ## Next Milestone
 
@@ -79,6 +83,9 @@ Upload
 - Workspace page adalah halaman pendukung, bukan menu sidebar baru.
 - Dashboard adalah entry point kerja untuk Continue, Action Required, Review Queue, Recent Workspaces, dan New Matching.
 - Dashboard tidak boleh memakai dummy user greeting, dummy score, dummy insight, atau dummy analytics.
+- Product-facing name is RE-MATCH; internal technical identifiers may still use `batchmatch`.
+- Main UI copy uses formal, concise Bahasa Indonesia.
+- Organization identity: Direktorat Statistik Sumber Daya Mineral dan Konstruksi, Badan Pusat Statistik.
 - Workspace snapshot menyimpan workflow UI state; dataset/result utama tetap memakai tabel domain existing.
 - Autosave workspace dilakukan melalui endpoint `/api/workspaces`.
 - Resume workspace harus membuka URL `/matching?workspace={id}`.

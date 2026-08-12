@@ -8,9 +8,9 @@ export const kpis = [
 export const recentJobs = [
   {
     id: "MJ-2481",
-    name: "CRM Cleanup — Q1 Customers",
-    reference: "customer_master.xlsx",
-    input: "salesforce_export.csv",
+    name: "Rekonsiliasi Data Usaha Triwulan I",
+    reference: "data_acuan_usaha.xlsx",
+    input: "prelist_usaha.csv",
     records: "24,109",
     status: "Completed",
     accuracy: "98.4%",
@@ -18,9 +18,9 @@ export const recentJobs = [
   },
   {
     id: "MJ-2480",
-    name: "Vendor Consolidation",
-    reference: "vendors_master.xlsx",
-    input: "erp_vendors.dbf",
+    name: "Konsolidasi Data Perusahaan",
+    reference: "data_perusahaan_acuan.xlsx",
+    input: "data_input_perusahaan.dbf",
     records: "8,420",
     status: "Review",
     accuracy: "92.1%",
@@ -28,9 +28,9 @@ export const recentJobs = [
   },
   {
     id: "MJ-2479",
-    name: "Employee Data Reconciliation",
-    reference: "hris_employees.xlsx",
-    input: "payroll_active.csv",
+    name: "Rekonsiliasi Entitas Usaha",
+    reference: "direktori_usaha.xlsx",
+    input: "hasil_pendataan.csv",
     records: "3,204",
     status: "Running",
     accuracy: "—",
@@ -38,9 +38,9 @@ export const recentJobs = [
   },
   {
     id: "MJ-2478",
-    name: "Product Catalog Merge",
-    reference: "products_v4.xlsx",
-    input: "supplier_feed.xml",
+    name: "Penggabungan Direktori Usaha",
+    reference: "direktori_acuan.xlsx",
+    input: "dataset_input.xml",
     records: "12,880",
     status: "Completed",
     accuracy: "96.7%",
@@ -93,7 +93,7 @@ export const qualityBreakdown = [
 export const insights = [
   {
     title: "Enable phonetic search optimization",
-    body: "Column customer_name has 32% Indonesian names with varied spelling. Adding a phonetic candidate strategy may recover ~1,200 additional matches.",
+    body: "Kolom nama usaha memiliki variasi penulisan. Strategi kandidat fonetik dapat membantu pencarian kandidat",
     action: "Apply suggestion",
   },
   {
@@ -129,7 +129,7 @@ export const synchronizationSummary = {
 
 
 export const columnProfile = [
-  { name: "customer_id", type: "STRING", nulls: "0.0%", unique: "100%", pattern: "CUST-#####", flag: "Primary key candidate" },
+  { name: "id_usaha", type: "STRING", nulls: "0.0%", unique: "100%", pattern: "US-#####", flag: "Primary key candidate" },
   { name: "company_name", type: "STRING", nulls: "0.2%", unique: "94.1%", pattern: "[Legal Entity] Name", flag: "High signal" },
   { name: "npwp", type: "STRING", nulls: "3.4%", unique: "99.8%", pattern: "##.###.###.#-###", flag: "Strict match" },
   { name: "address", type: "TEXT", nulls: "1.1%", unique: "88.3%", pattern: "Street + City", flag: "Needs normalization" },
@@ -146,9 +146,9 @@ export const matchedRecords = [
 ];
 
 export const auditTrail = [
-  { time: "10:24 AM", user: "Andi Setiawan", action: "Approved match", target: "MR-10022 (Starlight Ventures)" },
-  { time: "10:21 AM", user: "Andi Setiawan", action: "Changed threshold", target: "0.85 → 0.88" },
+  { time: "10:24 AM", user: "Reviewer", action: "Approved match", target: "MR-10022 (PT Cahaya Nusantara)" },
+  { time: "10:21 AM", user: "Reviewer", action: "Changed threshold", target: "0.85 -> 0.88" },
   { time: "10:18 AM", user: "System", action: "Job completed", target: "MJ-2481 (24,109 records)" },
   { time: "10:04 AM", user: "System", action: "Job started", target: "MJ-2481" },
-  { time: "09:58 AM", user: "Sari Wulandari", action: "Uploaded file", target: "salesforce_export.csv (12.4 MB)" },
+  { time: "09:58 AM", user: "Operator", action: "Uploaded file", target: "prelist_usaha.csv (12.4 MB)" },
 ];

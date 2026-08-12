@@ -6,7 +6,6 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 
-import { useAuth, getInitials } from "@/lib/auth";
 import { usePreferences } from "@/lib/preferences";
 
 const nav = [
@@ -18,9 +17,7 @@ const nav = [
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
-  const { user } = useAuth();
   const { t } = usePreferences();
-  const initials = user ? getInitials(user.fullName) : "??";
 
   return (
     <aside className="hidden lg:flex w-60 shrink-0 border-r border-border bg-sidebar flex-col sticky top-0 h-screen">
@@ -29,7 +26,7 @@ export function AppSidebar() {
           <div className="size-3 bg-brand-foreground rounded-[3px]" />
         </div>
         <div className="flex flex-col leading-tight">
-          <span className="font-semibold text-[15px] tracking-tight text-foreground">BatchMatch</span>
+          <span className="font-semibold text-[15px] tracking-tight text-foreground">RE-MATCH</span>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
             {t("brand.subtitle")}
           </span>
@@ -59,19 +56,12 @@ export function AppSidebar() {
       </nav>
 
       <div className="p-3 border-t border-border">
-        <div className="flex items-center gap-2.5 px-2">
-          <div className="size-8 rounded-full bg-brand text-brand-foreground grid place-items-center text-xs font-semibold">
-            {initials}
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-semibold truncate">{user?.fullName ?? "Guest"}</p>
-            <p className="text-[10px] text-muted-foreground truncate">
-              @{user?.username ?? "guest"}
-            </p>
-          </div>
+        <div className="px-2 text-[10px] leading-relaxed text-muted-foreground">
+          <p className="font-semibold text-foreground">RE-MATCH</p>
+          <p>{t("brand.organizationUnit")}</p>
+          <p>{t("brand.organization")}</p>
         </div>
       </div>
-
     </aside>
   );
 }

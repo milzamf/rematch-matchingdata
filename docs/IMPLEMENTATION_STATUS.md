@@ -1,4 +1,4 @@
-# BatchMatch - Implementation Status
+# RE-MATCH - Implementation Status
 
 Last Updated: 2026-08-12
 Version: MVP v0.1.0
@@ -8,7 +8,7 @@ Version: MVP v0.1.0
 | Area                 | Progress | Status                                                     |
 | -------------------- | -------: | ---------------------------------------------------------- |
 | Documentation        |      97% | In progress                                                |
-| Frontend UI          |      96% | Mostly complete                                            |
+| Frontend UI          |      97% | Mostly complete with RE-MATCH product-facing copy          |
 | Frontend Integration |      72% | Upload through Export plus dashboard/workspace integration |
 | Backend API          |      42% | Upload/Profile/Run/Review/Workspace slices exist           |
 | Database             |      32% | Dataset, matching, review, and workspace tables exist      |
@@ -34,6 +34,7 @@ Version: MVP v0.1.0
 | Workspace | Lists resumable workspaces and restores Matching workflow state from backend.                                        |
 | Results   | UI complete, still uses mock data.                                                                                   |
 | Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.               |
+| Shell     | Rebranded to RE-MATCH and cleaned of dummy user/search/notification/help controls.                                  |
 
 ## Backend
 
@@ -282,6 +283,21 @@ Milestone 8.1: Dashboard Real Data Integration
 | Review Queue entry point                         | Complete |
 | Empty state for no workspaces                    | Complete |
 | Dashboard writing rules added to UX Guidelines   | Complete |
+
+## Completed Milestone
+
+Milestone 8.1.1: Dashboard Shell Cleanup, RE-MATCH Rebranding, and Organizational UI Copy
+
+| Requirement                                           | Status   |
+| ----------------------------------------------------- | -------- |
+| Product-facing branding changed to RE-MATCH           | Complete |
+| Organization identity added lightly to shell/settings | Complete |
+| Dummy user identity removed from app shell            | Complete |
+| Global search, notification, help, fake account UI hidden | Complete |
+| Upload copy changed to Data Acuan and Data Input      | Complete |
+| Main UI default language changed to Bahasa Indonesia  | Complete |
+| Generic SaaS/dashboard copy removed                   | Complete |
+| UX writing rules documented                           | Complete |
 
 ## Next Milestone
 

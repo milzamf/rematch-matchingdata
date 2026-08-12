@@ -1,33 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { ConfirmationDialog, ErrorPanel, LoadingPanel } from "@/components/feedback-states";
-import { useAuth, getInitials } from "@/lib/auth";
 import { usePreferences } from "@/lib/preferences";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Settings - BatchMatch" },
-      { name: "description", content: "Manage your BatchMatch preferences, profile, and defaults." },
+      { title: "Pengaturan - RE-MATCH" },
+      { name: "description", content: "Kelola preferensi RE-MATCH" },
     ],
   }),
   component: SettingsPage,
 });
 
 function SettingsPage() {
-  const { user } = useAuth();
   const { language, resolvedTheme, setLanguage, setTheme, t, theme } = usePreferences();
-  const defaultProfile = {
-    fullName: user?.fullName ?? "",
-    username: user?.username ?? "",
-    email: user?.email ?? "",
-    organization: "BatchMatch Demo Workspace",
-    role: t("settings.roleDataSteward"),
-  };
   const defaultMatchingDefaults = {
     preset: "Balanced",
     normalization: "Text Standardization",
@@ -51,7 +42,6 @@ function SettingsPage() {
     phone: true,
     maskedOnly: true,
   };
-  const [profile, setProfile] = useState(defaultProfile);
   const [matchingDefaults, setMatchingDefaults] = useState(defaultMatchingDefaults);
   const [aiPreferences, setAiPreferences] = useState(defaultAiPreferences);
   const [privacy, setPrivacy] = useState(defaultPrivacy);
@@ -59,18 +49,7 @@ function SettingsPage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
 
-  useEffect(() => {
-    if (!user) return;
-    setProfile((current) => ({
-      ...current,
-      email: user.email,
-      fullName: user.fullName,
-      username: user.username,
-    }));
-  }, [user]);
-
   const resetLocalState = () => {
-    setProfile(defaultProfile);
     setMatchingDefaults(defaultMatchingDefaults);
     setAiPreferences(defaultAiPreferences);
     setPrivacy(defaultPrivacy);
@@ -101,48 +80,15 @@ function SettingsPage() {
 
         <div className="space-y-6">
           <Card className="p-6">
-            <h3 className="text-base font-semibold mb-1">{t("settings.profile")}</h3>
+            <h3 className="text-base font-semibold mb-1">{t("settings.systemIdentity")}</h3>
             <p className="text-sm text-muted-foreground mb-5">
-              {t("settings.profileDesc")}
+              {t("settings.systemIdentityDesc")}
             </p>
-            <div className="flex items-center gap-4 mb-5">
-              <div className="size-14 rounded-full bg-brand text-brand-foreground grid place-items-center text-lg font-semibold">
-                {user ? getInitials(user.fullName) : "??"}
-              </div>
-              <button
-                onClick={() => toast.info(t("feedback.toast.photo"))}
-                className="text-sm font-medium border border-border rounded-md px-3 py-1.5 hover:bg-secondary"
-              >
-                {t("settings.changePhoto")}
-              </button>
-            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field
-                label={t("settings.fullName")}
-                value={profile.fullName}
-                onChange={(value) => setProfile((current) => ({ ...current, fullName: value }))}
-              />
-              <Field
-                label={t("settings.username")}
-                value={profile.username}
-                onChange={(value) => setProfile((current) => ({ ...current, username: value }))}
-              />
-              <Field
-                label={t("settings.email")}
-                value={profile.email}
-                onChange={(value) => setProfile((current) => ({ ...current, email: value }))}
-                type="email"
-              />
-              <Field
-                label={t("settings.organization")}
-                value={profile.organization}
-                onChange={(value) => setProfile((current) => ({ ...current, organization: value }))}
-              />
-              <Field
-                label={t("settings.role")}
-                value={profile.role}
-                onChange={(value) => setProfile((current) => ({ ...current, role: value }))}
-              />
+              <ReadOnlyItem label={t("settings.applicationName")} value="RE-MATCH" />
+              <ReadOnlyItem label={t("settings.organization")} value={t("brand.organization")} />
+              <ReadOnlyItem label={t("settings.organizationUnit")} value={t("brand.organizationUnit")} />
+              <ReadOnlyItem label={t("settings.userIdentity")} value={t("settings.authDeferred")} />
             </div>
           </Card>
 
@@ -190,7 +136,7 @@ function SettingsPage() {
                 onChange={(value) =>
                   setMatchingDefaults((current) => ({ ...current, searchOptimization: value }))
                 }
-                options={["Auto Recommend", "Company Name Prefix", "Identifier First", "City + Name"]}
+                options={["Otomatis", "Identifier lebih dulu", "Wilayah + Nama", "Nama Entitas"]}
               />
               <Select
                 label={t("settings.candidateCount")}
@@ -341,7 +287,7 @@ function SettingsPage() {
             <h3 className="text-base font-semibold mb-1">{t("settings.about")}</h3>
             <p className="text-sm text-muted-foreground mb-5">{t("settings.aboutDesc")}</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <ReadOnlyItem label={t("settings.batchmatchVersion")} value="BatchMatch v0.1.0 MVP" />
+              <ReadOnlyItem label={t("settings.batchmatchVersion")} value="RE-MATCH v0.1.0 MVP" />
               <ReadOnlyItem label={t("settings.buildType")} value={t("settings.frontendMockBuild")} />
               <ReadOnlyItem
                 label={t("settings.documentation")}
