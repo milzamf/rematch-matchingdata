@@ -9,9 +9,9 @@ Version: MVP v0.1.0
 | -------------------- | -------: | ---------------------------------------------------------- |
 | Documentation        |      97% | In progress                                                |
 | Frontend UI          |      96% | Mostly complete                                            |
-| Frontend Integration |      60% | Upload through Export slices use real workflow/review data |
-| Backend API          |      35% | Upload/Profile/Run/Review slices exist                     |
-| Database             |      25% | Dataset, matching, and review tables exist                 |
+| Frontend Integration |      68% | Upload through Export plus workspace resume/autosave       |
+| Backend API          |      42% | Upload/Profile/Run/Review/Workspace slices exist           |
+| Database             |      32% | Dataset, matching, review, and workspace tables exist      |
 | Matching Engine      |      30% | MVP engine slice with entity-aware names                   |
 | AI Assistant         |       0% | Not started                                                |
 | Export Engine        |      20% | Frontend CSV/XLSX generation exists                        |
@@ -31,6 +31,7 @@ Version: MVP v0.1.0
 | Review    | Uses real Matching Engine results with smart case groups, safety-validated bulk actions, decision history, and undo. |
 | Sync      | Uses latest review decisions for frontend finalization preview and local idempotent audit.                           |
 | Export    | Generates default/custom CSV and XLSX files from latest Review results.                                              |
+| Workspace | Lists resumable workspaces and restores Matching workflow state from backend.                                        |
 | Results   | UI complete, still uses mock data.                                                                                   |
 | Settings  | Preferences, theme, language, matching defaults, AI preferences, privacy, and about sections complete.               |
 
@@ -48,6 +49,7 @@ Version: MVP v0.1.0
 | Auth API                 | Not started.                                                                                                                  |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
 | Review Knowledge         | Deterministic review patterns and knowledge levels are stored in review decision metadata.                                    |
+| Workspace Persistence    | MVP endpoint supports list/create/detail/update/delete and stores workflow snapshots.                                         |
 | Export Engine            | Frontend-only CSV/XLSX generation exists; server-side export persistence not started.                                         |
 
 ## Database
@@ -57,7 +59,7 @@ Version: MVP v0.1.0
 | `datasets`                | Migration and model implemented.  |
 | `dataset_columns`         | Migration and model implemented.  |
 | `users`                   | Laravel default migration exists. |
-| `workspaces`              | Not started.                      |
+| `workspaces`              | Migration and model implemented.  |
 | `workspace_users`         | Not started.                      |
 | `matching_jobs`           | Migration and model implemented.  |
 | `column_mappings`         | Migration and model implemented.  |
@@ -250,16 +252,32 @@ Milestone 7: Export Results
 | Read-only export from latest review decisions                           | Complete |
 | Server-side export history, Auth, Workspace, AI                         | Deferred |
 
+## Completed Milestone
+
+Milestone 8: Workspace / Session Persistence
+
+| Requirement                                               | Status   |
+| --------------------------------------------------------- | -------- |
+| Workspace table for resumable matching sessions           | Complete |
+| Workspace REST API list/create/detail/update/delete       | Complete |
+| Matching workflow autosaves progress to backend           | Complete |
+| Resume restores current step and frontend workflow state  | Complete |
+| Matching run can attach completed job to active workspace | Complete |
+| Workspace list page with continue, rename, delete         | Complete |
+| Workspace delete does not delete datasets/reference data  | Complete |
+| Auth, permissions, collaboration, AI                      | Deferred |
+
 ## Next Milestone
 
-Milestone 8: Server-side Export and Audit Persistence
+Stabilization & QA
 
-- Persist Sync plans, Export history, and Audit Trail server-side.
+- Run build, lint, E2E, and backend tests after implementation-only milestones.
+- Fix regressions found in Upload -> Export with workspace resume.
 - Keep AI mapping suggestions deferred until AI Assistance milestone.
 
 ## Remaining MVP Work
 
-- Auth and workspace ownership.
+- Auth and workspace membership ownership.
 - Full-file matching beyond inspected preview rows.
 - Server-side sync execution/audit persistence.
 - Server-side export history and audit persistence.

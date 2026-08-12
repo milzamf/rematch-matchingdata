@@ -7,6 +7,7 @@ use App\Models\Dataset;
 use App\Models\MatchingConfiguration;
 use App\Models\MatchingJob;
 use App\Models\MatchingResult;
+use App\Models\Workspace;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -109,6 +110,14 @@ class MatchingEngineService
                 ]);
 
                 throw $exception;
+            }
+
+            if (! empty($payload['workspace_id'])) {
+                Workspace::whereKey($payload['workspace_id'])->update([
+                    'matching_job_id' => $job->id,
+                    'status' => $job->status === 'completed' ? 'reviewing' : 'failed',
+                    'current_step' => $job->status === 'completed' ? 6 : 5,
+                ]);
             }
 
             return $this->responseFor($job->refresh());

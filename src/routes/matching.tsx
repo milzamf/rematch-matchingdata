@@ -10,7 +10,9 @@ import { wizardSteps } from "@/lib/dummy-data";
 import { downloadCsv, downloadXlsx, type ExportTable } from "@/lib/export-files";
 import {
   ApiError,
+  createWorkspace,
   fetchReviewResults,
+  fetchWorkspace,
   inspectDataset,
   runMatching,
   saveReviewDecision,
@@ -21,6 +23,10 @@ import {
   type ReviewCandidate,
   type ReviewItem,
   type ReviewResults,
+  type WorkspaceStatePayload,
+  type WorkspaceStatus,
+  type WorkspaceSummary,
+  updateWorkspace,
   undoReviewDecision,
 } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
@@ -171,7 +177,15 @@ const MAX_MB = 50;
 
 function MatchingPage() {
   const { t } = usePreferences();
+  const initialWorkspaceId =
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("workspace");
   const [step, setStep] = useState(1);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
+  const [workspaceName, setWorkspaceName] = useState(t("workspace.untitled"));
+  const [workspaceSaveState, setWorkspaceSaveState] = useState<"idle" | "saving" | "saved" | "error">(
+    initialWorkspaceId ? "saving" : "idle",
+  );
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [reference, setReference] = useState<UploadedFile | null>(null);
   const [input, setInput] = useState<UploadedFile | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -185,6 +199,9 @@ function MatchingPage() {
   const [matchingConfiguration, setMatchingConfiguration] = useState<MatchingConfiguration | null>(
     null,
   );
+  const workspaceIdRef = useRef<string | null>(initialWorkspaceId);
+  const suppressMappingSuggestRef = useRef(false);
+  const restoringWorkspaceRef = useRef(false);
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
@@ -198,6 +215,160 @@ function MatchingPage() {
     title: t(`step.${stepKey(s.id)}`),
     desc: t(`step.${stepKey(s.id)}Desc`),
   }));
+  const workspaceStatus = deriveWorkspaceStatus(step, runState);
+  const workspaceSnapshot = useMemo<WorkspaceStatePayload>(
+    () => ({
+      reference: uploadSnapshot(reference),
+      input: uploadSnapshot(input),
+      columnMappings,
+      matchingConfiguration,
+      runState,
+      progress,
+      runResult,
+      runError,
+    }),
+    [columnMappings, input, matchingConfiguration, progress, reference, runError, runResult, runState],
+  );
+
+  useEffect(() => {
+    workspaceIdRef.current = workspaceId;
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!initialWorkspaceId) return;
+
+    let mounted = true;
+    restoringWorkspaceRef.current = true;
+
+    fetchWorkspace(initialWorkspaceId)
+      .then((workspace) => {
+        if (!mounted) return;
+
+        const snapshot = workspace.workflow_state;
+        suppressMappingSuggestRef.current = true;
+        setWorkspaceId(workspace.id);
+        setWorkspaceName(workspace.name);
+        setStep(workspace.current_step || 1);
+        setReference(
+          mergeUploadSnapshot(
+            snapshot?.reference as UploadedFile | null | undefined,
+            workspace.reference_dataset,
+          ),
+        );
+        setInput(
+          mergeUploadSnapshot(
+            snapshot?.input as UploadedFile | null | undefined,
+            workspace.input_dataset,
+          ),
+        );
+        setColumnMappings((snapshot?.columnMappings as ColumnMappingDraft[] | undefined) ?? []);
+        setMatchingConfiguration(
+          (snapshot?.matchingConfiguration as MatchingConfiguration | null | undefined) ?? null,
+        );
+        const restoredRunResult = snapshot?.runResult ?? jobToRunResult(workspace);
+        setRunState(
+          (snapshot?.runState as RunState | undefined) ??
+            (restoredRunResult
+              ? restoredRunResult.job.status === "completed"
+                ? "success"
+                : "failed"
+              : "idle"),
+        );
+        setProgress(snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0);
+        setRunResult(restoredRunResult);
+        setRunError(snapshot?.runError ?? restoredRunResult?.job.error_message ?? null);
+        setWorkspaceSaveState("saved");
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.loadFailed"));
+        setWorkspaceSaveState("error");
+      })
+      .finally(() => {
+        window.setTimeout(() => {
+          restoringWorkspaceRef.current = false;
+          suppressMappingSuggestRef.current = false;
+        }, 0);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [initialWorkspaceId, t]);
+
+  useEffect(() => {
+    if (!workspaceId || restoringWorkspaceRef.current) return;
+
+    const timeout = window.setTimeout(() => {
+      setWorkspaceSaveState("saving");
+      updateWorkspace(workspaceId, {
+        name: workspaceName,
+        status: workspaceStatus,
+        currentStep: step,
+        referenceDatasetId: reference?.result?.dataset.id ?? null,
+        inputDatasetId: input?.result?.dataset.id ?? null,
+        matchingJobId: runResult?.job.id ?? null,
+        workflowState: workspaceSnapshot,
+      })
+        .then(() => {
+          setWorkspaceSaveState("saved");
+          setWorkspaceError(null);
+        })
+        .catch((error) => {
+          setWorkspaceSaveState("error");
+          setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.saveFailed"));
+        });
+    }, 700);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    input,
+    reference,
+    runResult,
+    step,
+    t,
+    workspaceId,
+    workspaceName,
+    workspaceSnapshot,
+    workspaceStatus,
+  ]);
+
+  const ensureWorkspace = async (role: DatasetRole, result: DatasetInspectResult) => {
+    const existingWorkspaceId = workspaceIdRef.current;
+    const nextName = buildWorkspaceName(role, result, reference, input, t("workspace.untitled"));
+
+    try {
+      if (existingWorkspaceId) {
+        await updateWorkspace(existingWorkspaceId, {
+          name: workspaceName,
+          status: workspaceStatus,
+          referenceDatasetId:
+            role === "reference" ? result.dataset.id : reference?.result?.dataset.id ?? null,
+          inputDatasetId: role === "input" ? result.dataset.id : input?.result?.dataset.id ?? null,
+          currentStep: step,
+        });
+        setWorkspaceSaveState("saved");
+        return;
+      }
+
+      setWorkspaceSaveState("saving");
+      const workspace = await createWorkspace({
+        name: nextName,
+        status: "draft",
+        currentStep: step,
+        referenceDatasetId: role === "reference" ? result.dataset.id : null,
+        inputDatasetId: role === "input" ? result.dataset.id : null,
+      });
+      workspaceIdRef.current = workspace.id;
+      setWorkspaceId(workspace.id);
+      setWorkspaceName(workspace.name);
+      setWorkspaceSaveState("saved");
+      window.history.replaceState(null, "", `/matching?workspace=${workspace.id}`);
+    } catch (error) {
+      setWorkspaceSaveState("error");
+      setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.saveFailed"));
+    }
+  };
 
   const startRun = async () => {
     if (!reference?.result || !input?.result || !matchingConfiguration) {
@@ -216,6 +387,7 @@ function MatchingPage() {
     try {
       setProgress(20);
       const result = await runMatching({
+        workspaceId: workspaceId ?? undefined,
         name: `${reference.result.dataset.name} vs ${input.result.dataset.name}`,
         referenceDatasetId: reference.result.dataset.id,
         inputDatasetId: input.result.dataset.id,
@@ -253,7 +425,10 @@ function MatchingPage() {
 
     try {
       const result = await inspectDataset({ file, datasetRole: role });
+      setColumnMappings([]);
+      setMatchingConfiguration(null);
       setFile({ name: file.name, size: file.size, status: "success", result });
+      await ensureWorkspace(role, result);
       toast.success(t("feedback.toast.uploaded", { name: file.name }));
     } catch (error) {
       const message =
@@ -268,6 +443,10 @@ function MatchingPage() {
     const inspectedReferenceColumns = reference?.result?.columns ?? [];
     const inspectedInputColumns = input?.result?.columns ?? [];
 
+    if (suppressMappingSuggestRef.current || columnMappings.length > 0) {
+      return;
+    }
+
     if (inspectedReferenceColumns.length === 0 || inspectedInputColumns.length === 0) {
       setColumnMappings([]);
       setMatchingConfiguration(null);
@@ -276,7 +455,7 @@ function MatchingPage() {
 
     setColumnMappings(suggestColumnMappings(inspectedReferenceColumns, inspectedInputColumns));
     setMatchingConfiguration(null);
-  }, [reference?.result, input?.result]);
+  }, [columnMappings.length, reference?.result, input?.result]);
 
   useEffect(() => {
     if (runState === "success") toast.success(t("feedback.toast.runComplete"));
@@ -286,7 +465,36 @@ function MatchingPage() {
   return (
     <AppLayout>
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
-        <PageHeader title={t("matching.title")} description={t("matching.description")} />
+        <PageHeader
+          title={t("matching.title")}
+          description={t("matching.description")}
+          actions={
+            <Link
+              to="/workspaces"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
+            >
+              {t("workspace.title")}
+            </Link>
+          }
+        />
+
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-xs">
+          <div className="min-w-0">
+            <p className="font-semibold text-foreground truncate">{workspaceName}</p>
+            <p className="text-muted-foreground">
+              {workspaceId ? t("workspace.autosaveEnabled") : t("workspace.autosaveWaiting")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {workspaceError && <span className="text-destructive">{workspaceError}</span>}
+            <span className="rounded-full bg-secondary px-2 py-1 font-medium text-muted-foreground">
+              {workspaceStatusLabel(workspaceStatus, t)}
+            </span>
+            <span className="rounded-full bg-secondary px-2 py-1 font-medium text-muted-foreground">
+              {workspaceSaveStateLabel(workspaceSaveState, t)}
+            </span>
+          </div>
+        </div>
 
         {/* Horizontal stepper */}
         <Card className="p-5 mb-6 sticky top-16 z-10">
@@ -418,6 +626,121 @@ function validateFile(file: File, t: ReturnType<typeof usePreferences>["t"]): st
     return t("matching.upload.unsupported", { formats: ALLOWED.join(", ") });
   if (file.size > MAX_MB * 1024 * 1024) return t("matching.upload.tooLarge", { max: MAX_MB });
   return null;
+}
+
+function datasetResultToUpload(result: DatasetInspectResult | null): UploadedFile | null {
+  if (!result) return null;
+
+  return {
+    name: result.dataset.original_filename || result.dataset.name,
+    size: result.dataset.file_size,
+    status: "success",
+    result,
+  };
+}
+
+function uploadSnapshot(file: UploadedFile | null): UploadedFile | null {
+  if (!file) return null;
+
+  return {
+    name: file.name,
+    size: file.size,
+    status: file.status,
+    error: file.error,
+  };
+}
+
+function mergeUploadSnapshot(
+  snapshot: UploadedFile | null | undefined,
+  result: DatasetInspectResult | null,
+): UploadedFile | null {
+  const restored = datasetResultToUpload(result);
+
+  if (!snapshot) return restored;
+
+  return {
+    ...snapshot,
+    result: restored?.result,
+    status: restored ? "success" : snapshot.status,
+  };
+}
+
+function jobToRunResult(workspace: WorkspaceSummary): MatchingRunResult | null {
+  const job = workspace.matching_job;
+
+  if (!job) return null;
+
+  const counts = job.record_counts ?? {};
+  const percentage =
+    job.total_count > 0 ? Math.round((job.processed_count / job.total_count) * 10000) / 100 : 0;
+
+  return {
+    job: {
+      id: job.id,
+      name: job.name,
+      status: job.status,
+      reference_dataset_id: workspace.reference_dataset_id ?? "",
+      input_dataset_id: workspace.input_dataset_id ?? "",
+      started_at: job.started_at,
+      finished_at: job.finished_at,
+      error_message: job.error_message,
+    },
+    progress: {
+      status: job.status,
+      processed: job.processed_count,
+      total: job.total_count,
+      percentage,
+    },
+    summary: {
+      matched: counts.matched ?? 0,
+      possible_match: counts.possible_match ?? 0,
+      unmatched: counts.unmatched ?? 0,
+      candidates_scored: counts.candidates_scored ?? 0,
+    },
+    top_results: [],
+  };
+}
+
+function buildWorkspaceName(
+  role: DatasetRole,
+  result: DatasetInspectResult,
+  reference: UploadedFile | null,
+  input: UploadedFile | null,
+  fallback: string,
+) {
+  const referenceName =
+    role === "reference" ? result.dataset.name : reference?.result?.dataset.name;
+  const inputName = role === "input" ? result.dataset.name : input?.result?.dataset.name;
+
+  if (referenceName && inputName) return `${referenceName} vs ${inputName}`;
+  return referenceName ?? inputName ?? fallback;
+}
+
+function deriveWorkspaceStatus(step: number, runState: RunState): WorkspaceStatus {
+  if (runState === "failed") return "failed";
+  if (step >= 8) return "completed";
+  if (step >= 7) return "ready_to_sync";
+  if (step >= 6) return "reviewing";
+  if (step >= 5 || runState === "running") return "matching";
+  if (step >= 3) return "configuring";
+  return "draft";
+}
+
+function workspaceStatusLabel(
+  status: WorkspaceStatus,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  return t(`workspace.status.${status}` as Parameters<typeof t>[0]);
+}
+
+function workspaceSaveStateLabel(
+  state: "idle" | "saving" | "saved" | "error",
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  if (state === "saving") return t("workspace.saving");
+  if (state === "saved") return t("workspace.saved");
+  if (state === "error") return t("workspace.saveError");
+  return t("workspace.notSaved");
 }
 
 function StepUpload({

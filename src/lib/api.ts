@@ -62,10 +62,84 @@ type InspectDatasetInput = {
 
 type RunMatchingInput = {
   name?: string;
+  workspaceId?: string;
   referenceDatasetId: string;
   inputDatasetId: string;
   mappings: unknown[];
   configuration: unknown;
+};
+
+export type WorkspaceStatus =
+  | "draft"
+  | "configuring"
+  | "matching"
+  | "reviewing"
+  | "ready_to_sync"
+  | "completed"
+  | "failed";
+
+export type WorkspaceStatePayload = {
+  reference?: {
+    name: string;
+    size: number;
+    status: "loading" | "success" | "error";
+    result?: DatasetInspectResult;
+    error?: string;
+  } | null;
+  input?: {
+    name: string;
+    size: number;
+    status: "loading" | "success" | "error";
+    result?: DatasetInspectResult;
+    error?: string;
+  } | null;
+  columnMappings?: unknown[];
+  matchingConfiguration?: unknown;
+  runState?: "idle" | "running" | "success" | "failed";
+  progress?: number;
+  runResult?: MatchingRunResult | null;
+  runError?: string | null;
+};
+
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  status: WorkspaceStatus | string;
+  current_step: number;
+  reference_dataset_id: string | null;
+  input_dataset_id: string | null;
+  matching_job_id: string | null;
+  record_count: number | null;
+  workflow_state: WorkspaceStatePayload | null;
+  sync_state: Record<string, unknown> | null;
+  export_history: unknown[] | null;
+  reference_dataset: DatasetInspectResult | null;
+  input_dataset: DatasetInspectResult | null;
+  matching_job: {
+    id: string;
+    name: string | null;
+    status: string;
+    processed_count: number;
+    total_count: number;
+    record_counts: Record<string, number>;
+    error_message: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+  } | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type WorkspaceInput = {
+  name?: string;
+  status?: WorkspaceStatus;
+  currentStep?: number;
+  referenceDatasetId?: string | null;
+  inputDatasetId?: string | null;
+  matchingJobId?: string | null;
+  workflowState?: WorkspaceStatePayload | null;
+  syncState?: Record<string, unknown> | null;
+  exportHistory?: unknown[] | null;
 };
 
 export type MatchingRunResult = {
@@ -305,6 +379,7 @@ export async function runMatching(input: RunMatchingInput): Promise<MatchingRunR
     },
     body: JSON.stringify({
       name: input.name,
+      workspace_id: input.workspaceId,
       reference_dataset_id: input.referenceDatasetId,
       input_dataset_id: input.inputDatasetId,
       mappings: input.mappings,
@@ -364,11 +439,112 @@ export async function saveReviewDecision(
     }),
   });
   const payload = (await response.json().catch(() => null)) as
-    ApiSuccess<{ review: ReviewResults }> | ApiFailure | null;
+    ApiSuccess<ReviewDecisionResult> | ApiFailure | null;
 
   if (!response.ok || !payload || payload.success === false) {
     throw new ApiError(
       payload?.message ?? "Review decision could not be saved.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
+  const response = await fetch(`${API_BASE_URL}/workspaces`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<WorkspaceSummary[]> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Workspaces could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function createWorkspace(input: WorkspaceInput): Promise<WorkspaceSummary> {
+  return writeWorkspace(`${API_BASE_URL}/workspaces`, "POST", input);
+}
+
+export async function fetchWorkspace(id: string): Promise<WorkspaceSummary> {
+  const response = await fetch(`${API_BASE_URL}/workspaces/${id}`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<WorkspaceSummary> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Workspace could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function updateWorkspace(
+  id: string,
+  input: WorkspaceInput,
+): Promise<WorkspaceSummary> {
+  return writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", input);
+}
+
+export async function deleteWorkspace(id: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/workspaces/${id}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<{ id: string }> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Workspace could not be deleted.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+}
+
+async function writeWorkspace(
+  url: string,
+  method: "POST" | "PATCH",
+  input: WorkspaceInput,
+): Promise<WorkspaceSummary> {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: input.name,
+      status: input.status,
+      current_step: input.currentStep,
+      reference_dataset_id: input.referenceDatasetId,
+      input_dataset_id: input.inputDatasetId,
+      matching_job_id: input.matchingJobId,
+      workflow_state: input.workflowState,
+      sync_state: input.syncState,
+      export_history: input.exportHistory,
+    }),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<WorkspaceSummary> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Workspace could not be saved.",
       response.status,
       payload?.success === false ? payload.errors : undefined,
     );

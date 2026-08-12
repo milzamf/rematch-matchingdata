@@ -40,6 +40,9 @@
 - Sync finalization preview using latest review decisions, recommended plan, unresolved-review warning, and local idempotent audit.
 - Export Results step with default and custom export modes sourced from latest review decisions.
 - Client-side CSV and XLSX export generation for final matching rows and review decision summary.
+- Workspace persistence MVP with backend `workspaces` table and REST endpoints.
+- Resumable Matching workflow autosave using backend workspace snapshots.
+- Workspace list page with Continue, Rename, and Delete actions.
 
 ### Improved
 
@@ -62,6 +65,7 @@
 - Accepted or rejected case groups remain visible under Resolved instead of disappearing.
 - Sync flow is simplified to Finalize Summary -> Recommended Plan -> Preview -> Confirm Sync.
 - Export now shows record-count preview, generated filename, format selection, loading, success, and error feedback.
+- Matching workflow can be reopened from `/matching?workspace={id}` without losing uploaded dataset/profile/mapping/config/run progress.
 - Encoding artifacts in Matching UI labels were corrected.
 - Post-milestone housekeeping for ignored build, test, cache, and temporary log artifacts.
 
@@ -70,4 +74,4 @@
 - AI service integration, server-side export history, audit persistence, and authentication are not implemented yet.
 - Sync still uses local audit state; Export is frontend-generated from latest Review results; Results still uses mock/local state.
 - Matching Engine MVP currently runs against inspected preview rows, not full stored file contents.
-- Review decisions are stored without Auth/Workspace ownership until those milestones are implemented.
+- Review decisions are stored without Auth/user membership ownership until those milestones are implemented.

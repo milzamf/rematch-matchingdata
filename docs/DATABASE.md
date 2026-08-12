@@ -1,6 +1,6 @@
 # BatchMatch Database Design
 
-Status: Initial database design draft. The first vertical slice has implemented only `datasets` and `dataset_columns`.
+Status: Initial database design draft. Implemented MVP slices now include `datasets`, `dataset_columns`, matching/review tables, and `workspaces` for session persistence.
 
 ## 1. Database Overview
 
@@ -70,7 +70,7 @@ erDiagram
 | Table | Key fields |
 | --- | --- |
 | `users` | `id`, `full_name`, `username`, `email`, `password_hash`, `status`, timestamps. |
-| `workspaces` | `id`, `owner_user_id`, `name`, `slug`, `settings_json`, timestamps. |
+| `workspaces` | `id`, future `owner_user_id`, `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history`, timestamps. |
 | `workspace_users` | `workspace_id`, `user_id`, `role`, `status`, timestamps. |
 | `datasets` | `id`, `workspace_id`, `uploaded_by_user_id`, `name`, `dataset_role`, `source_type`, `file_format`, `storage_path`, `row_count`, `column_count`, `parse_status`, `schema_snapshot_json`, `profiling_summary_json`, timestamps. |
 | `dataset_columns` | `id`, `dataset_id`, `name`, `normalized_name`, `data_type`, `position`, `null_rate`, `unique_count`, `duplicate_rate`, `pattern`, `stats_json`. |
@@ -145,4 +145,6 @@ This order creates parent records before dependent records. `audit_logs` should 
 
 - `datasets` stores inspected CSV/XLSX upload metadata, selected sheet/delimiter/header row, row/column counts, preview rows, and profiling summary.
 - `dataset_columns` stores detected column type, position, null count/percentage, unique count, duplicate percentage, and sample values.
-- Workspace/user ownership columns are deferred until Auth API and Workspace implementation are added.
+- `workspaces` stores resumable workflow sessions with linked reference/input datasets, matching job, current step, status, and compact workflow snapshot.
+- Current workspace delete removes only the workspace/session row. Linked datasets, matching jobs, and reference data are not deleted by workspace delete.
+- User ownership and workspace membership enforcement are deferred until Auth API is implemented.

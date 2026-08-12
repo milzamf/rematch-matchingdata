@@ -7,10 +7,18 @@ use App\Http\Controllers\Api\MatchingStatusController;
 use App\Http\Controllers\Api\ReviewDecisionController;
 use App\Http\Controllers\Api\ReviewResultsController;
 use App\Http\Controllers\Api\UndoReviewDecisionController;
+use App\Http\Controllers\Api\WorkspaceController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class);
+Route::apiResource('workspaces', WorkspaceController::class)->only([
+    'index',
+    'store',
+    'show',
+    'update',
+    'destroy',
+]);
 Route::post('/datasets/inspect', DatasetInspectionController::class);
 Route::post('/matching-jobs/run', MatchingRunController::class);
 Route::get('/matching-jobs/{job}/status', MatchingStatusController::class);

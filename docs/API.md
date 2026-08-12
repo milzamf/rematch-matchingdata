@@ -1,6 +1,6 @@
 # BatchMatch REST API Draft
 
-Status: Initial API contract draft. Do not implement backend from this document yet.
+Status: API contract draft with implemented MVP slices called out explicitly.
 
 ## API Principles
 
@@ -15,9 +15,15 @@ Status: Initial API contract draft. Do not implement backend from this document 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
 | `/api/health` | `GET` | Check API availability. | none | `success`, `data.service`, `data.status`, `data.version` |
+| `/api/workspaces` | `GET` | List saved workflow workspaces. | none | `id`, `name`, `status`, `current_step`, `record_count`, `updated_at` |
+| `/api/workspaces` | `POST` | Create a saved workflow workspace. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `workflow_state` | `workspace` |
+| `/api/workspaces/{workspaceId}` | `GET` | Restore workspace detail, linked datasets, and workflow snapshot. | none | `workspace`, `reference_dataset`, `input_dataset`, `matching_job`, `workflow_state` |
+| `/api/workspaces/{workspaceId}` | `PATCH` | Idempotently autosave workspace progress. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history` | `workspace` |
+| `/api/workspaces/{workspaceId}` | `DELETE` | Delete workspace session only. Linked datasets are not deleted. | none | `id` |
 | `/api/datasets/inspect` | `POST` | Upload and inspect one CSV/XLSX dataset for the current frontend workflow. | `file`, `dataset_role`, `sheet_name`, `delimiter`, `header_row` | `dataset`, `columns`, `preview_rows`, `profiling_summary` |
+| `/api/matching-jobs/run` | `POST` | Run the Matching Engine MVP and optionally attach the job to a workspace. | `workspace_id`, `name`, `reference_dataset_id`, `input_dataset_id`, `mappings`, `configuration` | `job`, `progress`, `summary`, `top_results` |
 
-Note: `/api/datasets/inspect` is intentionally not workspace-prefixed in this first vertical slice because authentication/workspace APIs are not implemented yet. It should move behind workspace ownership once Auth API is added.
+Note: implemented MVP endpoints are intentionally not authenticated yet. They should move behind user/workspace ownership once Auth API is added.
 
 ## 1. Auth
 
@@ -36,8 +42,10 @@ Note: `/api/datasets/inspect` is intentionally not workspace-prefixed in this fi
 | `/api/user` | `PATCH` | Update user profile. | `full_name`, `username`, `email`, `organization`, `role` | `user` |
 | `/api/user/preferences` | `PATCH` | Save theme, language, defaults, AI, and privacy preferences. | `theme`, `language`, `matching_defaults`, `ai_preferences`, `privacy_settings` | `preferences` |
 | `/api/workspaces` | `GET` | List accessible workspaces. | none | `workspaces` |
+| `/api/workspaces` | `POST` | Create a workspace/session. | `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `workflow_state` | `workspace` |
 | `/api/workspaces/{workspaceId}` | `GET` | Get workspace detail. | none | `workspace`, `members` |
-| `/api/workspaces/{workspaceId}` | `PATCH` | Update workspace metadata/settings. | `name`, `settings` | `workspace` |
+| `/api/workspaces/{workspaceId}` | `PATCH` | Update workspace metadata/settings and autosaved workflow state. | `name`, `status`, `current_step`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history` | `workspace` |
+| `/api/workspaces/{workspaceId}` | `DELETE` | Delete workspace/session without deleting linked datasets. | none | `id` |
 
 ## 3. Dataset Upload
 

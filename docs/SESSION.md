@@ -2,53 +2,49 @@
 
 ## Current Milestone
 
-Milestone 5C.1: Smart Case-Based Review completed.
+Milestone 8: Workspace / Session Persistence completed.
 
 ## Project Status
 
 - Upload: Done
 - Profiling: Done
 - Mapping: Done
-- Configure: Done for UX and workflow state, no backend persistence yet
-- Run: Done for backend MVP execution against inspected preview rows
-- Review: Done for real Matching Engine results, smart case groups, traceable decisions, and deterministic bulk safety validation
-- Sync: Done for frontend finalization preview and local idempotent audit
-- Export: Done for frontend CSV/XLSX generation from latest review results
+- Configure: Done
+- Run: Done
+- Review: Done
+- Sync: Done frontend/local audit
+- Export: Done frontend CSV/XLSX
+- Workspace Persistence: Done MVP
 
 ## Completed
 
-- Initial BatchMatch frontend with Dashboard, Matching, Results, and Settings.
-- Clean enterprise SaaS UI polish for navigation, dashboard, workflow, review, and results.
-- Matching wizard uses 8 steps: Upload, Profiling, Mapping, Configure, Run, Review, Sync, Export.
 - Upload and Profiling are integrated with Laravel `/api/datasets/inspect`.
-- Backend health endpoint and dataset inspect endpoint are available.
-- CSV and XLSX inspect support is implemented.
-- Dataset and dataset column metadata are persisted.
-- Mapping uses real inspected reference/input columns.
-- Mapping supports manual add, remove, pair changes, type badges, suggestion metadata, and duplicate reference validation.
-- Configure uses Quick Setup, Summary Configuration, conditional Advanced Settings, validation, and workflow-level configuration state.
-- Matching Engine MVP runs in Laravel with normalization, entity-aware name parsing, candidate generation, scoring, Top N, incremental result persistence, and progress summary.
-- Review uses persisted matching results, groups similar cases across open/resolved states, shows Top N candidates, and saves accept/reject/unmatched/undo decisions.
-- Smart Review groups Need Review cases by deterministic fingerprints, shows representative samples/recommendations, and keeps unsafe bulk exceptions in Need Review.
-- Sync reads latest review decisions, blocks unresolved review, previews recommended plan, and stores a local idempotent audit per job.
-- Export reads latest review results and generates default/custom CSV or XLSX files from final matching data.
+- CSV and XLSX inspect support persists dataset and column metadata.
+- Mapping uses real inspected reference/input columns with non-AI auto-suggest.
+- Configure stores conditional matching configuration in workflow state.
+- Matching Engine MVP runs through Laravel and persists jobs, mappings, config, results, and progress.
+- Review uses real matching results, smart case groups, traceable decisions, safety validation, and undo.
+- Sync previews a recommended finalization plan using latest review decisions.
+- Export generates default/custom CSV and XLSX from final review state in the frontend.
+- Workspace MVP persists workflow progress to backend and can resume the latest step.
+- Workspace list supports Open/Continue, Rename, and Delete without deleting datasets.
 
 ## Next Milestone
 
-Milestone 8: Server-side Export and Audit Persistence.
+Stabilization & QA.
 
-Objective: persist Sync, Export history, and Audit Trail server-side without adding AI, Auth, or Workspace.
+Objective: run build/lint/tests, fix regressions from MVP feature work, and verify Upload -> Export with workspace resume.
 
 ## Current Architecture
 
 Frontend:
-React, Vite, TypeScript, Tailwind CSS. Handles UI state, workflow navigation, preferences, and API calls.
+React, Vite, TypeScript, Tailwind CSS. Handles UI, workflow navigation, preferences, API calls, local export generation, and workspace resume/autosave.
 
 Backend:
-Laravel REST API. Handles health check, dataset upload inspection, parsing, profiling, dataset metadata persistence, Matching Engine MVP run/status, and Review decisions.
+Laravel REST API. Handles health, dataset inspection/profiling, matching engine run/status, review decisions, and workspace persistence.
 
 Database:
-Development database uses MySQL. Implemented tables include `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, `matching_results`, and `review_decisions`; Laravel default `users` table exists.
+Implemented MVP tables include `datasets`, `dataset_columns`, `matching_jobs`, `column_mappings`, `matching_configurations`, `matching_results`, `review_decisions`, and `workspaces`.
 
 Workflow:
 
@@ -64,54 +60,27 @@ Upload
 ## Known Limitations
 
 - Authentication belum dibuat.
-- Workspace ownership belum dibuat.
+- User/workspace membership ownership belum dibuat.
 - AI Assistance belum dibuat.
-- Matching Engine MVP baru berjalan dari inspected preview rows, belum full-file processing.
-- Configure dikirim ke backend saat Run, tetapi belum punya save/load configuration terpisah.
-- Sync sudah memakai review terbaru untuk frontend preview dan local audit, tetapi belum persist server-side.
-- Export sudah generate CSV/XLSX di frontend dari review terbaru, tetapi belum punya server-side export history.
-- Results masih mock/local state.
-- Review decisions belum memakai user/workspace ownership karena Auth/Workspace belum dibuat.
-- Server-side export history dan audit trail persistence belum dibuat.
+- Matching Engine MVP masih memakai inspected preview rows, belum full-file processing.
+- Sync persistence masih berupa frontend/local state, belum server-side sync plan table.
+- Export history masih frontend/local download, belum server-side export table.
+- Results page masih mock/local state.
+- Audit trail table belum dibuat.
 
 ## Notes
 
 - `PRD.md` adalah sumber utama fitur dan business rules.
-- `.codex/PROJECT_RULES.md` adalah standar kerja wajib untuk task berikutnya.
-- `docs/UX_GUIDELINES.md` adalah acuan UX untuk halaman baru atau perubahan UI.
-- Upload dan Profiling sudah real; jangan kembali ke dummy data untuk dua step ini.
-- Mapping hanya bertugas memasangkan kolom reference dan input.
-- Matching Algorithm dipindahkan dari Mapping ke Configure.
-- Configure menampilkan Quick Setup di permukaan utama; Custom membuka strategi Exact, Fuzzy, Composite / Hybrid, dan Rule-Based secara kondisional.
-- Exact tidak menampilkan threshold, Top N, bobot, atau formula; Fuzzy menampilkan algoritma, threshold, kandidat, dan normalisasi.
-- Composite / Hybrid memakai bobot otomatis default; bobot manual dan formula hanya muncul jika diaktifkan.
-- Rule-Based menampilkan rule builder; toleransi angka/tanggal hanya muncul untuk tipe field yang relevan.
-- Configure snapshot menyimpan preset, mode, strategy, fields, algorithms, thresholds, candidate generation, search optimization, normalization, weights, rules, dan output.
-- Run memanggil `/api/matching-jobs/run` dan status tersedia di `/api/matching-jobs/{job}/status`.
-- Engine memakai normalize once, exact/hash index, token candidate search, chunked bounded worker slots, scorer per field, Top N, dan incremental DB insert.
-- Entity-aware name matching memisahkan raw/core name, legal form, ownership/status qualifier, public status, unit type, dan unit name.
-- Fuzzy matching untuk nama entitas membandingkan `core_name`; metadata identitas dipakai sebagai constraint.
-- PT vs CV yang keduanya eksplisit tidak boleh menjadi auto match; missing legal form atau missing Persero/Tbk bukan conflict otomatis.
-- Review memanggil `/api/matching-jobs/{job}/review-results`, `/review-decisions`, dan `/review-decisions/{decision}/undo`.
-- Review memprioritaskan `possible_match` sebagai Need Review, menampilkan Input vs Reference, Top N kandidat, field highlight, dan audit decision lokal.
-- Review default view adalah Case Groups; All Records tetap tersedia.
-- Case grouping deterministic memakai case feature extraction, fingerprint, confidence High/Mixed/Unique, dan representative example.
-- Bulk decision hanya boleh untuk cluster homogen (`High`); Mixed/Unique harus direview granular.
-- Bulk Accept menjalankan deterministic safety validation; record dengan identifier conflict, legal form conflict, duplicate reference, atau strong-field conflict tetap `NEED_REVIEW`.
-- Review Knowledge disimpan di metadata review decision sebagai pola dan kondisi, bukan cluster ID saja.
-- Review Knowledge memiliki level `NEW_PATTERN` dan `KNOWN_PATTERN`; `TRUSTED_PATTERN` belum otomatis dipakai.
-- Case Groups memiliki filter Open/Resolved/All; resolved group tetap tampil dan bisa dibuka ulang.
-- Review decision menyimpan previous status, decided_at, source individual/group, reviewer lokal, affected records, dan batch id untuk undo group.
-- Sync default flow: Finalize Summary, Recommended Plan, Preview, Confirm Sync.
-- Sync tidak menampilkan Possible Match handling; unresolved review diarahkan kembali ke Review.
-- Sync frontend idempotent memakai `localStorage` per matching job dan belum mengubah reference secara destruktif.
-- Export memakai `/review-results` sebagai source of truth terbaru, tidak mengubah data, dan mendukung default/custom export.
-- Default Export berisi final matched dataset, new/unmatched entities, rejected records, dan review decision summary.
-- Auto mapping saat ini rule-based sederhana, bukan AI.
-- Reference column tidak boleh dipakai dua kali; input column boleh dipakai ulang.
-- Jangan mengubah Run, Review, Sync, Export, AI, Auth, Workspace, atau Matching Engine kecuali milestone meminta.
-- Jangan membuat ulang frontend atau backend.
-- Generated build/test artifacts are ignored and can be regenerated with build or test commands.
+- `.codex/PROJECT_RULES.md` adalah standar kerja wajib.
+- `docs/UX_GUIDELINES.md` adalah acuan UX.
+- Sidebar utama tetap hanya Dashboard, Matching, Results, Settings.
+- Workspace page adalah halaman pendukung, bukan menu sidebar baru.
+- Workspace snapshot menyimpan workflow UI state; dataset/result utama tetap memakai tabel domain existing.
+- Autosave workspace dilakukan melalui endpoint `/api/workspaces`.
+- Resume workspace harus membuka URL `/matching?workspace={id}`.
+- Jangan rerun matching jika `runResult` sudah dipulihkan dari workspace state.
+- Hapus workspace hanya menghapus row workspace, bukan dataset atau reference data utama.
+- One task = one milestone. Jangan mengerjakan fitur di luar milestone aktif.
 
 ## Safe To Continue
 

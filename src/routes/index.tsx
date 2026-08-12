@@ -159,7 +159,7 @@ function DashboardPage() {
             }
             icon={Play}
             cta={lastJob ? t("dashboard.action.resume") : t("dashboard.action.firstMatch")}
-            to="/matching"
+            to={lastJob ? "/workspaces" : "/matching"}
           />
           <ActionCard
             tone="brand"
