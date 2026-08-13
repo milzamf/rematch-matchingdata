@@ -53,7 +53,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/admin/users', [AdminUserController::class, 'index'])
         ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
+    Route::post('/admin/users', [AdminUserController::class, 'store'])
+        ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
     Route::patch('/admin/users/{user}', [AdminUserController::class, 'update'])
+        ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
+    Route::post('/admin/users/{user}/password', [AdminUserController::class, 'setPassword'])
         ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);
     Route::get('/admin/workspaces', [AdminWorkspaceController::class, 'index'])
         ->middleware('permission:'.PermissionRegistry::ADMIN_ACCESS);

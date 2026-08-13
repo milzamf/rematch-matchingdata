@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-Milestone 9.2-9.4: Workspace Ownership, Admin Area, and Pimpinan Monitoring completed.
+Milestone 9.3: Administration user management completed.
 
 ## Project Status
 
@@ -123,7 +123,7 @@ Upload
 - Jangan rerun matching jika `runResult` sudah dipulihkan dari workspace state.
 - Hapus workspace hanya menghapus row workspace, bukan dataset atau reference data utama.
 - User biasa hanya boleh melihat resource yang `user_id`-nya milik sendiri.
-- Admin dapat melihat semua workspace, mengubah role user, dan memindahkan owner workspace.
+- Admin dapat melihat semua workspace, membuat user baru, mengubah data/peran user, mengatur ulang password user, dan memindahkan owner workspace.
 - Pimpinan mendarat ke `/monitoring` setelah login dan hanya mendapat akses baca lintas workspace.
 - Results bersifat read-only dan harus mengarahkan user kembali ke step Review, Sync, atau Export bila masih ada tindakan.
 - Matching hydration harus tetap backend-first; jangan mengandalkan state React lama saat membuka workspace lagi.

@@ -1,6 +1,6 @@
 # RE-MATCH - Implementation Status
 
-Last Updated: 2026-08-12
+Last Updated: 2026-08-13
 Version: MVP v0.1.0
 
 ## Overall Progress
@@ -50,7 +50,7 @@ Version: MVP v0.1.0
 | Dataset Profiler         | Implemented for basic type, null, unique, duplicate, and sample value profiling.                                              |
 | Auth API                 | Implemented: `POST /api/login`, `GET /api/me`, and `POST /api/logout` using Sanctum session auth, plus role/permission payloads and permission middleware. |
 | Workspace Ownership      | Implemented MVP with direct `user_id` ownership on datasets, matching jobs, and workspaces plus backend scoping by role. |
-| Admin Area               | Implemented MVP endpoints for user list/update and workspace owner reassignment. |
+| Admin Area               | Implemented MVP endpoints for user list/create/update, password reset, and workspace owner reassignment. |
 | Pimpinan Monitoring      | Implemented MVP monitoring overview endpoint with cross-workspace read-only summary. |
 | Matching Engine          | MVP service implemented with normalization, entity-aware names, indexing, candidate generation, scoring, Top N, and progress. |
 | Review Knowledge         | Deterministic review patterns and knowledge levels are stored in review decision metadata.                                    |
@@ -102,7 +102,7 @@ Milestone 9.2-9.4: Workspace Ownership, Admin Area, and Pimpinan Monitoring
 | Direct owner on workspaces, datasets, jobs          | Complete |
 | Backend scoping by authenticated user and role      | Complete |
 | Admin access to all workspaces                      | Complete |
-| Admin user list and role update                     | Complete |
+| Admin user list, create, edit, and password reset   | Complete |
 | Admin workspace owner reassignment                  | Complete |
 | Pimpinan read-only monitoring overview              | Complete |
 | Pimpinan post-login landing to monitoring           | Complete |

@@ -168,6 +168,17 @@ export type AdminUserSummary = {
   updated_at: string | null;
 };
 
+export type AdminUserUpsertInput = {
+  name: string;
+  email: string;
+  role: UserRole;
+};
+
+export type AdminUserPasswordInput = {
+  password: string;
+  passwordConfirmation: string;
+};
+
 export type MonitoringOverview = {
   summary: {
     workspace_total: number;
@@ -722,9 +733,40 @@ export async function listAdminUsers(): Promise<AdminUserSummary[]> {
   return payload.data;
 }
 
+export async function createAdminUser(
+  input: AdminUserUpsertInput & AdminUserPasswordInput,
+): Promise<AdminUserSummary> {
+  const response = await apiFetch("/admin/users", {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: input.name,
+      email: input.email,
+      role: input.role,
+      password: input.password,
+      password_confirmation: input.passwordConfirmation,
+    }),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<AdminUserSummary> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "User could not be created.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
 export async function updateAdminUser(
   id: string | number,
-  input: { name?: string; role?: UserRole },
+  input: { name?: string; email?: string; role?: UserRole },
 ): Promise<AdminUserSummary> {
   const response = await apiFetch(`/admin/users/${id}`, {
     method: "PATCH",
@@ -740,6 +782,35 @@ export async function updateAdminUser(
   if (!response.ok || !payload || payload.success === false) {
     throw new ApiError(
       payload?.message ?? "User could not be updated.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function setAdminUserPassword(
+  id: string | number,
+  input: AdminUserPasswordInput,
+): Promise<AdminUserSummary> {
+  const response = await apiFetch(`/admin/users/${id}/password`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      password: input.password,
+      password_confirmation: input.passwordConfirmation,
+    }),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    ApiSuccess<AdminUserSummary> | ApiFailure | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Password could not be updated.",
       response.status,
       payload?.success === false ? payload.errors : undefined,
     );

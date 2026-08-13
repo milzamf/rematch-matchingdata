@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Support\Auth\UserRole;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\Rule;
 
 class AdminUserController extends Controller
@@ -47,14 +49,58 @@ class AdminUserController extends Controller
         ]);
     }
 
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:160'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'role' => ['required', Rule::in(UserRole::values())],
+            'password' => ['required', 'confirmed', Password::min(6)],
+        ]);
+
+        $user = User::create([
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'role' => $data['role'],
+            'password' => $data['password'],
+        ]);
+
+        $user = $this->loadUserWithOwnershipCounts($user->getKey());
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->payload($user),
+        ], 201);
+    }
+
     public function update(Request $request, User $user): JsonResponse
     {
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:160'],
+            'email' => ['sometimes', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->getKey())],
             'role' => ['sometimes', Rule::in(UserRole::values())],
         ]);
 
+        $this->preventLastAdminDemotion($request, $user, $data['role'] ?? null);
         $user->update($data);
+        $user = $this->loadUserWithOwnershipCounts($user->getKey());
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->payload($user),
+        ]);
+    }
+
+    public function setPassword(Request $request, User $user): JsonResponse
+    {
+        $data = $request->validate([
+            'password' => ['required', 'confirmed', Password::min(6)],
+        ]);
+
+        $user->update([
+            'password' => $data['password'],
+        ]);
+
         $user = $this->loadUserWithOwnershipCounts($user->getKey());
 
         return response()->json([
@@ -110,5 +156,31 @@ class AdminUserController extends Controller
                 'matching_job_count',
             )
             ->findOrFail($userId);
+    }
+
+    private function preventLastAdminDemotion(Request $request, User $targetUser, ?string $nextRole): void
+    {
+        if ($nextRole === null || $targetUser->roleEnum() !== UserRole::Admin || $nextRole === UserRole::Admin->value) {
+            return;
+        }
+
+        $actor = $request->user();
+        if (! $actor || (string) $actor->getKey() !== (string) $targetUser->getKey()) {
+            return;
+        }
+
+        $adminCount = User::query()
+            ->where('role', UserRole::Admin->value)
+            ->count();
+
+        if ($adminCount <= 1) {
+            throw new HttpResponseException(response()->json([
+                'success' => false,
+                'message' => 'The last remaining admin cannot be demoted.',
+                'errors' => [
+                    'role' => ['The last remaining admin cannot be demoted.'],
+                ],
+            ], 422));
+        }
     }
 }

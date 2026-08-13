@@ -11,6 +11,7 @@
 - Direct workflow ownership on datasets, matching jobs, and workspaces through authenticated `user_id`.
 - Admin area MVP for user role management and workspace owner reassignment.
 - Pimpinan monitoring dashboard with organization-wide read-only workspace visibility.
+- Administration user creation, user editing, and admin password reset actions.
 - Dedicated monitoring and administration frontend routes using the existing RE-MATCH shell.
 - Multi-account development seeding through role-specific environment variables.
 - Backend permission middleware for protected workspace, inspect, matching, and review APIs.
