@@ -14,6 +14,7 @@ class ReviewDecision extends Model
     protected $fillable = [
         'matching_job_id',
         'matching_result_id',
+        'reviewer_user_id',
         'input_record_key',
         'selected_reference_record_key',
         'decision',
@@ -39,5 +40,10 @@ class ReviewDecision extends Model
     public function result(): BelongsTo
     {
         return $this->belongsTo(MatchingResult::class, 'matching_result_id');
+    }
+
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewer_user_id');
     }
 }

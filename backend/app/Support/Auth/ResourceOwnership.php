@@ -5,6 +5,7 @@ namespace App\Support\Auth;
 use App\Models\Dataset;
 use App\Models\MatchingJob;
 use App\Models\MatchingResult;
+use App\Models\ReviewDecision;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Builder;
@@ -35,19 +36,32 @@ class ResourceOwnership
             : $query->where(function (Builder $scopedQuery) use ($user) {
                 $scopedQuery
                     ->whereIn(
-                        'id',
+                        'workspace_id',
                         Workspace::query()
                             ->where('user_id', $user->getKey())
-                            ->select('reference_dataset_id')
-                            ->whereNotNull('reference_dataset_id'),
+                            ->select('id'),
                     )
-                    ->orWhereIn(
-                        'id',
-                        Workspace::query()
-                            ->where('user_id', $user->getKey())
-                            ->select('input_dataset_id')
-                            ->whereNotNull('input_dataset_id'),
-                    );
+                    ->orWhere(function (Builder $legacyQuery) use ($user) {
+                        $legacyQuery
+                            ->whereNull('workspace_id')
+                            ->where(function (Builder $legacyWorkspaceQuery) use ($user) {
+                                $legacyWorkspaceQuery
+                                    ->whereIn(
+                                        'id',
+                                        Workspace::query()
+                                            ->where('user_id', $user->getKey())
+                                            ->select('reference_dataset_id')
+                                            ->whereNotNull('reference_dataset_id'),
+                                    )
+                                    ->orWhereIn(
+                                        'id',
+                                        Workspace::query()
+                                            ->where('user_id', $user->getKey())
+                                            ->select('input_dataset_id')
+                                            ->whereNotNull('input_dataset_id'),
+                                    );
+                            });
+                    });
             });
     }
 
@@ -55,13 +69,26 @@ class ResourceOwnership
     {
         return $this->canViewAll($user)
             ? $query
-            : $query->whereIn(
-                'id',
-                Workspace::query()
-                    ->where('user_id', $user->getKey())
-                    ->select('matching_job_id')
-                    ->whereNotNull('matching_job_id'),
-            );
+            : $query->where(function (Builder $scopedQuery) use ($user) {
+                $scopedQuery
+                    ->whereIn(
+                        'workspace_id',
+                        Workspace::query()
+                            ->where('user_id', $user->getKey())
+                            ->select('id'),
+                    )
+                    ->orWhere(function (Builder $legacyQuery) use ($user) {
+                        $legacyQuery
+                            ->whereNull('workspace_id')
+                            ->whereIn(
+                                'id',
+                                Workspace::query()
+                                    ->where('user_id', $user->getKey())
+                                    ->select('matching_job_id')
+                                    ->whereNotNull('matching_job_id'),
+                            );
+                    });
+            });
     }
 
     public function findWorkspace(User $user, string $workspaceId): Workspace
@@ -83,17 +110,90 @@ class ResourceOwnership
     {
         return $this->canViewAll($user)
             ? $query
-            : $query->whereIn(
-                'matching_job_id',
-                Workspace::query()
-                    ->where('user_id', $user->getKey())
-                    ->select('matching_job_id')
-                    ->whereNotNull('matching_job_id'),
-            );
+            : $query->whereHas('job', function (Builder $jobQuery) use ($user) {
+                $jobQuery->where(function (Builder $scopedJobQuery) use ($user) {
+                    $scopedJobQuery
+                        ->whereIn(
+                            'workspace_id',
+                            Workspace::query()
+                                ->where('user_id', $user->getKey())
+                                ->select('id'),
+                        )
+                        ->orWhere(function (Builder $legacyQuery) use ($user) {
+                            $legacyQuery
+                                ->whereNull('workspace_id')
+                                ->whereIn(
+                                    'id',
+                                    Workspace::query()
+                                        ->where('user_id', $user->getKey())
+                                        ->select('matching_job_id')
+                                        ->whereNotNull('matching_job_id'),
+                                );
+                        });
+                });
+            });
     }
 
     public function findMatchingResult(User $user, string $resultId): MatchingResult
     {
         return $this->scopeMatchingResults(MatchingResult::query(), $user)->findOrFail($resultId);
+    }
+
+    public function scopeReviewDecisions(Builder $query, User $user): Builder
+    {
+        return $this->canViewAll($user)
+            ? $query
+            : $query->where(function (Builder $scopedQuery) use ($user) {
+                $scopedQuery
+                    ->whereHas('job', function (Builder $jobQuery) use ($user) {
+                        $jobQuery->where(function (Builder $scopedJobQuery) use ($user) {
+                            $scopedJobQuery
+                                ->whereIn(
+                                    'workspace_id',
+                                    Workspace::query()
+                                        ->where('user_id', $user->getKey())
+                                        ->select('id'),
+                                )
+                                ->orWhere(function (Builder $legacyQuery) use ($user) {
+                                    $legacyQuery
+                                        ->whereNull('workspace_id')
+                                        ->whereIn(
+                                            'id',
+                                            Workspace::query()
+                                                ->where('user_id', $user->getKey())
+                                                ->select('matching_job_id')
+                                                ->whereNotNull('matching_job_id'),
+                                        );
+                                });
+                        });
+                    })
+                    ->orWhereHas('result.job', function (Builder $jobQuery) use ($user) {
+                        $jobQuery->where(function (Builder $scopedJobQuery) use ($user) {
+                            $scopedJobQuery
+                                ->whereIn(
+                                    'workspace_id',
+                                    Workspace::query()
+                                        ->where('user_id', $user->getKey())
+                                        ->select('id'),
+                                )
+                                ->orWhere(function (Builder $legacyQuery) use ($user) {
+                                    $legacyQuery
+                                        ->whereNull('workspace_id')
+                                        ->whereIn(
+                                            'id',
+                                            Workspace::query()
+                                                ->where('user_id', $user->getKey())
+                                                ->select('matching_job_id')
+                                                ->whereNotNull('matching_job_id'),
+                                        );
+                                });
+                        });
+                    });
+            });
+    }
+
+    public function findReviewDecision(User $user, string $decisionId): ReviewDecision
+    {
+        return $this->scopeReviewDecisions(ReviewDecision::query(), $user)->findOrFail($decisionId);
     }
 }

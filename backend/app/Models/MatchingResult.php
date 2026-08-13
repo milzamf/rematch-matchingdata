@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class MatchingResult extends Model
 {
@@ -40,5 +41,10 @@ class MatchingResult extends Model
     public function job(): BelongsTo
     {
         return $this->belongsTo(MatchingJob::class, 'matching_job_id');
+    }
+
+    public function reviewDecisions(): HasMany
+    {
+        return $this->hasMany(ReviewDecision::class, 'matching_result_id');
     }
 }

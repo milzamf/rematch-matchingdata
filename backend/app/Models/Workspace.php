@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Workspace extends Model
 {
@@ -52,5 +53,15 @@ class Workspace extends Model
     public function matchingJob(): BelongsTo
     {
         return $this->belongsTo(MatchingJob::class, 'matching_job_id');
+    }
+
+    public function datasets(): HasMany
+    {
+        return $this->hasMany(Dataset::class);
+    }
+
+    public function matchingJobs(): HasMany
+    {
+        return $this->hasMany(MatchingJob::class);
     }
 }

@@ -14,6 +14,7 @@ class MatchingJob extends Model
     use HasFactory, HasUuids;
 
     protected $fillable = [
+        'workspace_id',
         'reference_dataset_id',
         'input_dataset_id',
         'name',
@@ -44,6 +45,11 @@ class MatchingJob extends Model
     public function inputDataset(): BelongsTo
     {
         return $this->belongsTo(Dataset::class, 'input_dataset_id');
+    }
+
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
     }
 
     public function mappings(): HasMany

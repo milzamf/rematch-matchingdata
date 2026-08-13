@@ -1,152 +1,391 @@
-# BatchMatch Database Design
+# RE-MATCH Database Design
 
-Status: Initial database design draft. Implemented MVP slices now include `datasets`, `dataset_columns`, matching/review tables, `workspaces` for session persistence, and direct `user_id` ownership on workflow resources.
+Status: actual schema updated through Milestone 9.5.1. This document now separates the current implemented schema from future target entities that are still deferred.
 
-## 1. Database Overview
+## 1. Current Implemented Schema
 
-BatchMatch uses the database to store users, workspaces, uploaded dataset metadata, profiling output, matching jobs, configuration, results, review decisions, synchronization plans, exports, AI recommendations, and audit history.
+Implemented tables in migrations today:
 
-Raw uploaded files and generated exports should be stored in object/file storage. The database stores file references, schema metadata, job state, and structured JSON summaries where the shape may vary by file type or matching strategy.
+- `users`
+- `password_reset_tokens`
+- `sessions`
+- `datasets`
+- `dataset_columns`
+- `matching_jobs`
+- `column_mappings`
+- `matching_configurations`
+- `matching_results`
+- `review_decisions`
+- `workspaces`
 
-The design must support MySQL or PostgreSQL through Laravel migrations later. Every operational record must be scoped to a workspace and, where relevant, the user who created or acted on it.
+Current ownership path:
 
-## 2. Main Entities
+- `users -> workspaces`
+- `workspaces -> datasets`
+- `workspaces -> matching_jobs`
+- `matching_jobs -> matching_results`
+- `matching_jobs` and optionally `matching_results -> review_decisions`
 
-| Table | Purpose |
+Current implemented schema intentionally does **not** include migrations for:
+
+- `workspace_users`
+- `sync_plans`
+- `exports`
+- `audit_logs`
+- `ai_recommendations`
+
+## 2. Current Implemented Tables
+
+| Table | Current purpose |
 | --- | --- |
-| `users` | Authenticated BatchMatch users. |
-| `workspaces` | Tenant boundary for jobs, uploads, exports, and audit history. |
-| `workspace_users` | User membership and role inside a workspace. |
-| `datasets` | Uploaded or generated dataset metadata. |
-| `dataset_columns` | Column profile and inferred schema for each dataset. |
-| `matching_jobs` | Main workflow instance from Upload to Export. |
-| `column_mappings` | Selected reference/input column pairs and algorithms. |
-| `matching_configurations` | Preset, thresholds, normalization, search optimization, and output settings. |
-| `matching_results` | Matched, possible match, unmatched, and conflict candidates. |
-| `review_decisions` | Manual reviewer decisions for possible matches or conflicts. |
-| `sync_plans` | Merge/synchronization strategy selected before export. |
-| `exports` | Generated output files and export history. |
-| `audit_logs` | Immutable activity trail for compliance and traceability. |
-| `ai_recommendations` | Optional AI suggestions and whether users applied or ignored them. |
+| `users` | Authenticated RE-MATCH users with role-based access |
+| `datasets` | Uploaded/inspected dataset metadata and profiling snapshot |
+| `dataset_columns` | Per-column schema/profiling facts for a dataset |
+| `matching_jobs` | Matching run header and processing status |
+| `column_mappings` | Saved reference/input field mappings used by a matching job |
+| `matching_configurations` | One configuration snapshot per matching job |
+| `matching_results` | Candidate results and current review state per input record |
+| `review_decisions` | Human review decision history with optional reviewer attribution |
+| `workspaces` | Resumable workflow session linking datasets and matching job |
 
-## 3. Mermaid ERD
+## 3. Current Implemented Relationships
 
 ```mermaid
 erDiagram
-    users ||--o{ workspace_users : "member_of"
-    workspaces ||--o{ workspace_users : "has_members"
     users ||--o{ workspaces : "owns"
+    users ||--o{ review_decisions : "reviews"
 
-    workspaces ||--o{ datasets : "owns"
-    users ||--o{ datasets : "uploads"
-    datasets ||--o{ dataset_columns : "has_columns"
+    workspaces ||--o{ datasets : "contains"
+    workspaces ||--o{ matching_jobs : "contains"
+    workspaces }o--|| datasets : "reference_dataset_id"
+    workspaces }o--|| datasets : "input_dataset_id"
+    workspaces }o--|| matching_jobs : "matching_job_id"
 
-    workspaces ||--o{ matching_jobs : "owns"
-    users ||--o{ matching_jobs : "creates"
+    datasets ||--o{ dataset_columns : "has"
     datasets ||--o{ matching_jobs : "reference_dataset"
     datasets ||--o{ matching_jobs : "input_dataset"
 
-    matching_jobs ||--o{ column_mappings : "has_mappings"
+    matching_jobs ||--o{ column_mappings : "has"
+    matching_jobs ||--|| matching_configurations : "has"
+    matching_jobs ||--o{ matching_results : "produces"
+    matching_jobs ||--o{ review_decisions : "audits"
+
     dataset_columns ||--o{ column_mappings : "reference_column"
     dataset_columns ||--o{ column_mappings : "input_column"
-    matching_jobs ||--|| matching_configurations : "has_config"
-    matching_jobs ||--o{ matching_results : "produces"
 
-    matching_results ||--o{ review_decisions : "reviewed_by"
-    users ||--o{ review_decisions : "decides"
-
-    matching_jobs ||--o{ sync_plans : "has_sync_plan"
-    matching_jobs ||--o{ exports : "generates"
-    sync_plans ||--o{ exports : "applies_to"
-
-    matching_jobs ||--o{ audit_logs : "records"
-    users ||--o{ audit_logs : "performs"
-    matching_jobs ||--o{ ai_recommendations : "receives"
-    users ||--o{ ai_recommendations : "applies"
+    matching_results ||--o{ review_decisions : "decision_history"
 ```
 
-## 4. Table Descriptions
+## 4. Current Implemented Table Notes
 
 | Table | Key fields |
 | --- | --- |
-| `users` | `id`, `full_name`, `username`, `email`, `role`, `password_hash`, `status`, timestamps. |
-| `workspaces` | `id`, `user_id`, `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history`, timestamps. |
-| `workspace_users` | `workspace_id`, `user_id`, `role`, `status`, timestamps. |
-| `datasets` | `id`, `user_id`, `workspace_id`, `uploaded_by_user_id`, `name`, `dataset_role`, `source_type`, `file_format`, `storage_path`, `row_count`, `column_count`, `parse_status`, `schema_snapshot_json`, `profiling_summary_json`, timestamps. |
-| `dataset_columns` | `id`, `dataset_id`, `name`, `normalized_name`, `data_type`, `position`, `null_rate`, `unique_count`, `duplicate_rate`, `pattern`, `stats_json`. |
-| `matching_jobs` | `id`, `user_id`, `workspace_id`, `created_by_user_id`, `reference_dataset_id`, `input_dataset_id`, `status`, `current_step`, `record_counts_json`, `started_at`, `finished_at`, timestamps. |
-| `column_mappings` | `id`, `matching_job_id`, `reference_column_id`, `input_column_id`, `algorithm`, `weight`, `required_match`, `normalization_rule`. |
-| `matching_configurations` | `id`, `matching_job_id`, `preset`, `strategy`, `thresholds_json`, `normalization_json`, `search_optimization_json`, `candidate_generation_json`, `output_config_json`, `advanced_settings_json`, `config_hash`. |
-| `matching_results` | `id`, `workspace_id`, `matching_job_id`, `reference_record_key`, `input_record_key`, `result_type`, `overall_score`, `field_scores_json`, `decision_reason`, `candidate_rank`, timestamps. |
-| `review_decisions` | `id`, `workspace_id`, `matching_job_id`, `matching_result_id`, `reviewer_user_id`, `decision`, `notes`, `decided_at`. |
-| `sync_plans` | `id`, `workspace_id`, `matching_job_id`, `created_by_user_id`, `matched_action`, `unmatched_action`, `possible_action`, `conflict_action`, `summary_json`, `status`, timestamps. |
-| `exports` | `id`, `workspace_id`, `matching_job_id`, `sync_plan_id`, `requested_by_user_id`, `format`, `scope`, `storage_path`, `status`, `generated_at`, timestamps. |
-| `audit_logs` | `id`, `workspace_id`, `user_id`, `matching_job_id`, `entity_type`, `entity_id`, `action`, `metadata_json`, `created_at`. |
-| `ai_recommendations` | `id`, `workspace_id`, `matching_job_id`, `dataset_id`, `target_type`, `target_id`, `recommendation_type`, `payload_json`, `confidence`, `status`, `applied_by_user_id`, timestamps. |
+| `users` | `id`, `name`, `email`, `role`, `password`, `email_verified_at`, timestamps |
+| `datasets` | `id`, `workspace_id`, `dataset_role`, `name`, `original_filename`, `file_format`, `storage_path`, `selected_sheet`, `delimiter`, `header_row`, `row_count`, `column_count`, `parse_status`, `sheet_names`, `preview_rows`, `profiling_summary`, timestamps |
+| `dataset_columns` | `id`, `dataset_id`, `name`, `normalized_name`, `data_type`, `position`, `null_count`, `null_percentage`, `unique_count`, `duplicate_percentage`, `sample_values`, timestamps |
+| `matching_jobs` | `id`, `workspace_id`, `reference_dataset_id`, `input_dataset_id`, `name`, `status`, `processed_count`, `total_count`, `record_counts`, `error_message`, `started_at`, `finished_at`, timestamps |
+| `column_mappings` | `id`, `matching_job_id`, `reference_column_id`, `input_column_id`, `reference_column_name`, `input_column_name`, `algorithm`, `weight`, `required_match`, `metadata`, timestamps |
+| `matching_configurations` | `id`, `matching_job_id`, `preset`, `strategy`, `thresholds`, `normalization`, `search_optimization`, `candidate_generation`, `output_config`, `advanced_settings`, `config_hash`, timestamps |
+| `matching_results` | `id`, `matching_job_id`, `input_record_key`, `reference_record_key`, `result_type`, `review_status`, `review_decision`, `reviewed_at`, `overall_score`, `candidate_rank`, `field_scores`, `candidate_metadata`, `decision_reason`, timestamps |
+| `review_decisions` | `id`, `matching_job_id`, `matching_result_id`, `reviewer_user_id`, `input_record_key`, `selected_reference_record_key`, `decision`, `previous_result_type`, `new_result_type`, `metadata`, `undone_at`, timestamps |
+| `workspaces` | `id`, `user_id`, `name`, `status`, `current_step`, `reference_dataset_id`, `input_dataset_id`, `matching_job_id`, `workflow_state`, `sync_state`, `export_history`, timestamps |
 
-## 5. Key Relationships
+## 5. Current Ownership Rule
 
-- A user may belong to many workspaces through `workspace_users`.
-- A workspace owns datasets, matching jobs, results, review decisions, sync plans, exports, audit logs, and AI recommendations.
-- A matching job connects one reference dataset and one input dataset, then owns mappings, configuration, results, sync plans, exports, and audit entries.
-- `column_mappings` links profiled columns from both datasets and stores the selected algorithm/weight for each pair.
-- `matching_results` can receive one or more `review_decisions` so review history remains traceable.
-- `sync_plans` define what happens after review: skip matched records, append unmatched records, handle possible matches, and resolve conflicts.
-- AI recommendations are optional and reviewable. They must never overwrite user choices without confirmation, and applied recommendations should be recorded in `audit_logs`.
+- Ownership root is `workspaces.user_id`
+- `datasets.workspace_id` and `matching_jobs.workspace_id` now anchor child ownership directly to workspace
+- `matching_results` derive ownership from `matching_job_id -> matching_jobs.workspace_id`
+- `review_decisions` derive ownership from `matching_job_id` and optionally `matching_result_id`
+- No direct `user_id` is added to datasets, jobs, results, or decisions for ownership
 
-## 6. Ownership Rule
+## 6. Future / Target Entities
 
-Every job, dataset, result, export, and audit log belongs to a workspace and is attributable to a user where applicable.
+These entities are still part of the broader target architecture, but they are **not implemented in migrations yet**:
 
-- Current implemented ownership is enforced directly with `user_id` on `workspaces`, `datasets`, and `matching_jobs`.
-- User attribution is stored with fields such as `created_by_user_id`, `uploaded_by_user_id`, `requested_by_user_id`, `reviewer_user_id`, and `user_id`.
-- API queries must always filter by authenticated ownership or elevated role, with workspace membership reserved for a future collaboration milestone.
-- Cross-workspace access is not allowed, including files, exports, review history, AI recommendations, and audit trail records.
+- `workspace_users`
+- `sync_plans`
+- `exports`
+- `audit_logs`
+- `ai_recommendations`
 
-## 7. Suggested Indexes
+They remain valid future design directions, but must not be treated as current schema.
 
-| Table | Suggested indexes |
-| --- | --- |
-| `users` | Unique `email`, unique `username`. |
-| `workspaces` | `user_id`, (`user_id`, `status`), `updated_at`. |
-| `workspace_users` | Unique (`workspace_id`, `user_id`), `user_id`, `role`. |
-| `datasets` | (`user_id`, `dataset_role`), (`workspace_id`, `parse_status`), (`workspace_id`, `uploaded_by_user_id`), (`workspace_id`, `file_format`). |
-| `dataset_columns` | (`dataset_id`, `normalized_name`), (`dataset_id`, `position`). |
-| `matching_jobs` | (`user_id`, `status`), (`workspace_id`, `status`, `created_at`), (`created_by_user_id`, `created_at`), `reference_dataset_id`, `input_dataset_id`. |
-| `column_mappings` | `matching_job_id`, `reference_column_id`, `input_column_id`. |
-| `matching_configurations` | Unique `matching_job_id`, `config_hash`. |
-| `matching_results` | (`workspace_id`, `matching_job_id`, `result_type`), (`matching_job_id`, `overall_score`), (`matching_job_id`, `input_record_key`), (`matching_job_id`, `reference_record_key`). |
-| `review_decisions` | (`workspace_id`, `matching_job_id`), `matching_result_id`, (`reviewer_user_id`, `decided_at`). |
-| `sync_plans` | (`workspace_id`, `matching_job_id`, `status`). |
-| `exports` | (`workspace_id`, `matching_job_id`, `status`), (`requested_by_user_id`, `created_at`). |
-| `audit_logs` | (`workspace_id`, `created_at`), (`user_id`, `created_at`), (`entity_type`, `entity_id`), (`matching_job_id`, `created_at`). |
-| `ai_recommendations` | (`workspace_id`, `matching_job_id`, `recommendation_type`), (`target_type`, `target_id`), `status`. |
+## 7. Current Implemented Vertical Slice
 
-## 8. Migration Order
+- `datasets` stores inspected CSV/XLSX upload metadata, selected sheet/delimiter/header row, row/column counts, preview rows, and profiling summary
+- `dataset_columns` stores detected column type, position, null count/percentage, unique count, duplicate percentage, and sample values
+- `workspaces` stores resumable workflow sessions with linked reference/input datasets, matching job, current step, status, and compact workflow snapshot
+- `matching_jobs` now also store nullable `workspace_id` for direct ownership anchoring
+- `datasets` now also store nullable `workspace_id` for direct ownership anchoring
+- `review_decisions` now support nullable `reviewer_user_id` for reviewer attribution
+- Current workspace delete removes only the workspace/session row. Linked datasets, matching jobs, and reference data are not deleted by workspace delete
+- Current implemented auth metadata adds `users.role` with allowed values `admin`, `user`, and `pimpinan`
+- Admin owner reassignment currently rebinds linked workspace, dataset, and matching job ownership together
 
-1. `users`
-2. `workspaces`
-3. `workspace_users`
-4. `datasets`
-5. `dataset_columns`
-6. `matching_jobs`
-7. `column_mappings`
-8. `matching_configurations`
-9. `matching_results`
-10. `review_decisions`
-11. `sync_plans`
-12. `exports`
-13. `ai_recommendations`
-14. `audit_logs`
+## Database Normalization & Integrity Audit
 
-This order creates parent records before dependent records. `audit_logs` should be last because it references activity across multiple domain entities.
+Audit scope: actual migrations and models as of 2026-08-13, plus `ResourceOwnership`. This section reflects the implemented schema, not the earlier target design above.
 
-## Implemented Vertical Slice
+### Current Normalization Status
 
-- `datasets` stores inspected CSV/XLSX upload metadata, selected sheet/delimiter/header row, row/column counts, preview rows, and profiling summary.
-- `dataset_columns` stores detected column type, position, null count/percentage, unique count, duplicate percentage, and sample values.
-- `workspaces` stores resumable workflow sessions with linked reference/input datasets, matching job, current step, status, and compact workflow snapshot.
-- Current workspace delete removes only the workspace/session row. Linked datasets, matching jobs, and reference data are not deleted by workspace delete.
-- Direct owner columns now exist on `datasets`, `matching_jobs`, and `workspaces`.
-- Current implemented auth metadata adds `users.role` with allowed values `admin`, `user`, and `pimpinan`.
-- Admin owner reassignment currently rebinds linked workspace, dataset, and matching job ownership together.
+- Core transactional tables are mostly in 3NF.
+- Several tables are naturally close to BCNF where one row represents one entity or one parent-owned child fact.
+- Controlled denormalization is already used intentionally in JSON snapshot/evidence columns and should remain.
+- The main integrity gap is not basic normalization. It is ownership traceability and missing constraints around parent-child uniqueness.
+
+### Actual Ownership Shape
+
+- `users` owns `workspaces` directly through `workspaces.user_id`
+- `datasets.workspace_id` and `matching_jobs.workspace_id` now anchor child ownership directly to workspace
+- `matching_results` continue to derive ownership through `matching_job_id -> matching_jobs.workspace_id`
+- `review_decisions` continue to derive ownership through `matching_job_id` and optionally `matching_result_id`
+- The schema now aligns better with `User -> Workspace -> child workflow resources` without adding redundant direct `user_id` to child workflow tables
+
+### Table Audit Summary
+
+#### `users`
+
+- PK: `id`
+- UNIQUE: `email`
+- Other notable columns: `role`, `email_verified_at`, `password`
+- Normalization:
+  - 1NF: yes, scalar values only
+  - 2NF: yes, single-column PK
+  - 3NF: yes, non-key attributes depend on `id`
+  - BCNF: yes for current scope, assuming `email` is the only alternate key
+- Notes:
+  - `role` is controlled by application enum, not DB constraint
+  - `email_verified_at` depends on the user entity, not on another non-key attribute
+
+#### `datasets`
+
+- PK: `id` (UUID)
+- FK: `workspace_id -> workspaces.id` `nullOnDelete`
+- Indexes: (`dataset_role`, `parse_status`), `file_format`, `created_at`
+- JSON: `sheet_names`, `preview_rows`, `profiling_summary`
+- Normalization:
+  - 1NF: relationally yes; JSON columns are intentional structured blobs
+- 2NF: yes, single-column PK
+- 3NF: mostly yes; file metadata and profiling snapshot depend on dataset identity
+- BCNF: acceptable if one dataset row represents one uploaded/inspected artifact
+- Notes:
+  - `workspace_id` is nullable for migration/backfill compatibility
+  - `preview_rows` and `profiling_summary` are intentional denormalization for auditability/performance
+
+#### `dataset_columns`
+
+- PK: `id` (UUID)
+- FK: `dataset_id -> datasets.id` `cascadeOnDelete`
+- Indexes: (`dataset_id`, `normalized_name`), (`dataset_id`, `position`)
+- JSON: `sample_values`
+- Normalization:
+  - 1NF: mostly yes; `sample_values` is intentional denormalization
+  - 2NF: yes
+  - 3NF: mostly yes; profiling metrics depend on the column within a dataset
+  - BCNF: not fully guaranteed because the natural determinant should be at least (`dataset_id`, `position`) or (`dataset_id`, `name`)
+- Notes:
+  - UNIQUE (`dataset_id`, `position`) is now implemented
+  - Repeated normalized names may still be possible if source headers collide intentionally
+
+#### `matching_jobs`
+
+- PK: `id` (UUID)
+- FK:
+  - `workspace_id -> workspaces.id` `nullOnDelete`
+  - `reference_dataset_id -> datasets.id` `cascadeOnDelete`
+  - `input_dataset_id -> datasets.id` `cascadeOnDelete`
+- Indexes: (`status`, `created_at`), `reference_dataset_id`, `input_dataset_id`
+- JSON: `record_counts`
+- Normalization:
+  - 1NF: yes, with intentional JSON snapshot
+- 2NF: yes
+- 3NF: yes; job progress/status facts depend on the job
+- BCNF: broadly yes
+- Notes:
+  - `workspace_id` is nullable for migration/backfill compatibility
+  - Existing `workspaces.matching_job_id` is preserved for workflow compatibility
+
+#### `column_mappings`
+
+- PK: `id` (UUID)
+- FK:
+  - `matching_job_id -> matching_jobs.id` `cascadeOnDelete`
+  - `reference_column_id -> dataset_columns.id` `nullOnDelete`
+  - `input_column_id -> dataset_columns.id` `nullOnDelete`
+- Indexes: `matching_job_id`, `reference_column_id`, `input_column_id`
+- JSON: `metadata`
+- Normalization:
+  - 1NF: yes, with intentional JSON metadata
+  - 2NF: yes
+  - 3NF: mixed
+  - BCNF: no
+- Functional dependency concern:
+  - If `reference_column_id` is present, then `reference_column_name` is derivable from `dataset_columns.name`
+  - If `input_column_id` is present, then `input_column_name` is derivable from `dataset_columns.name`
+  - Therefore `reference_column_name` and `input_column_name` are redundant when FK columns are non-null
+- Classification:
+  - KEEP as intentional denormalization for audit snapshot and resilience after `nullOnDelete`
+- Notes:
+  - UNIQUE (`matching_job_id`, `reference_column_name`) is now implemented to prevent duplicate reference-field mappings inside one job
+  - Current design mixes normalized references with snapshot names intentionally
+
+#### `matching_configurations`
+
+- PK: `id` (UUID)
+- FK: `matching_job_id -> matching_jobs.id` `cascadeOnDelete`
+- UNIQUE: `matching_job_id`
+- Index: `config_hash`
+- JSON:
+  - `thresholds`
+  - `normalization`
+  - `search_optimization`
+  - `candidate_generation`
+  - `output_config`
+  - `advanced_settings`
+- Normalization:
+  - 1NF: acceptable with intentional JSON configuration document
+  - 2NF: yes
+  - 3NF: yes for a one-row-per-job configuration snapshot
+  - BCNF: acceptable because `matching_job_id` is a unique alternate key
+- Classification:
+  - KEEP as intentional denormalization
+
+#### `matching_results`
+
+- PK: `id` (UUID)
+- FK: `matching_job_id -> matching_jobs.id` `cascadeOnDelete`
+- Indexes:
+  - (`matching_job_id`, `result_type`)
+  - (`matching_job_id`, `input_record_key`)
+  - (`matching_job_id`, `overall_score`)
+  - (`matching_job_id`, `review_status`)
+- JSON: `field_scores`, `candidate_metadata`
+- Normalization:
+  - 1NF: acceptable with intentional evidence JSON
+  - 2NF: yes
+  - 3NF: mixed but acceptable
+  - BCNF: not guaranteed because candidate rows are effectively identified by business facts such as (`matching_job_id`, `input_record_key`, `candidate_rank`) or (`matching_job_id`, `input_record_key`, `reference_record_key`)
+- Notes:
+  - UNIQUE (`matching_job_id`, `input_record_key`, `candidate_rank`) is now implemented
+  - Missing uniqueness or partial constraint to prevent duplicate candidate rows per input/reference pair
+  - `review_decision` and `reviewed_at` duplicate latest-review state from `review_decisions`, but this is acceptable as current-state cache
+- Classification:
+  - KEEP review-state columns as intentional denormalization for fast workflow reads
+
+#### `review_decisions`
+
+- PK: `id` (UUID)
+- FK:
+  - `matching_job_id -> matching_jobs.id` `cascadeOnDelete`
+  - `matching_result_id -> matching_results.id` `nullOnDelete`
+  - `reviewer_user_id -> users.id` `nullOnDelete`
+- Indexes: (`matching_job_id`, `input_record_key`), (`matching_job_id`, `decision`)
+- JSON: `metadata`
+- Normalization:
+  - 1NF: acceptable with intentional metadata JSON
+  - 2NF: yes
+  - 3NF: yes if each row is one decision event
+  - BCNF: broadly yes
+- Notes:
+  - `matching_result_id` nullable is valid because decision history can outlive a deleted candidate row
+  - `reviewer_user_id` is nullable for historical rows and history retention
+
+#### `workspaces`
+
+- PK: `id` (UUID)
+- FK:
+  - `user_id -> users.id` `nullOnDelete`
+  - `reference_dataset_id -> datasets.id` `nullOnDelete`
+  - `input_dataset_id -> datasets.id` `nullOnDelete`
+  - `matching_job_id -> matching_jobs.id` `nullOnDelete`
+- Indexes: `status`, `current_step`, `updated_at`, (`user_id`, `status`)
+- JSON: `workflow_state`, `sync_state`, `export_history`
+- Normalization:
+  - 1NF: acceptable with intentional JSON workflow snapshots
+  - 2NF: yes
+  - 3NF: mixed but acceptable
+  - BCNF: not strict because snapshot columns embed multi-concern state by design
+- Notes:
+  - `workflow_state`, `sync_state`, and `export_history` are intentional denormalization
+  - `nullOnDelete` on `user_id` means a workspace can survive without owner
+  - This may be operationally acceptable but creates ownership-orphan risk
+
+### Key Integrity Issues
+
+1. **Documentation drift from actual schema**  
+   - Priority: HIGH  
+   - Classification: KEEP schema / fix docs  
+   - `docs/DATABASE.md` still states direct owner columns on `datasets` and `matching_jobs`, but actual migrations only add `workspaces.user_id`
+
+2. **Ownership enforcement is still mixed between direct and derived paths**  
+   - Priority: MEDIUM  
+   - Classification: KEEP / NORMALIZE LATER  
+   - `datasets` and `matching_jobs` now carry `workspace_id`
+   - `matching_results` and `review_decisions` still derive ownership through `matching_job_id`
+
+3. **`dataset_columns` natural-key coverage is improved but still partial**  
+   - Priority: LOW  
+   - Classification: KEEP / ADD CONSTRAINT LATER  
+   - (`dataset_id`, `position`) is now unique
+   - Duplicate normalized names are still possible when source headers collide
+
+4. **`matching_results` candidate-level uniqueness is only partially enforced**  
+   - Priority: LOW  
+   - Classification: KEEP / ADD CONSTRAINT LATER  
+   - (`matching_job_id`, `input_record_key`, `candidate_rank`) is now unique
+   - Duplicate pairs by `reference_record_key` are still theoretically possible under different ranks
+
+5. **`column_mappings` uniqueness now depends on reference snapshot name**  
+   - Priority: LOW  
+   - Classification: KEEP  
+   - This is aligned with current workflow rules where one reference field is mapped once per job
+
+6. **`workspaces.user_id` uses `nullOnDelete`**  
+   - Priority: MEDIUM  
+   - Classification: ADD CONSTRAINT / KEEP depending on retention policy  
+   - Prevents destructive cascade, but can leave ownerless workspaces
+
+7. **Missing ownership-path indexes for derived access control**  
+   - Priority: MEDIUM  
+   - Classification: ADD INDEX  
+   - Current permission scoping repeatedly traverses `workspaces(user_id, reference_dataset_id, input_dataset_id, matching_job_id)`
+
+8. **No FK from `matching_results.reference_record_key` or `input_record_key`**  
+   - Priority: LOW  
+   - Classification: KEEP  
+   - Acceptable because record keys refer to row-level source data, not normalized entity tables
+
+### Intentional Denormalization To Keep
+
+- `datasets.sheet_names`
+- `datasets.preview_rows`
+- `datasets.profiling_summary`
+- `dataset_columns.sample_values`
+- `column_mappings.reference_column_name`
+- `column_mappings.input_column_name`
+- `column_mappings.metadata`
+- `matching_configurations.*json`
+- `matching_jobs.record_counts`
+- `matching_results.field_scores`
+- `matching_results.candidate_metadata`
+- `matching_results.review_decision` and `reviewed_at` as latest-state cache
+- `review_decisions.metadata`
+- `workspaces.workflow_state`
+- `workspaces.sync_state`
+- `workspaces.export_history`
+
+These are justified for auditability, replay, evidence preservation, and avoiding expensive reconstruction from source files or review history.
+
+### Recommended Fixes
+
+1. **MEDIUM — ADD INDEX**  
+   Add indexes that match ownership traversal and common admin/review access patterns, especially around workspace-linked dataset/job lookup.
+
+2. **MEDIUM — ADD CONSTRAINT or POLICY**  
+   Decide whether ownerless workspaces are valid. If not, replace `nullOnDelete` ownership behavior with an explicit reassignment/archive policy.
+
+3. **LOW — ADD CONSTRAINT LATER**  
+   Evaluate whether `dataset_columns` also needs uniqueness on (`dataset_id`, `normalized_name`) or (`dataset_id`, `name`) based on real-world duplicate-header handling.
+
+4. **LOW — ADD CONSTRAINT LATER**  
+   Evaluate whether `matching_results` also needs uniqueness on (`matching_job_id`, `input_record_key`, `reference_record_key`) when `reference_record_key` is not null.
