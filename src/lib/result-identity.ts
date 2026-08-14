@@ -2,14 +2,16 @@ import type { ReviewCandidate, ReviewItem } from "@/lib/api";
 
 type RecordValue = string | number | boolean | null;
 type RecordData = Record<string, RecordValue>;
+export type IdentitySide = "input" | "reference";
 
 export type IdentitySemantic =
   | "name"
-  | "primary_identifier"
-  | "secondary_identifier"
+  | "strong_identifier"
+  | "address"
   | "province"
   | "city"
-  | "address"
+  | "email"
+  | "phone"
   | "other";
 
 export type IdentityFieldPair = {
@@ -23,9 +25,12 @@ export type IdentityFieldPair = {
 export type IdentitySummaryRow = {
   semantic: IdentitySemantic;
   label: string;
+  inputColumn: string | null;
+  referenceColumn: string | null;
   inputValue: string | null;
   referenceValue: string | null;
   changed: boolean;
+  priority: number;
 };
 
 export type IdentitySummary = {
@@ -35,88 +40,78 @@ export type IdentitySummary = {
   hasReference: boolean;
 };
 
+export type IdentityFieldValue = {
+  semantic: IdentitySemantic;
+  label: string;
+  column: string | null;
+  value: string;
+  priority: number;
+};
+
+export type RecordIdentity = {
+  headline: string;
+  meta: string;
+  fields: IdentityFieldValue[];
+};
+
 const EXCLUDED_HINTS = [
-  "status",
-  "sektor",
+  "industry",
   "sector",
+  "status",
   "kategori",
   "category",
-  "industry",
+  "sektor",
   "bidang",
   "jenis",
-  "type",
-];
-
-const PRIMARY_IDENTIFIER_HINTS = [
-  "npwp",
-  "nib",
-  "taxid",
-  "taxnumber",
-  "registrationnumber",
-  "registrationid",
-  "businessregistration",
-  "permitnumber",
-  "license",
-  "legalid",
-  "nomorinduk",
-];
-
-const SECONDARY_IDENTIFIER_HINTS = [
-  "idusaha",
-  "idperusahaan",
-  "companyid",
-  "entityid",
-  "businessid",
-  "kodeusaha",
-  "kodeperusahaan",
-  "kode",
-  "code",
-  "identifier",
-  "registration",
-  "id",
 ];
 
 const NAME_HINTS = [
   "namaperusahaan",
+  "namaperusahaanresmi",
+  "namaperusahaanlengkap",
+  "namaperusahaanbadanusaha",
+  "namaperusahaanentitas",
+  "namaperusahaanusaha",
+  "namaperusahaanutama",
+  "namaperusahaanoperasional",
+  "namaperusahaandagang",
   "namausaha",
+  "namausaharesmi",
   "namabadanusaha",
+  "namaentitas",
+  "namaentity",
+  "nama",
+  "companyname",
+  "companylegalname",
+  "companydisplayname",
+  "businessname",
+  "entityname",
   "legalname",
   "tradingname",
-  "entityname",
-  "companyname",
-  "businessname",
-  "namaentitas",
-  "perusahaan",
-  "usaha",
-  "entity",
-  "company",
-  "business",
-  "nama",
 ];
 
+const STRONG_IDENTIFIER_HINTS = [
+  "idperusahaan",
+  "companyid",
+  "idusaha",
+  "businessid",
+  "entityid",
+  "nib",
+  "npwp",
+  "nomornpwp",
+  "taxid",
+  "kodeperusahaan",
+  "kodeusaha",
+  "registrationnumber",
+  "registrationid",
+  "businessregistration",
+];
+
+const EMAIL_HINTS = ["emailperusahaan", "emailusaha", "email"];
+const PHONE_HINTS = ["notelp", "nomortelp", "notelepon", "telephone", "telepon", "phone", "nohp", "mobile"];
+const ADDRESS_HINTS = ["alamatperusahaan", "alamatoperasional", "address", "alamat", "jalan", "street", "addr", "lokasi"];
 const PROVINCE_HINTS = ["provinsi", "province", "nmprov", "prov"];
-const CITY_HINTS = [
-  "kabupatenkota",
-  "kabkota",
-  "kabkot",
-  "kabupaten",
-  "regency",
-  "nmkab",
-  "city",
-  "kota",
-  "kab",
-];
-const ADDRESS_HINTS = [
-  "alamatoperasional",
-  "alamatperusahaan",
-  "address",
-  "alamat",
-  "street",
-  "jalan",
-  "addr",
-  "lokasi",
-  "location",
-];
+const CITY_HINTS = ["kabupatenkota", "kabkota", "kabupaten", "regency", "city", "kota", "nmkab", "kab"];
 
 export function extractIdentityMappings(workflowState: unknown): IdentityFieldPair[] {
   const state = readRecord(workflowState);
@@ -158,12 +153,9 @@ export function buildIdentitySummary(
     .map((pair) => buildAlignedRow(pair, inputRecord, referenceRecord))
     .filter((row): row is IdentitySummaryRow => Boolean(row));
 
-  const fallbackRows = alignedRows.length > 0
-    ? []
-    : buildFallbackRows(inputRecord, referenceRecord);
-
+  const fallbackRows = buildFallbackRows(inputRecord, referenceRecord, alignedRows);
   const detailRows = dedupeRows([...alignedRows, ...fallbackRows]).sort(
-    (left, right) => semanticPriority(left.semantic) - semanticPriority(right.semantic),
+    (left, right) => left.priority - right.priority,
   );
 
   const primary =
@@ -171,16 +163,130 @@ export function buildIdentitySummary(
     detailRows.find((row) => row.inputValue || row.referenceValue) ??
     null;
 
-  const rows = detailRows
-    .filter((row) => !sameIdentityRow(row, primary))
-    .slice(0, 4);
-
   return {
     primary,
-    rows,
+    rows: detailRows.filter((row) => !sameIdentityRow(row, primary)).slice(0, 5),
     detailRows,
     hasReference: Boolean(referenceRecord),
   };
+}
+
+export function buildRecordIdentity(
+  record: RecordData,
+  side: IdentitySide,
+  pairs: IdentityFieldPair[],
+): RecordIdentity {
+  const explicit = dedupeIdentityFields(
+    pairs
+      .map((pair) => {
+        const column = side === "input" ? pair.inputColumn : pair.referenceColumn;
+        if (!column) return null;
+        const value = stringifyRecordValue(record[column]);
+        if (!value) return null;
+
+        return {
+          semantic: pair.semantic,
+          label: humanizeColumn(column),
+          column,
+          value,
+          priority: semanticPriority(pair.semantic),
+        };
+      })
+      .filter((item): item is IdentityFieldValue => Boolean(item)),
+  );
+
+  const fallback = dedupeIdentityFields(rankRecordFields(record));
+  const fields = dedupeIdentityFields([...explicit, ...fallback]).sort(
+    (left, right) => left.priority - right.priority,
+  );
+
+  const headlineField =
+    fields.find((field) => field.semantic === "name") ??
+    fields.find((field) => field.semantic === "strong_identifier") ??
+    fields[0] ??
+    null;
+
+  const headline = headlineField?.value ?? "-";
+  const location = buildLocationMeta(fields);
+  const identifier = fields.find(
+    (field) => field.semantic === "strong_identifier" && field.value !== headline,
+  );
+  const address = fields.find((field) => field.semantic === "address" && field.value !== headline);
+  const email = fields.find((field) => field.semantic === "email" && field.value !== headline);
+  const phone = fields.find((field) => field.semantic === "phone" && field.value !== headline);
+
+  const metaParts = [
+    identifier ? formatIdentityField(identifier) : null,
+    location,
+    address ? formatIdentityField(address) : null,
+    email ? formatIdentityField(email) : null,
+    phone ? formatIdentityField(phone) : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    headline,
+    meta: metaParts.join(" | ") || "-",
+    fields,
+  };
+}
+
+export function buildSideIdentity(summary: IdentitySummary, side: IdentitySide): RecordIdentity {
+  const fields = summary.detailRows
+    .map((row) => {
+      const value = side === "input" ? row.inputValue : row.referenceValue;
+      const column = side === "input" ? row.inputColumn : row.referenceColumn;
+      if (!value) return null;
+
+      return {
+        semantic: row.semantic,
+        label: row.label,
+        column,
+        value,
+        priority: row.priority,
+      };
+    })
+    .filter((item): item is IdentityFieldValue => Boolean(item));
+
+  const headlineField =
+    fields.find((field) => field.semantic === "name") ??
+    fields.find((field) => field.semantic === "strong_identifier") ??
+    fields[0] ??
+    null;
+
+  const headline = headlineField?.value ?? "-";
+  const location = buildLocationMeta(fields);
+  const identifier = fields.find(
+    (field) => field.semantic === "strong_identifier" && field.value !== headline,
+  );
+  const address = fields.find((field) => field.semantic === "address" && field.value !== headline);
+  const email = fields.find((field) => field.semantic === "email" && field.value !== headline);
+  const phone = fields.find((field) => field.semantic === "phone" && field.value !== headline);
+
+  const metaParts = [
+    identifier ? formatIdentityField(identifier) : null,
+    location,
+    address ? formatIdentityField(address) : null,
+    email ? formatIdentityField(email) : null,
+    phone ? formatIdentityField(phone) : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    headline,
+    meta: metaParts.join(" | ") || "-",
+    fields,
+  };
+}
+
+export function sortFieldScores(
+  scores: ReviewCandidate["field_scores"],
+): ReviewCandidate["field_scores"] {
+  return [...scores].sort((left, right) => {
+    const leftSemantic = classifyPairSemantic(left.input_column, left.reference_column);
+    const rightSemantic = classifyPairSemantic(right.input_column, right.reference_column);
+    const semanticDiff = semanticPriority(leftSemantic) - semanticPriority(rightSemantic);
+    if (semanticDiff !== 0) return semanticDiff;
+    return left.reference_column.localeCompare(right.reference_column);
+  });
 }
 
 function extractCandidatePairs(candidate: ReviewCandidate | null): IdentityFieldPair[] {
@@ -222,41 +328,50 @@ function buildAlignedRow(
 
   return {
     semantic: pair.semantic,
-    label: pair.inputColumn ?? pair.referenceColumn ?? "",
+    label: bestLabel(pair.inputColumn, pair.referenceColumn, pair.semantic),
+    inputColumn: pair.inputColumn,
+    referenceColumn: pair.referenceColumn,
     inputValue,
     referenceValue,
     changed: normalizeValue(inputValue) !== normalizeValue(referenceValue),
+    priority: pair.priority,
   };
 }
 
-function buildFallbackRows(inputRecord: RecordData, referenceRecord: RecordData | null) {
+function buildFallbackRows(
+  inputRecord: RecordData,
+  referenceRecord: RecordData | null,
+  existingRows: IdentitySummaryRow[],
+) {
+  const seenSemantics = new Set(existingRows.map((row) => row.semantic));
   const inputFields = rankRecordFields(inputRecord);
   const referenceFields = referenceRecord ? rankRecordFields(referenceRecord) : [];
-  const selected = new Map<string, IdentitySummaryRow>();
+  const rows: IdentitySummaryRow[] = [];
 
-  for (const field of [...inputFields, ...referenceFields]) {
-    const key = field.semantic;
-    if (selected.has(key)) continue;
+  for (const semantic of ["name", "strong_identifier", "address", "province", "city", "email", "phone", "other"] as const) {
+    if (seenSemantics.has(semantic)) continue;
 
-    const inputValue = inputFields.find((item) => item.semantic === field.semantic)?.value ?? null;
-    const referenceValue =
-      referenceFields.find((item) => item.semantic === field.semantic)?.value ?? null;
+    const inputField = inputFields.find((field) => field.semantic === semantic) ?? null;
+    const referenceField = referenceFields.find((field) => field.semantic === semantic) ?? null;
 
-    if (!inputValue && !referenceValue) continue;
+    if (!inputField && !referenceField) continue;
 
-    selected.set(key, {
-      semantic: field.semantic,
-      label: field.column,
-      inputValue,
-      referenceValue,
-      changed: normalizeValue(inputValue) !== normalizeValue(referenceValue),
+    rows.push({
+      semantic,
+      label: bestLabel(inputField?.column ?? null, referenceField?.column ?? null, semantic),
+      inputColumn: inputField?.column ?? null,
+      referenceColumn: referenceField?.column ?? null,
+      inputValue: inputField?.value ?? null,
+      referenceValue: referenceField?.value ?? null,
+      changed: normalizeValue(inputField?.value ?? null) !== normalizeValue(referenceField?.value ?? null),
+      priority: semanticPriority(semantic),
     });
   }
 
-  return Array.from(selected.values());
+  return rows;
 }
 
-function rankRecordFields(record: RecordData) {
+function rankRecordFields(record: RecordData): IdentityFieldValue[] {
   return Object.entries(record)
     .map(([column, value]) => ({
       column,
@@ -264,8 +379,14 @@ function rankRecordFields(record: RecordData) {
       semantic: classifySemantic(column),
     }))
     .filter((item) => item.value && !isExcludedColumn(item.column))
-    .sort((left, right) => semanticPriority(left.semantic) - semanticPriority(right.semantic))
-    .slice(0, 5);
+    .map((item) => ({
+      semantic: item.semantic,
+      label: humanizeColumn(item.column),
+      column: item.column,
+      value: item.value as string,
+      priority: semanticPriority(item.semantic),
+    }))
+    .sort((left, right) => left.priority - right.priority);
 }
 
 function dedupePairs(pairs: IdentityFieldPair[]) {
@@ -291,6 +412,17 @@ function dedupeRows(rows: IdentitySummaryRow[]) {
   });
 }
 
+function dedupeIdentityFields(fields: IdentityFieldValue[]) {
+  const seen = new Set<string>();
+
+  return fields.filter((field) => {
+    const key = `${field.semantic}:${normalizeValue(field.value)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function sameIdentityRow(row: IdentitySummaryRow, other: IdentitySummaryRow | null) {
   if (!other) return false;
   return (
@@ -303,14 +435,13 @@ function sameIdentityRow(row: IdentitySummaryRow, other: IdentitySummaryRow | nu
 function classifySemantic(columnName: string): IdentitySemantic {
   const normalized = normalizeColumnName(columnName);
 
+  if (matchesAny(normalized, NAME_HINTS) && !isExcludedColumn(columnName)) return "name";
+  if (matchesAny(normalized, STRONG_IDENTIFIER_HINTS) && !isExcludedColumn(columnName)) return "strong_identifier";
+  if (matchesAny(normalized, ADDRESS_HINTS)) return "address";
   if (matchesAny(normalized, PROVINCE_HINTS)) return "province";
   if (matchesAny(normalized, CITY_HINTS)) return "city";
-  if (matchesAny(normalized, ADDRESS_HINTS)) return "address";
-  if (matchesAny(normalized, PRIMARY_IDENTIFIER_HINTS)) return "primary_identifier";
-  if (matchesAny(normalized, NAME_HINTS) && !isExcludedColumn(columnName)) return "name";
-  if (matchesAny(normalized, SECONDARY_IDENTIFIER_HINTS) && !isExcludedColumn(columnName)) {
-    return normalized === "id" ? "secondary_identifier" : "secondary_identifier";
-  }
+  if (matchesAny(normalized, EMAIL_HINTS)) return "email";
+  if (matchesAny(normalized, PHONE_HINTS)) return "phone";
 
   return "other";
 }
@@ -327,19 +458,79 @@ function semanticPriority(semantic: IdentitySemantic) {
   switch (semantic) {
     case "name":
       return 1;
-    case "primary_identifier":
+    case "strong_identifier":
       return 2;
-    case "secondary_identifier":
+    case "address":
       return 3;
     case "province":
       return 4;
     case "city":
       return 5;
-    case "address":
+    case "email":
       return 6;
-    default:
+    case "phone":
       return 7;
+    default:
+      return 8;
   }
+}
+
+function bestLabel(
+  inputColumn: string | null,
+  referenceColumn: string | null,
+  semantic: IdentitySemantic,
+) {
+  return humanizeColumn(inputColumn ?? referenceColumn ?? semanticLabel(semantic));
+}
+
+function semanticLabel(semantic: IdentitySemantic) {
+  switch (semantic) {
+    case "name":
+      return "Company Name";
+    case "strong_identifier":
+      return "Identifier";
+    case "address":
+      return "Address";
+    case "province":
+      return "Province";
+    case "city":
+      return "Kabupaten/Kota";
+    case "email":
+      return "Email";
+    case "phone":
+      return "Phone";
+    default:
+      return "Field";
+  }
+}
+
+function buildLocationMeta(fields: IdentityFieldValue[]) {
+  const city = fields.find((field) => field.semantic === "city");
+  const province = fields.find((field) => field.semantic === "province");
+
+  if (city && province) return `${city.value}, ${province.value}`;
+  if (city) return city.value;
+  if (province) return province.value;
+  return null;
+}
+
+function formatIdentityField(field: IdentityFieldValue) {
+  if (field.semantic === "strong_identifier" || field.semantic === "email" || field.semantic === "phone") {
+    return `${field.label} ${field.value}`;
+  }
+
+  return field.value;
+}
+
+function humanizeColumn(value: string) {
+  const normalized = value
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return value;
+
+  return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function normalizeColumnName(value: string | null | undefined) {

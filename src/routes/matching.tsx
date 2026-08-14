@@ -45,6 +45,15 @@ import {
   undoReviewDecision,
 } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
+import {
+  buildIdentitySummary,
+  buildRecordIdentity,
+  buildSideIdentity,
+  extractIdentityMappings,
+  sortFieldScores,
+  type IdentityFieldPair,
+  type IdentitySemantic,
+} from "@/lib/result-identity";
 import { buildMatchingSearch, buildResultsSearch, validateWorkflowSearch } from "@/lib/workflow-route";
 import {
   Check,
@@ -897,7 +906,11 @@ function MatchingPage() {
             />
           )}
           {activeStep === 6 && (
-            <StepReview jobId={runResult?.job.id ?? null} canDecide={canReviewDecide} />
+            <StepReview
+              jobId={runResult?.job.id ?? null}
+              canDecide={canReviewDecide}
+              columnMappings={columnMappings}
+            />
           )}
           {activeStep === 7 && (
             <StepSynchronize
@@ -3460,9 +3473,11 @@ type CaseGroupFilter = "open" | "resolved" | "all";
 function StepReview({
   jobId,
   canDecide,
+  columnMappings,
 }: {
   jobId: string | null;
   canDecide: boolean;
+  columnMappings: ColumnMappingDraft[];
 }) {
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
@@ -3475,9 +3490,15 @@ function StepReview({
   const [selectedGroupKeys, setSelectedGroupKeys] = useState<Record<string, string[]>>({});
   const [selected, setSelected] = useState<ReviewItem | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [pendingRecords, setPendingRecords] = useState<Record<string, string>>({});
+  const [pendingGroups, setPendingGroups] = useState<Record<string, string>>({});
+  const [pendingUndos, setPendingUndos] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState(1);
   const perPage = 8;
+  const identityMappings = useMemo(
+    () => extractIdentityMappings({ columnMappings }),
+    [columnMappings],
+  );
 
   useEffect(() => {
     if (!jobId) {
@@ -3551,6 +3572,18 @@ function StepReview({
     selected?.candidates.find((candidate) => candidate.id === selectedCandidateId) ??
     selected?.candidates[0] ??
     null;
+  const selectedSummary = selected
+    ? buildIdentitySummary(selected, selectedCandidate, identityMappings)
+    : null;
+
+  const openRecord = useCallback((item: ReviewItem, candidateId?: string | null) => {
+    const candidate =
+      item.candidates.find((entry) => entry.id === candidateId) ??
+      item.candidates[0] ??
+      null;
+    setSelected(item);
+    setSelectedCandidateId(candidate?.id ?? null);
+  }, []);
 
   const toggleSelectedGroupKey = (group: ReviewCaseGroup, key: string) => {
     setSelectedGroupKeys((current) => {
@@ -3572,18 +3605,26 @@ function StepReview({
     candidate?: ReviewCandidate | null,
   ) => {
     if (!jobId) return;
-    setSaving(true);
+    setPendingRecords((current) => ({ ...current, [item.input_record_key]: decision }));
     try {
       const next = await saveReviewDecision(jobId, {
         inputRecordKey: item.input_record_key,
         matchingResultId: candidate?.id,
         decision,
       });
-      setReview(next.review);
-      const updated = next.review.items.find(
-        (nextItem) => nextItem.input_record_key === item.input_record_key,
+      setReview((current) =>
+        mergeReviewSnapshot(current, next.review, [item.input_record_key], next.decision.caseGroupId ?? null),
       );
-      setSelected(updated ?? null);
+      const updated = next.review.items.find((nextItem) => nextItem.input_record_key === item.input_record_key);
+      if (updated) {
+        setSelected(updated);
+        if (candidate?.id) {
+          const matchedCandidate = updated.candidates.find((entry) => entry.id === candidate.id);
+          setSelectedCandidateId(matchedCandidate?.id ?? updated.candidates[0]?.id ?? null);
+        } else {
+          setSelectedCandidateId(updated.candidates[0]?.id ?? null);
+        }
+      }
       toast.success(
         decision === "accept_match" || decision === "select_candidate"
           ? t("feedback.toast.approved")
@@ -3592,7 +3633,11 @@ function StepReview({
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
     } finally {
-      setSaving(false);
+      setPendingRecords((current) => {
+        const next = { ...current };
+        delete next[item.input_record_key];
+        return next;
+      });
     }
   };
 
@@ -3615,7 +3660,7 @@ function StepReview({
       return;
     }
 
-    setSaving(true);
+    setPendingGroups((current) => ({ ...current, [group.id]: decision }));
     try {
       const next = await saveReviewDecision(jobId, {
         inputRecordKey: keys[0],
@@ -3624,8 +3669,12 @@ function StepReview({
         scope,
         caseGroupId: group.id,
       });
-      setReview(next.review);
+      setReview((current) => mergeReviewSnapshot(current, next.review, keys, group.id));
       setSelectedGroupKeys((current) => ({ ...current, [group.id]: [] }));
+      setSelected((current) => {
+        if (!current || !keys.includes(current.input_record_key)) return current;
+        return next.review.items.find((item) => item.input_record_key === current.input_record_key) ?? current;
+      });
       toast.success(
         t("matching.review.groupDecisionSaved", {
           count: next.decision.affected_records,
@@ -3635,7 +3684,11 @@ function StepReview({
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
     } finally {
-      setSaving(false);
+      setPendingGroups((current) => {
+        const next = { ...current };
+        delete next[group.id];
+        return next;
+      });
     }
   };
 
@@ -3646,10 +3699,17 @@ function StepReview({
 
   const undoDecision = async (decisionId: string, selectedInputKey?: string) => {
     if (!jobId) return;
-    setSaving(true);
+    setPendingUndos((current) => ({ ...current, [decisionId]: true }));
     try {
       const next = await undoReviewDecision(jobId, decisionId);
-      setReview(next);
+      setReview((current) =>
+        mergeReviewSnapshot(
+          current,
+          next,
+          selectedInputKey ? [selectedInputKey] : [],
+          findDecisionGroupId(current, decisionId),
+        ),
+      );
       if (selectedInputKey) {
         const updated = next.items.find(
           (nextItem) => nextItem.input_record_key === selectedInputKey,
@@ -3660,7 +3720,11 @@ function StepReview({
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
     } finally {
-      setSaving(false);
+      setPendingUndos((current) => {
+        const next = { ...current };
+        delete next[decisionId];
+        return next;
+      });
     }
   };
 
@@ -3758,21 +3822,17 @@ function StepReview({
           filter={caseGroupFilter}
           counts={caseGroupCounts}
           items={items}
-          saving={saving}
+          identityMappings={identityMappings}
+          pendingGroups={pendingGroups}
+          pendingUndos={pendingUndos}
           selectedKeysByGroup={selectedGroupKeys}
           onFilterChange={setCaseGroupFilter}
           onToggleKey={toggleSelectedGroupKey}
-          onOpenRecord={(item) => {
-            const candidate = item.candidates[0] ?? null;
-            setSelected(item);
-            setSelectedCandidateId(candidate?.id ?? null);
-          }}
+          onOpenRecord={openRecord}
           onReviewIndividually={(item) => {
-            const candidate = item.candidates[0] ?? null;
             setViewMode("all_records");
             setFilter("possible_match");
-            setSelected(item);
-            setSelectedCandidateId(candidate?.id ?? null);
+            openRecord(item);
           }}
           onDecide={decideCaseGroup}
           onUndo={undoDecision}
@@ -3856,32 +3916,37 @@ function StepReview({
                     {paged.map((item) => {
                       const candidate = item.candidates[0] ?? null;
                       const hasReferenceCandidate = Boolean(candidate?.reference_record_key);
+                      const summary = buildIdentitySummary(item, candidate, identityMappings);
+                      const inputIdentity = candidate
+                        ? buildSideIdentity(summary, "input")
+                        : buildRecordIdentity(item.input_record, "input", identityMappings);
+                      const referenceIdentity = hasReferenceCandidate
+                        ? buildSideIdentity(summary, "reference")
+                        : null;
+                      const rowPending = pendingRecords[item.input_record_key];
                       return (
                         <tr
                           key={item.input_record_key}
-                          onClick={() => {
-                            setSelected(item);
-                            setSelectedCandidateId(candidate?.id ?? null);
-                          }}
-                          className="hover:bg-secondary/40 cursor-pointer"
+                          onClick={() => openRecord(item, candidate?.id ?? null)}
+                          className="cursor-pointer hover:bg-secondary/40"
                         >
                           <td className="px-4 py-3 min-w-0">
                             <p className="text-sm font-medium truncate">
-                              {recordHeadline(item.input_record)}
+                              {inputIdentity.headline}
                             </p>
                             <p className="text-xs text-muted-foreground truncate">
-                              {recordMeta(item.input_record)}
+                              {inputIdentity.meta}
                             </p>
                           </td>
                           <td className="px-4 py-3 min-w-0">
                             <p className="text-sm font-medium truncate">
                               {hasReferenceCandidate
-                                ? recordHeadline(candidate?.reference_record ?? {})
+                                ? referenceIdentity?.headline ?? t("matching.review.noCandidate")
                                 : t("matching.review.noCandidate")}
                             </p>
                             <p className="text-xs text-muted-foreground truncate">
                               {hasReferenceCandidate
-                                ? recordMeta(candidate?.reference_record ?? {})
+                                ? referenceIdentity?.meta ?? "-"
                                 : t("matching.review.noCandidateDesc")}
                             </p>
                           </td>
@@ -3913,17 +3978,31 @@ function StepReview({
                               >
                                 <button
                                   onClick={() => decide(item, "accept_match", candidate)}
-                                  disabled={!hasReferenceCandidate || saving}
-                                  className="px-2.5 py-1 rounded-md bg-brand text-brand-foreground text-xs font-medium"
+                                  disabled={!hasReferenceCandidate || Boolean(rowPending)}
+                                  className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                  {t("matching.review.accept")}
+                                  {rowPending === "accept_match" ? (
+                                    <span className="inline-flex items-center gap-1.5">
+                                      <Loader2 className="size-3 animate-spin" />
+                                      {t("common.loading")}
+                                    </span>
+                                  ) : (
+                                    t("matching.review.accept")
+                                  )}
                                 </button>
                                 <button
                                   onClick={() => decide(item, "mark_unmatched", null)}
-                                  disabled={saving}
-                                  className="px-2.5 py-1 rounded-md border border-border text-xs font-medium hover:bg-secondary"
+                                  disabled={Boolean(rowPending)}
+                                  className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                                 >
-                                  {t("matching.review.markUnmatched")}
+                                  {rowPending === "mark_unmatched" ? (
+                                    <span className="inline-flex items-center gap-1.5">
+                                      <Loader2 className="size-3 animate-spin" />
+                                      {t("common.loading")}
+                                    </span>
+                                  ) : (
+                                    t("matching.review.markUnmatched")
+                                  )}
                                 </button>
                               </div>
                             ) : null}
@@ -3991,10 +4070,17 @@ function StepReview({
                       <button
                         type="button"
                         onClick={() => undo(selected)}
-                        disabled={saving}
-                        className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                        disabled={Boolean(selected.decision && pendingUndos[selected.decision.id])}
+                        className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {t("matching.review.undo")}
+                        {selected.decision && pendingUndos[selected.decision.id] ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Loader2 className="size-3 animate-spin" />
+                            {t("common.loading")}
+                          </span>
+                        ) : (
+                          t("matching.review.undo")
+                        )}
                       </button>
                     )}
                   </div>
@@ -4002,13 +4088,20 @@ function StepReview({
               )}
 
               <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <RecordPanel title={t("matching.review.input")} record={selected.input_record} />
-                <RecordPanel
+                <RecordIdentityPanel
+                  title={t("matching.review.input")}
+                  identity={
+                    selectedSummary
+                      ? buildSideIdentity(selectedSummary, "input")
+                      : buildRecordIdentity(selected.input_record, "input", identityMappings)
+                  }
+                />
+                <RecordIdentityPanel
                   title={t("matching.review.reference")}
-                  record={
-                    selectedCandidate?.reference_record_key
-                      ? selectedCandidate.reference_record
-                      : {}
+                  identity={
+                    selectedCandidate?.reference_record_key && selectedSummary
+                      ? buildSideIdentity(selectedSummary, "reference")
+                      : buildRecordIdentity({}, "reference", identityMappings)
                   }
                   emptyText={t("matching.review.noCandidate")}
                 />
@@ -4026,14 +4119,32 @@ function StepReview({
                         type="button"
                         onClick={() => setSelectedCandidateId(candidate.id)}
                         className={[
-                          "flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-xs",
+                          "flex w-full cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-xs transition-colors active:translate-y-px",
                           selectedCandidate?.id === candidate.id
                             ? "border-brand bg-brand/10"
                             : "border-border hover:bg-secondary",
                         ].join(" ")}
                       >
-                        <span className="min-w-0 truncate">
-                          #{candidate.rank} {recordHeadline(candidate.reference_record)}
+                        <span className="min-w-0">
+                          {(() => {
+                            const candidateSummary = buildIdentitySummary(
+                              selected,
+                              candidate,
+                              identityMappings,
+                            );
+                            const candidateIdentity = buildSideIdentity(candidateSummary, "reference");
+
+                            return (
+                              <>
+                                <span className="block truncate font-medium">
+                                  #{candidate.rank} {candidateIdentity.headline}
+                                </span>
+                                <span className="block truncate text-muted-foreground">
+                                  {candidateIdentity.meta}
+                                </span>
+                              </>
+                            );
+                          })()}
                         </span>
                         <span
                           className={`tabular-nums font-semibold ${scoreTone(candidate.score)}`}
@@ -4051,7 +4162,7 @@ function StepReview({
                   {t("matching.review.supportingFields")}
                 </summary>
                 <div className="mt-3 space-y-2">
-                  {(selectedCandidate?.field_scores ?? []).map((field) => (
+                  {sortFieldScores(selectedCandidate?.field_scores ?? []).map((field) => (
                     <FieldComparison
                       key={`${field.reference_column}-${field.input_column}`}
                       field={field}
@@ -4069,30 +4180,57 @@ function StepReview({
                   <>
                     <button
                       onClick={() => decide(selected, "accept_match", selectedCandidate)}
-                      disabled={!selectedCandidate?.reference_record_key || saving}
-                      className="flex-1 px-3 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold disabled:opacity-40"
+                      disabled={
+                        !selectedCandidate?.reference_record_key ||
+                        Boolean(pendingRecords[selected.input_record_key])
+                      }
+                      className="flex-1 cursor-pointer rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {t("matching.review.accept")}
+                      {pendingRecords[selected.input_record_key] === "accept_match" ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="size-4 animate-spin" />
+                          {t("common.loading")}
+                        </span>
+                      ) : (
+                        t("matching.review.accept")
+                      )}
                     </button>
                     <button
                       onClick={() => decide(selected, "reject_match", selectedCandidate)}
-                      disabled={!selectedCandidate?.reference_record_key || saving}
-                      className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary disabled:opacity-40"
+                      disabled={
+                        !selectedCandidate?.reference_record_key ||
+                        Boolean(pendingRecords[selected.input_record_key])
+                      }
+                      className="flex-1 cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {t("matching.review.reject")}
+                      {pendingRecords[selected.input_record_key] === "reject_match" ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="size-4 animate-spin" />
+                          {t("common.loading")}
+                        </span>
+                      ) : (
+                        t("matching.review.reject")
+                      )}
                     </button>
                     <button
                       onClick={() => decide(selected, "mark_unmatched", null)}
-                      disabled={saving}
-                      className="flex-1 px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary disabled:opacity-40"
+                      disabled={Boolean(pendingRecords[selected.input_record_key])}
+                      className="flex-1 cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {t("matching.review.markUnmatched")}
+                      {pendingRecords[selected.input_record_key] === "mark_unmatched" ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="size-4 animate-spin" />
+                          {t("common.loading")}
+                        </span>
+                      ) : (
+                        t("matching.review.markUnmatched")
+                      )}
                     </button>
                   </>
                 )}
                 <button
                   onClick={() => setSelected(null)}
-                  className="px-3 py-2 rounded-md border border-border text-sm font-medium hover:bg-secondary"
+                  className="cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary active:translate-y-px"
                 >
                   {t("common.skip")}
                 </button>
@@ -4111,25 +4249,29 @@ function CaseGroupsReview({
   groups,
   items,
   canDecide,
+  identityMappings,
   onDecide,
   onFilterChange,
   onOpenRecord,
   onReviewIndividually,
   onToggleKey,
   onUndo,
-  saving,
+  pendingGroups,
+  pendingUndos,
   selectedKeysByGroup,
 }: {
   counts: Record<CaseGroupFilter, number>;
   filter: CaseGroupFilter;
   groups: ReviewCaseGroup[];
   items: ReviewItem[];
-  saving: boolean;
   canDecide: boolean;
+  identityMappings: IdentityFieldPair[];
+  pendingGroups: Record<string, string>;
+  pendingUndos: Record<string, boolean>;
   selectedKeysByGroup: Record<string, string[]>;
   onFilterChange: (filter: CaseGroupFilter) => void;
   onToggleKey: (group: ReviewCaseGroup, key: string) => void;
-  onOpenRecord: (item: ReviewItem) => void;
+  onOpenRecord: (item: ReviewItem, candidateId?: string | null) => void;
   onReviewIndividually: (item: ReviewItem) => void;
   onUndo: (decisionId: string) => void;
   onDecide: (
@@ -4178,6 +4320,13 @@ function CaseGroupsReview({
           const selectedKeys = selectedKeysByGroup[group.id] ?? [];
           const representative = group.representative;
           const candidate = representative.candidates[0] ?? null;
+          const representativeSummary = buildIdentitySummary(
+            representative,
+            candidate,
+            identityMappings,
+          );
+          const representativeIdentity = buildSideIdentity(representativeSummary, "input");
+          const groupPending = pendingGroups[group.id];
           const previewItems =
             group.representative_samples ??
             group.item_keys
@@ -4227,8 +4376,13 @@ function CaseGroupsReview({
                   <p className="mt-2 text-xs text-muted-foreground">
                     {t("matching.review.representative")}:{" "}
                     <span className="font-medium text-foreground">
-                      {recordHeadline(representative.input_record)}
+                      {representativeIdentity.headline}
                     </span>
+                    {representativeIdentity.meta !== "-" ? (
+                      <span className="ml-2 text-muted-foreground">
+                        {representativeIdentity.meta}
+                      </span>
+                    ) : null}
                     {candidate ? (
                       <span
                         className={`ml-2 tabular-nums font-semibold ${scoreTone(candidate.score)}`}
@@ -4257,26 +4411,31 @@ function CaseGroupsReview({
                     <button
                       type="button"
                       onClick={() => onUndo(latestDecision.id)}
-                      disabled={saving}
-                      className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                      disabled={Boolean(pendingUndos[latestDecision.id])}
+                      className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {t("matching.review.undo")}
+                      {pendingUndos[latestDecision.id] ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="size-3 animate-spin" />
+                          {t("common.loading")}
+                        </span>
+                      ) : (
+                        t("matching.review.undo")
+                      )}
                     </button>
                   ) : (
                     <>
                       <button
                         type="button"
-                        onClick={() => onOpenRecord(representative)}
-                        disabled={saving}
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                        onClick={() => onOpenRecord(representative, candidate?.id ?? null)}
+                        className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
                       >
                         {t("matching.review.reviewMore")}
                       </button>
                       <button
                         type="button"
                         onClick={() => onReviewIndividually(representative)}
-                        disabled={saving}
-                        className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                        className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
                       >
                         {t("matching.review.reviewIndividually")}
                       </button>
@@ -4285,26 +4444,47 @@ function CaseGroupsReview({
                           <button
                             type="button"
                             onClick={() => onDecide(group, "accept_match", "group")}
-                            disabled={!group.eligible_for_bulk || !canAccept || saving}
-                            className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
+                            disabled={!group.eligible_for_bulk || !canAccept || Boolean(groupPending)}
+                            className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            {t("matching.review.applyGroupAccept")}
+                            {groupPending === "accept_match" ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Loader2 className="size-3 animate-spin" />
+                                {t("common.loading")}
+                              </span>
+                            ) : (
+                              t("matching.review.applyGroupAccept")
+                            )}
                           </button>
                           <button
                             type="button"
                             onClick={() => onDecide(group, "reject_match", "group")}
-                            disabled={!group.eligible_for_bulk || !canAccept || saving}
-                            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                            disabled={!group.eligible_for_bulk || !canAccept || Boolean(groupPending)}
+                            className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            {t("matching.review.applyGroupReject")}
+                            {groupPending === "reject_match" ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Loader2 className="size-3 animate-spin" />
+                                {t("common.loading")}
+                              </span>
+                            ) : (
+                              t("matching.review.applyGroupReject")
+                            )}
                           </button>
                           <button
                             type="button"
                             onClick={() => onDecide(group, "mark_unmatched", "group")}
-                            disabled={!group.eligible_for_bulk || saving}
-                            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                            disabled={!group.eligible_for_bulk || Boolean(groupPending)}
+                            className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            {t("matching.review.applyGroupUnmatched")}
+                            {groupPending === "mark_unmatched" ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Loader2 className="size-3 animate-spin" />
+                                {t("common.loading")}
+                              </span>
+                            ) : (
+                              t("matching.review.applyGroupUnmatched")
+                            )}
                           </button>
                         </>
                       )}
@@ -4346,34 +4526,46 @@ function CaseGroupsReview({
                     <tbody className="divide-y divide-border">
                       {previewItems.map((item) => {
                         const rowCandidate = item.candidates[0] ?? null;
+                        const rowSummary = buildIdentitySummary(item, rowCandidate, identityMappings);
+                        const rowInputIdentity = rowCandidate
+                          ? buildSideIdentity(rowSummary, "input")
+                          : buildRecordIdentity(item.input_record, "input", identityMappings);
+                        const rowReferenceIdentity =
+                          rowCandidate?.reference_record_key
+                            ? buildSideIdentity(rowSummary, "reference")
+                            : null;
                         return (
                           <tr key={item.input_record_key}>
                             <td className="px-3 py-2">
                               <input
                                 type="checkbox"
                                 checked={selectedKeys.includes(item.input_record_key)}
-                                disabled={!group.eligible_for_bulk || saving || !canDecide}
+                                disabled={
+                                  !group.eligible_for_bulk ||
+                                  Boolean(groupPending) ||
+                                  !canDecide
+                                }
                                 onChange={() => onToggleKey(group, item.input_record_key)}
                                 aria-label={t("matching.review.selectRecord")}
                               />
                             </td>
                             <td className="px-3 py-2">
                               <p className="truncate font-medium">
-                                {recordHeadline(item.input_record)}
+                                {rowInputIdentity.headline}
                               </p>
                               <p className="truncate text-xs text-muted-foreground">
-                                {recordMeta(item.input_record)}
+                                {rowInputIdentity.meta}
                               </p>
                             </td>
                             <td className="px-3 py-2">
                               <p className="truncate font-medium">
                                 {rowCandidate?.reference_record_key
-                                  ? recordHeadline(rowCandidate.reference_record)
+                                  ? rowReferenceIdentity?.headline ?? t("matching.review.noCandidate")
                                   : t("matching.review.noCandidate")}
                               </p>
                               <p className="truncate text-xs text-muted-foreground">
                                 {rowCandidate?.reference_record_key
-                                  ? recordMeta(rowCandidate.reference_record)
+                                  ? rowReferenceIdentity?.meta ?? "-"
                                   : t("matching.review.noCandidateDesc")}
                               </p>
                             </td>
@@ -4397,8 +4589,8 @@ function CaseGroupsReview({
                             <td className="px-3 py-2 text-right">
                               <button
                                 type="button"
-                                onClick={() => onOpenRecord(item)}
-                                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+                                onClick={() => onOpenRecord(item, rowCandidate?.id ?? null)}
+                                className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
                               >
                                 {t("matching.review.compare")}
                               </button>
@@ -4418,19 +4610,37 @@ function CaseGroupsReview({
                         !group.eligible_for_bulk ||
                         selectedKeys.length === 0 ||
                         !canAccept ||
-                        saving
+                        Boolean(groupPending)
                       }
-                      className="rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-40"
+                      className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {t("matching.review.applySelectedAccept")}
+                      {groupPending === "accept_match" ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="size-3 animate-spin" />
+                          {t("common.loading")}
+                        </span>
+                      ) : (
+                        t("matching.review.applySelectedAccept")
+                      )}
                     </button>
                     <button
                       type="button"
                       onClick={() => onDecide(group, "mark_unmatched", "selected")}
-                      disabled={!group.eligible_for_bulk || selectedKeys.length === 0 || saving}
-                      className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-40"
+                      disabled={
+                        !group.eligible_for_bulk ||
+                        selectedKeys.length === 0 ||
+                        Boolean(groupPending)
+                      }
+                      className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                     >
-                      {t("matching.review.applySelectedUnmatched")}
+                      {groupPending === "mark_unmatched" ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="size-3 animate-spin" />
+                          {t("common.loading")}
+                        </span>
+                      ) : (
+                        t("matching.review.applySelectedUnmatched")
+                      )}
                     </button>
                   </div>
                 )}
@@ -4445,34 +4655,176 @@ function CaseGroupsReview({
   );
 }
 
-function RecordPanel({
+function RecordIdentityPanel({
   emptyText,
-  record,
+  identity,
   title,
 }: {
   emptyText?: string;
-  record: Record<string, string | number | boolean | null>;
+  identity: ReturnType<typeof buildSideIdentity>;
   title: string;
 }) {
-  const entries = Object.entries(record).slice(0, 6);
+  const { t } = usePreferences();
+  const entries = identity.fields.slice(0, 6);
 
   return (
     <div className="rounded-lg border border-border p-3">
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{title}</p>
-      {entries.length === 0 ? (
+      {identity.headline === "-" && entries.length === 0 ? (
         <p className="mt-2 text-xs text-muted-foreground">{emptyText ?? "-"}</p>
       ) : (
-        <dl className="mt-2 space-y-1.5">
-          {entries.map(([key, value]) => (
-            <div key={key} className="grid grid-cols-[110px_1fr] gap-2 text-xs">
-              <dt className="truncate text-muted-foreground">{key}</dt>
-              <dd className="break-words font-medium">{formatRecordValue(value)}</dd>
-            </div>
-          ))}
-        </dl>
+        <>
+          <p className="mt-2 text-sm font-semibold">{identity.headline}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{identity.meta}</p>
+          <dl className="mt-3 space-y-1.5">
+            {entries.map((field) => (
+              <div
+                key={`${field.semantic}-${field.column ?? field.label}`}
+                className="grid grid-cols-[120px_1fr] gap-2 text-xs"
+              >
+                <dt className="truncate text-muted-foreground">
+                  {identityFieldLabel(field.semantic, field.label, t)}
+                </dt>
+                <dd className="break-words font-medium">{field.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
       )}
     </div>
   );
+}
+
+function mergeReviewSnapshot(
+  current: ReviewResults | null,
+  next: ReviewResults,
+  affectedKeys: string[],
+  caseGroupId?: string | null,
+) {
+  if (!current) return next;
+  if (affectedKeys.length === 0 && !caseGroupId) return next;
+
+  const affectedKeySet = new Set(affectedKeys);
+
+  return {
+    ...current,
+    summary: next.summary,
+    job: next.job,
+    items: current.items.map((item) =>
+      affectedKeySet.has(item.input_record_key)
+        ? next.items.find((nextItem) => nextItem.input_record_key === item.input_record_key) ?? item
+        : item,
+    ),
+    case_groups: current.case_groups.map((group) => {
+      if (caseGroupId && group.id === caseGroupId) {
+        return next.case_groups.find((nextGroup) => nextGroup.id === group.id) ?? group;
+      }
+
+      if (affectedKeys.some((key) => group.item_keys.includes(key))) {
+        return next.case_groups.find((nextGroup) => nextGroup.id === group.id) ?? group;
+      }
+
+      return group;
+    }),
+  };
+}
+
+function findDecisionGroupId(review: ReviewResults | null, decisionId: string) {
+  if (!review) return null;
+
+  return (
+    review.case_groups.find((group) =>
+      (group.decision_history ?? []).some((decision) => decision.id === decisionId),
+    )?.id ?? null
+  );
+}
+
+function identityFieldLabel(
+  semantic: IdentitySemantic,
+  fallback: string,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  switch (semantic) {
+    case "name":
+      return t("matching.review.name");
+    case "strong_identifier":
+      return t("matching.review.identifier");
+    case "address":
+      return t("matching.review.address");
+    case "province":
+      return t("results.identity.province");
+    case "city":
+      return t("results.identity.city");
+    case "email":
+      return t("results.identity.email");
+    case "phone":
+      return t("results.identity.phone");
+    default:
+      return fallback;
+  }
+}
+
+function formatRecordValue(value: string | number | boolean | null | undefined) {
+  if (value === null || value === undefined || String(value).trim() === "") return "-";
+  if (typeof value === "boolean") return value ? "True" : "False";
+  return String(value);
+}
+
+function scoreTone(score: number) {
+  if (score >= 90) return "text-success";
+  if (score >= 75) return "text-warning";
+  return "text-muted-foreground";
+}
+
+function statusBadgeClass(status: string) {
+  const base = "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold";
+  if (
+    ["matched", "auto_matched", "manual_accepted", "AUTO_MATCHED", "MANUAL_ACCEPTED"].includes(
+      status,
+    )
+  ) {
+    return `${base} bg-success/10 text-success`;
+  }
+  if (
+    ["possible_match", "need_review", "manual_rejected", "NEED_REVIEW", "MANUAL_REJECTED"].includes(
+      status,
+    )
+  ) {
+    return `${base} bg-warning/10 text-warning`;
+  }
+  if (["confirmed_unmatched", "CONFIRMED_UNMATCHED"].includes(status)) {
+    return `${base} bg-destructive/10 text-destructive`;
+  }
+  return `${base} bg-secondary text-muted-foreground`;
+}
+
+function comparisonBadgeClass(comparison: string) {
+  const base = "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold";
+  if (comparison === "same") return `${base} bg-success/10 text-success`;
+  if (comparison === "similar") return `${base} bg-warning/10 text-warning`;
+  return `${base} bg-destructive/10 text-destructive`;
+}
+
+function reviewFilterLabel(filter: ReviewFilter, t: ReturnType<typeof usePreferences>["t"]) {
+  if (filter === "all") return t("matching.review.allGroups");
+  return reviewStatusLabel(filter, t);
+}
+
+function reviewStatusLabel(status: string, t: ReturnType<typeof usePreferences>["t"]) {
+  if (status === "NEED_REVIEW") return t("matching.review.statusNeedReview");
+  if (status === "AUTO_MATCHED") return t("matching.review.statusAutoMatched");
+  if (status === "MANUAL_ACCEPTED") return t("matching.review.statusManualAccepted");
+  if (status === "MANUAL_REJECTED") return t("matching.review.statusManualRejected");
+  if (status === "CONFIRMED_UNMATCHED") return t("matching.review.statusConfirmedUnmatched");
+  if (status === "need_review") return t("matching.review.statusNeedReview");
+  if (status === "auto_matched") return t("matching.review.statusAutoMatched");
+  if (status === "manual_accepted") return t("matching.review.statusManualAccepted");
+  if (status === "manual_rejected") return t("matching.review.statusManualRejected");
+  if (status === "confirmed_unmatched") return t("matching.review.statusConfirmedUnmatched");
+  if (status === "matched") return t("matching.review.statusAutoMatched");
+  if (status === "possible_match") return t("matching.review.statusNeedReview");
+  if (status === "unmatched") return t("matching.review.statusConfirmedUnmatched");
+  return status;
 }
 
 function FieldComparison({
@@ -4553,84 +4905,6 @@ function DecisionHistory({ history }: { history: NonNullable<ReviewItem["decisio
 
 function candidateScore(item: ReviewItem) {
   return item.candidates[0]?.score ?? 0;
-}
-
-function recordHeadline(record: Record<string, string | number | boolean | null>) {
-  const value = Object.values(record).find((item) => item !== null && String(item).trim() !== "");
-
-  return value === undefined ? "-" : String(value);
-}
-
-function recordMeta(record: Record<string, string | number | boolean | null>) {
-  const entries = Object.entries(record)
-    .filter(([, value]) => value !== null && String(value).trim() !== "")
-    .slice(1, 3)
-    .map(([key, value]) => `${key}: ${formatRecordValue(value)}`);
-
-  return entries.length > 0 ? entries.join(" · ") : "-";
-}
-
-function formatRecordValue(value: string | number | boolean | null | undefined) {
-  if (value === null || value === undefined || String(value).trim() === "") return "-";
-  if (typeof value === "boolean") return value ? "True" : "False";
-  return String(value);
-}
-
-function scoreTone(score: number) {
-  if (score >= 90) return "text-success";
-  if (score >= 75) return "text-warning";
-  return "text-muted-foreground";
-}
-
-function statusBadgeClass(status: string) {
-  const base = "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold";
-  if (
-    ["matched", "auto_matched", "manual_accepted", "AUTO_MATCHED", "MANUAL_ACCEPTED"].includes(
-      status,
-    )
-  ) {
-    return `${base} bg-success/10 text-success`;
-  }
-  if (
-    ["possible_match", "need_review", "manual_rejected", "NEED_REVIEW", "MANUAL_REJECTED"].includes(
-      status,
-    )
-  ) {
-    return `${base} bg-warning/10 text-warning`;
-  }
-  if (["confirmed_unmatched", "CONFIRMED_UNMATCHED"].includes(status)) {
-    return `${base} bg-destructive/10 text-destructive`;
-  }
-  return `${base} bg-secondary text-muted-foreground`;
-}
-
-function comparisonBadgeClass(comparison: string) {
-  const base = "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold";
-  if (comparison === "same") return `${base} bg-success/10 text-success`;
-  if (comparison === "similar") return `${base} bg-warning/10 text-warning`;
-  return `${base} bg-destructive/10 text-destructive`;
-}
-
-function reviewFilterLabel(filter: ReviewFilter, t: ReturnType<typeof usePreferences>["t"]) {
-  if (filter === "all") return t("matching.review.allGroups");
-  return reviewStatusLabel(filter, t);
-}
-
-function reviewStatusLabel(status: string, t: ReturnType<typeof usePreferences>["t"]) {
-  if (status === "NEED_REVIEW") return t("matching.review.statusNeedReview");
-  if (status === "AUTO_MATCHED") return t("matching.review.statusAutoMatched");
-  if (status === "MANUAL_ACCEPTED") return t("matching.review.statusManualAccepted");
-  if (status === "MANUAL_REJECTED") return t("matching.review.statusManualRejected");
-  if (status === "CONFIRMED_UNMATCHED") return t("matching.review.statusConfirmedUnmatched");
-  if (status === "need_review") return t("matching.review.statusNeedReview");
-  if (status === "auto_matched") return t("matching.review.statusAutoMatched");
-  if (status === "manual_accepted") return t("matching.review.statusManualAccepted");
-  if (status === "manual_rejected") return t("matching.review.statusManualRejected");
-  if (status === "confirmed_unmatched") return t("matching.review.statusConfirmedUnmatched");
-  if (status === "matched") return t("matching.review.groupMatched");
-  if (status === "possible_match") return t("matching.review.groupPossible");
-  if (status === "unmatched") return t("matching.review.groupUnmatched");
-  return t("matching.review.groupUnmatched");
 }
 
 function caseGroupFilterLabel(filter: CaseGroupFilter, t: ReturnType<typeof usePreferences>["t"]) {
