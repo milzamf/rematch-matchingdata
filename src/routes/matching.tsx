@@ -3488,6 +3488,7 @@ function StepReview({
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ReviewFilter>("possible_match");
   const [selectedGroupKeys, setSelectedGroupKeys] = useState<Record<string, string[]>>({});
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReviewItem | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [pendingRecords, setPendingRecords] = useState<Record<string, string>>({});
@@ -3547,6 +3548,8 @@ function StepReview({
     resolved: caseGroups.filter((group) => group.status === "resolved").length,
     all: caseGroups.length,
   };
+  const selectedCaseGroup =
+    (selectedGroupId ? caseGroups.find((group) => group.id === selectedGroupId) : null) ?? null;
   const filtered = items
     .filter((item) => filter === "all" || item.status === filter)
     .filter((item) => {
@@ -3598,6 +3601,13 @@ function StepReview({
       };
     });
   };
+
+  const replaceSelectedGroupKeys = useCallback((groupId: string, keys: string[]) => {
+    setSelectedGroupKeys((current) => ({
+      ...current,
+      [groupId]: keys,
+    }));
+  }, []);
 
   const decide = async (
     item: ReviewItem,
@@ -3817,27 +3827,37 @@ function StepReview({
       </div>
 
       {viewMode === "case_groups" && (
-        <CaseGroupsReview
-          groups={visibleCaseGroups}
-          filter={caseGroupFilter}
-          counts={caseGroupCounts}
-          items={items}
-          identityMappings={identityMappings}
-          pendingGroups={pendingGroups}
-          pendingUndos={pendingUndos}
-          selectedKeysByGroup={selectedGroupKeys}
-          onFilterChange={setCaseGroupFilter}
-          onToggleKey={toggleSelectedGroupKey}
-          onOpenRecord={openRecord}
-          onReviewIndividually={(item) => {
-            setViewMode("all_records");
-            setFilter("possible_match");
-            openRecord(item);
-          }}
-          onDecide={decideCaseGroup}
-          onUndo={undoDecision}
-          canDecide={canDecide}
-        />
+        selectedCaseGroup ? (
+          <GroupReviewSubview
+            group={selectedCaseGroup}
+            items={items}
+            identityMappings={identityMappings}
+            canDecide={canDecide}
+            pendingGroups={pendingGroups}
+            pendingRecords={pendingRecords}
+            selectedKeys={selectedGroupKeys[selectedCaseGroup.id] ?? []}
+            onBack={() => setSelectedGroupId(null)}
+            onOpenRecord={openRecord}
+            onToggleKey={toggleSelectedGroupKey}
+            onReplaceSelectedKeys={replaceSelectedGroupKeys}
+            onDecideRecord={decide}
+            onDecideGroup={decideCaseGroup}
+          />
+        ) : (
+          <CaseGroupsReview
+            groups={visibleCaseGroups}
+            filter={caseGroupFilter}
+            counts={caseGroupCounts}
+            identityMappings={identityMappings}
+            pendingGroups={pendingGroups}
+            pendingUndos={pendingUndos}
+            onFilterChange={setCaseGroupFilter}
+            onOpenGroup={(group) => setSelectedGroupId(group.id)}
+            onUndo={undoDecision}
+            onDecide={decideCaseGroup}
+            canDecide={canDecide}
+          />
+        )
       )}
 
       {viewMode === "all_records" && (
@@ -4247,32 +4267,24 @@ function CaseGroupsReview({
   counts,
   filter,
   groups,
-  items,
   canDecide,
   identityMappings,
+  onOpenGroup,
   onDecide,
   onFilterChange,
-  onOpenRecord,
-  onReviewIndividually,
-  onToggleKey,
   onUndo,
   pendingGroups,
   pendingUndos,
-  selectedKeysByGroup,
 }: {
   counts: Record<CaseGroupFilter, number>;
   filter: CaseGroupFilter;
   groups: ReviewCaseGroup[];
-  items: ReviewItem[];
   canDecide: boolean;
   identityMappings: IdentityFieldPair[];
+  onOpenGroup: (group: ReviewCaseGroup) => void;
   pendingGroups: Record<string, string>;
   pendingUndos: Record<string, boolean>;
-  selectedKeysByGroup: Record<string, string[]>;
   onFilterChange: (filter: CaseGroupFilter) => void;
-  onToggleKey: (group: ReviewCaseGroup, key: string) => void;
-  onOpenRecord: (item: ReviewItem, candidateId?: string | null) => void;
-  onReviewIndividually: (item: ReviewItem) => void;
   onUndo: (decisionId: string) => void;
   onDecide: (
     group: ReviewCaseGroup,
@@ -4281,10 +4293,6 @@ function CaseGroupsReview({
   ) => void;
 }) {
   const { t } = usePreferences();
-  const itemsByKey = useMemo(
-    () => new Map(items.map((item) => [item.input_record_key, item])),
-    [items],
-  );
 
   return (
     <div className="space-y-3">
@@ -4317,7 +4325,6 @@ function CaseGroupsReview({
         </div>
       ) : (
         groups.map((group) => {
-          const selectedKeys = selectedKeysByGroup[group.id] ?? [];
           const representative = group.representative;
           const candidate = representative.candidates[0] ?? null;
           const representativeSummary = buildIdentitySummary(
@@ -4327,12 +4334,6 @@ function CaseGroupsReview({
           );
           const representativeIdentity = buildSideIdentity(representativeSummary, "input");
           const groupPending = pendingGroups[group.id];
-          const previewItems =
-            group.representative_samples ??
-            group.item_keys
-              .map((key) => itemsByKey.get(key))
-              .filter((item): item is ReviewItem => Boolean(item))
-              .slice(0, 3);
           const canAccept = Boolean(candidate?.reference_record_key);
           const isResolved = group.status === "resolved";
           const latestDecision = group.decision_history?.[0] ?? null;
@@ -4427,17 +4428,10 @@ function CaseGroupsReview({
                     <>
                       <button
                         type="button"
-                        onClick={() => onOpenRecord(representative, candidate?.id ?? null)}
+                        onClick={() => onOpenGroup(group)}
                         className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
                       >
-                        {t("matching.review.reviewMore")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onReviewIndividually(representative)}
-                        className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
-                      >
-                        {t("matching.review.reviewIndividually")}
+                        {t("matching.review.reviewGroup")}
                       </button>
                       {canDecide && (
                         <>
@@ -4499,158 +4493,337 @@ function CaseGroupsReview({
                 </div>
               )}
 
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
-                  {t("matching.review.groupExamples")}
-                </summary>
-                <div className="mt-3 overflow-hidden rounded-lg border border-border">
-                  <table className="w-full min-w-[780px] text-sm">
-                    <thead className="bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <tr>
-                        <th className="w-10 px-3 py-2 text-left"></th>
-                        <th className="px-3 py-2 text-left font-medium">
-                          {t("matching.review.input")}
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium">
-                          {t("matching.review.reference")}
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium">
-                          {t("matching.review.group")}
-                        </th>
-                        <th className="px-3 py-2 text-right font-medium">
-                          {t("matching.review.similarity")}
-                        </th>
-                        <th className="px-3 py-2 text-right font-medium">{t("common.action")}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {previewItems.map((item) => {
-                        const rowCandidate = item.candidates[0] ?? null;
-                        const rowSummary = buildIdentitySummary(item, rowCandidate, identityMappings);
-                        const rowInputIdentity = rowCandidate
-                          ? buildSideIdentity(rowSummary, "input")
-                          : buildRecordIdentity(item.input_record, "input", identityMappings);
-                        const rowReferenceIdentity =
-                          rowCandidate?.reference_record_key
-                            ? buildSideIdentity(rowSummary, "reference")
-                            : null;
-                        return (
-                          <tr key={item.input_record_key}>
-                            <td className="px-3 py-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedKeys.includes(item.input_record_key)}
-                                disabled={
-                                  !group.eligible_for_bulk ||
-                                  Boolean(groupPending) ||
-                                  !canDecide
-                                }
-                                onChange={() => onToggleKey(group, item.input_record_key)}
-                                aria-label={t("matching.review.selectRecord")}
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <p className="truncate font-medium">
-                                {rowInputIdentity.headline}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {rowInputIdentity.meta}
-                              </p>
-                            </td>
-                            <td className="px-3 py-2">
-                              <p className="truncate font-medium">
-                                {rowCandidate?.reference_record_key
-                                  ? rowReferenceIdentity?.headline ?? t("matching.review.noCandidate")
-                                  : t("matching.review.noCandidate")}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {rowCandidate?.reference_record_key
-                                  ? rowReferenceIdentity?.meta ?? "-"
-                                  : t("matching.review.noCandidateDesc")}
-                              </p>
-                            </td>
-                            <td className="px-3 py-2">
-                              <span
-                                className={statusBadgeClass(
-                                  item.status_code ?? item.display_status ?? item.status,
-                                )}
-                              >
-                                {reviewStatusLabel(
-                                  item.status_code ?? item.display_status ?? item.status,
-                                  t,
-                                )}
-                              </span>
-                            </td>
-                            <td
-                              className={`px-3 py-2 text-right tabular-nums font-semibold ${scoreTone(rowCandidate?.score ?? 0)}`}
-                            >
-                              {rowCandidate ? `${rowCandidate.score}%` : "-"}
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() => onOpenRecord(item, rowCandidate?.id ?? null)}
-                                className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
-                              >
-                                {t("matching.review.compare")}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {!isResolved && canDecide && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onDecide(group, "accept_match", "selected")}
-                      disabled={
-                        !group.eligible_for_bulk ||
-                        selectedKeys.length === 0 ||
-                        !canAccept ||
-                        Boolean(groupPending)
-                      }
-                      className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {groupPending === "accept_match" ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2 className="size-3 animate-spin" />
-                          {t("common.loading")}
-                        </span>
-                      ) : (
-                        t("matching.review.applySelectedAccept")
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDecide(group, "mark_unmatched", "selected")}
-                      disabled={
-                        !group.eligible_for_bulk ||
-                        selectedKeys.length === 0 ||
-                        Boolean(groupPending)
-                      }
-                      className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {groupPending === "mark_unmatched" ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2 className="size-3 animate-spin" />
-                          {t("common.loading")}
-                        </span>
-                      ) : (
-                        t("matching.review.applySelectedUnmatched")
-                      )}
-                    </button>
-                  </div>
-                )}
-              </details>
-
               <DecisionHistory history={group.decision_history ?? []} />
             </section>
           );
         })
       )}
+    </div>
+  );
+}
+
+function GroupReviewSubview({
+  group,
+  items,
+  identityMappings,
+  canDecide,
+  pendingGroups,
+  pendingRecords,
+  selectedKeys,
+  onBack,
+  onOpenRecord,
+  onToggleKey,
+  onReplaceSelectedKeys,
+  onDecideRecord,
+  onDecideGroup,
+}: {
+  group: ReviewCaseGroup;
+  items: ReviewItem[];
+  identityMappings: IdentityFieldPair[];
+  canDecide: boolean;
+  pendingGroups: Record<string, string>;
+  pendingRecords: Record<string, string>;
+  selectedKeys: string[];
+  onBack: () => void;
+  onOpenRecord: (item: ReviewItem, candidateId?: string | null) => void;
+  onToggleKey: (group: ReviewCaseGroup, key: string) => void;
+  onReplaceSelectedKeys: (groupId: string, keys: string[]) => void;
+  onDecideRecord: (
+    item: ReviewItem,
+    decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
+    candidate?: ReviewCandidate | null,
+  ) => Promise<void>;
+  onDecideGroup: (
+    group: ReviewCaseGroup,
+    decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
+    scope: "selected" | "group",
+  ) => Promise<void>;
+}) {
+  const { t } = usePreferences();
+  const groupItems = useMemo(
+    () =>
+      group.item_keys
+        .map((key) => items.find((item) => item.input_record_key === key))
+        .filter((item): item is ReviewItem => Boolean(item)),
+    [group.item_keys, items],
+  );
+  const allSelectableKeys = groupItems.map((item) => item.input_record_key);
+  const selectedSet = new Set(selectedKeys);
+  const allSelected =
+    allSelectableKeys.length > 0 && allSelectableKeys.every((key) => selectedSet.has(key));
+  const representativeCandidate = group.representative.candidates[0] ?? null;
+  const representativeSummary = buildIdentitySummary(
+    group.representative,
+    representativeCandidate,
+    identityMappings,
+  );
+  const representativeIdentity = buildSideIdentity(representativeSummary, "input");
+  const canAcceptGroup = Boolean(representativeCandidate?.reference_record_key);
+  const groupPending = pendingGroups[group.id];
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      onReplaceSelectedKeys(group.id, []);
+      return;
+    }
+    onReplaceSelectedKeys(group.id, allSelectableKeys);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-background p-4 shadow-sm">
+        <div className="min-w-0">
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-3 inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
+          >
+            <ArrowLeft className="size-3.5" />
+            {t("matching.review.backToCaseGroups")}
+          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold">{group.label}</p>
+            <span className={caseGroupStatusClass(group.status ?? "open")}>
+              {caseGroupStatusLabel(group.status ?? "open", t)}
+            </span>
+            <span className={caseConfidenceClass(group.confidence)}>
+              {caseConfidenceLabel(group.confidence, t)}
+            </span>
+            <span className={knowledgeLevelClass(group.knowledge_level ?? "NEW_PATTERN")}>
+              {knowledgeLevelLabel(group.knowledge_level ?? "NEW_PATTERN", t)}
+            </span>
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {t("matching.review.caseCount", { count: group.item_count })}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>
+          {group.recommendation ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t("matching.review.recommendation")}:{" "}
+              <span className="font-medium text-foreground">{group.recommendation}</span>
+            </p>
+          ) : null}
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t("matching.review.representative")}:{" "}
+            <span className="font-medium text-foreground">{representativeIdentity.headline}</span>
+            {representativeIdentity.meta !== "-" ? (
+              <span className="ml-2">{representativeIdentity.meta}</span>
+            ) : null}
+          </p>
+        </div>
+
+        {canDecide ? (
+          <div className="flex flex-wrap justify-start gap-2">
+            <button
+              type="button"
+              onClick={() => onDecideGroup(group, "accept_match", "group")}
+              disabled={!group.eligible_for_bulk || !canAcceptGroup || Boolean(groupPending)}
+              className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {groupPending === "accept_match" ? t("common.loading") : t("matching.review.applyGroupAccept")}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDecideGroup(group, "reject_match", "group")}
+              disabled={!group.eligible_for_bulk || !canAcceptGroup || Boolean(groupPending)}
+              className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {groupPending === "reject_match" ? t("common.loading") : t("matching.review.applyGroupReject")}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDecideGroup(group, "mark_unmatched", "group")}
+              disabled={!group.eligible_for_bulk || Boolean(groupPending)}
+              className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {groupPending === "mark_unmatched"
+                ? t("common.loading")
+                : t("matching.review.applyGroupUnmatched")}
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {!group.eligible_for_bulk ? (
+        <div className="rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
+          {t("matching.review.bulkNotEligible")}
+        </div>
+      ) : null}
+
+      <div className="rounded-lg border border-border bg-background shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleSelectAll}
+              disabled={!canDecide || allSelectableKeys.length === 0 || Boolean(groupPending)}
+              className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t("matching.review.selectAll")}
+            </button>
+            {selectedKeys.length > 0 ? (
+              <>
+                <span className="text-xs text-muted-foreground">
+                  {t("matching.review.recordsSelected", { count: selectedKeys.length })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onDecideGroup(group, "accept_match", "selected")}
+                  disabled={!canDecide || !canAcceptGroup || Boolean(groupPending)}
+                  className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {groupPending === "accept_match"
+                    ? t("common.loading")
+                    : t("matching.review.applySelectedAccept")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDecideGroup(group, "reject_match", "selected")}
+                  disabled={!canDecide || !canAcceptGroup || Boolean(groupPending)}
+                  className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {groupPending === "reject_match"
+                    ? t("common.loading")
+                    : t("matching.review.applySelectedReject")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDecideGroup(group, "mark_unmatched", "selected")}
+                  disabled={!canDecide || Boolean(groupPending)}
+                  className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {groupPending === "mark_unmatched"
+                    ? t("common.loading")
+                    : t("matching.review.applySelectedUnmatched")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onReplaceSelectedKeys(group.id, [])}
+                  className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
+                >
+                  {t("matching.review.clearSelection")}
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="overflow-auto">
+          <table className="w-full min-w-[1180px] text-sm">
+            <thead className="sticky top-0 z-10 bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="w-12 px-3 py-2 text-left">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    disabled={!canDecide || allSelectableKeys.length === 0 || Boolean(groupPending)}
+                    aria-label={t("matching.review.selectAll")}
+                  />
+                </th>
+                <th className="px-3 py-2 text-left font-medium">{t("matching.review.input")}</th>
+                <th className="px-3 py-2 text-left font-medium">{t("matching.review.reference")}</th>
+                <th className="w-28 px-3 py-2 text-right font-medium">{t("matching.review.similarity")}</th>
+                <th className="px-3 py-2 text-left font-medium">{t("matching.review.differenceSummary")}</th>
+                <th className="w-44 px-3 py-2 text-left font-medium">{t("matching.review.decisionStatus")}</th>
+                <th className="w-[320px] px-3 py-2 text-right font-medium">{t("common.action")}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {groupItems.map((item) => {
+                const candidate = item.candidates[0] ?? null;
+                const summary = buildIdentitySummary(item, candidate, identityMappings);
+                const inputIdentity = candidate
+                  ? buildSideIdentity(summary, "input")
+                  : buildRecordIdentity(item.input_record, "input", identityMappings);
+                const referenceIdentity = candidate?.reference_record_key
+                  ? buildSideIdentity(summary, "reference")
+                  : null;
+                const rowPending = pendingRecords[item.input_record_key];
+                const rowCanAccept = Boolean(candidate?.reference_record_key);
+
+                return (
+                  <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
+                    <td className="px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedSet.has(item.input_record_key)}
+                        disabled={!canDecide || Boolean(rowPending) || Boolean(groupPending)}
+                        onChange={() => onToggleKey(group, item.input_record_key)}
+                        aria-label={t("matching.review.selectRecord")}
+                      />
+                    </td>
+                    <td className="px-3 py-3 min-w-0">
+                      <p className="truncate font-medium">{inputIdentity.headline}</p>
+                      <p className="truncate text-xs text-muted-foreground">{inputIdentity.meta}</p>
+                    </td>
+                    <td className="px-3 py-3 min-w-0">
+                      <p className="truncate font-medium">
+                        {referenceIdentity?.headline ?? t("matching.review.noCandidate")}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {referenceIdentity?.meta ?? t("matching.review.noCandidateDesc")}
+                      </p>
+                    </td>
+                    <td className={`px-3 py-3 text-right font-semibold tabular-nums ${scoreTone(candidate?.score ?? 0)}`}>
+                      {candidate ? `${candidate.score}%` : "-"}
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="text-xs text-muted-foreground">
+                        {buildDifferenceSummary(candidate?.field_scores ?? [], t)}
+                      </p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={statusBadgeClass(item.status_code ?? item.display_status ?? item.status)}>
+                        {reviewStatusLabel(item.status_code ?? item.display_status ?? item.status, t)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onDecideRecord(item, "accept_match", candidate)}
+                          disabled={!rowCanAccept || Boolean(rowPending)}
+                          className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {rowPending === "accept_match" ? t("common.loading") : t("matching.review.accept")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDecideRecord(item, "reject_match", candidate)}
+                          disabled={!rowCanAccept || Boolean(rowPending)}
+                          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {rowPending === "reject_match" ? t("common.loading") : t("matching.review.reject")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDecideRecord(item, "mark_unmatched", null)}
+                          disabled={Boolean(rowPending)}
+                          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {rowPending === "mark_unmatched"
+                            ? t("common.loading")
+                            : t("matching.review.markUnmatched")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenRecord(item, candidate?.id ?? null)}
+                          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
+                        >
+                          {t("matching.review.reviewDetail")}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <DecisionHistory history={group.decision_history ?? []} />
     </div>
   );
 }
@@ -4762,6 +4935,31 @@ function identityFieldLabel(
     default:
       return fallback;
   }
+}
+
+function buildDifferenceSummary(
+  scores: ReviewCandidate["field_scores"],
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  const meaningful = sortFieldScores(scores)
+    .filter((field) => field.comparison !== "same")
+    .slice(0, 2)
+    .map((field) => {
+      const label = humanizeFieldLabel(field.input_column);
+      return `${label}: ${comparisonLabel(field.comparison, t)}`;
+    });
+
+  if (meaningful.length > 0) return meaningful.join(" | ");
+  if (scores.length > 0) return t("matching.review.same");
+  return "-";
+}
+
+function humanizeFieldLabel(value: string) {
+  return value
+    .replace(/[_\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatRecordValue(value: string | number | boolean | null | undefined) {

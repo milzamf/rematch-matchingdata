@@ -208,15 +208,16 @@ export function buildRecordIdentity(
 
   const headline = headlineField?.value ?? "-";
   const location = buildLocationMeta(fields);
-  const identifier = fields.find(
-    (field) => field.semantic === "strong_identifier" && field.value !== headline,
-  );
+  const identifiers = fields
+    .filter((field) => field.semantic === "strong_identifier" && field.value !== headline)
+    .sort((left, right) => compareIdentifierFields(left, right))
+    .slice(0, 2);
   const address = fields.find((field) => field.semantic === "address" && field.value !== headline);
   const email = fields.find((field) => field.semantic === "email" && field.value !== headline);
   const phone = fields.find((field) => field.semantic === "phone" && field.value !== headline);
 
   const metaParts = [
-    identifier ? formatIdentityField(identifier) : null,
+    ...identifiers.map((field) => formatIdentityField(field)),
     location,
     address ? formatIdentityField(address) : null,
     email ? formatIdentityField(email) : null,
@@ -255,15 +256,16 @@ export function buildSideIdentity(summary: IdentitySummary, side: IdentitySide):
 
   const headline = headlineField?.value ?? "-";
   const location = buildLocationMeta(fields);
-  const identifier = fields.find(
-    (field) => field.semantic === "strong_identifier" && field.value !== headline,
-  );
+  const identifiers = fields
+    .filter((field) => field.semantic === "strong_identifier" && field.value !== headline)
+    .sort((left, right) => compareIdentifierFields(left, right))
+    .slice(0, 2);
   const address = fields.find((field) => field.semantic === "address" && field.value !== headline);
   const email = fields.find((field) => field.semantic === "email" && field.value !== headline);
   const phone = fields.find((field) => field.semantic === "phone" && field.value !== headline);
 
   const metaParts = [
-    identifier ? formatIdentityField(identifier) : null,
+    ...identifiers.map((field) => formatIdentityField(field)),
     location,
     address ? formatIdentityField(address) : null,
     email ? formatIdentityField(email) : null,
@@ -531,6 +533,20 @@ function humanizeColumn(value: string) {
   if (!normalized) return value;
 
   return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function compareIdentifierFields(left: IdentityFieldValue, right: IdentityFieldValue) {
+  const priorityDiff = identifierPriority(left.label, left.column) - identifierPriority(right.label, right.column);
+  if (priorityDiff !== 0) return priorityDiff;
+  return left.label.localeCompare(right.label);
+}
+
+function identifierPriority(label: string, column: string | null) {
+  const normalized = normalizeColumnName(`${label}${column ?? ""}`);
+  if (normalized.includes("nib")) return 1;
+  if (normalized.includes("npwp") || normalized.includes("taxid")) return 2;
+  if (normalized.includes("id")) return 3;
+  return 4;
 }
 
 function normalizeColumnName(value: string | null | undefined) {
