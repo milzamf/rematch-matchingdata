@@ -30,6 +30,7 @@ class TabiTokenProvider implements AiProviderInterface
     public function generateStructured(array $payload): AiResponse
     {
         $startedAt = microtime(true);
+        $schema = Arr::get($payload, 'schema', []);
 
         if (! $this->isConfigured()) {
             return AiResponse::failure(
@@ -94,7 +95,7 @@ class TabiTokenProvider implements AiProviderInterface
             );
         }
 
-        $parsed = $this->extractStructuredData($body);
+        $parsed = $this->extractStructuredData($body, is_array($schema) ? $schema : []);
 
         if ($parsed === null) {
             return AiResponse::failure(
@@ -144,7 +145,7 @@ class TabiTokenProvider implements AiProviderInterface
     {
         $schemaJson = json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-        return trim($instructions."\nJSON only. Schema: ".$schemaJson);
+        return trim($instructions."\nReturn one JSON object only. No markdown fences. No commentary. Schema: ".$schemaJson);
     }
 
     /**
@@ -192,7 +193,7 @@ class TabiTokenProvider implements AiProviderInterface
      * @param  array<string, mixed>  $body
      * @return array<string, mixed>|null
      */
-    private function extractStructuredData(array $body): ?array
+    private function extractStructuredData(array $body, array $schema = []): ?array
     {
         $content = $body['content'] ?? null;
 
@@ -214,7 +215,7 @@ class TabiTokenProvider implements AiProviderInterface
             }
 
             $textBlocks[] = $text;
-            $decoded = $this->decodeStructuredPayload($text);
+            $decoded = $this->decodeStructuredPayload($text, $schema);
 
             if ($decoded !== null) {
                 return $decoded;
@@ -222,7 +223,7 @@ class TabiTokenProvider implements AiProviderInterface
         }
 
         if ($textBlocks !== []) {
-            return $this->decodeStructuredPayload(implode("\n", $textBlocks));
+            return $this->decodeStructuredPayload(implode("\n", $textBlocks), $schema);
         }
 
         return null;
@@ -231,7 +232,7 @@ class TabiTokenProvider implements AiProviderInterface
     /**
      * @return array<string, mixed>|null
      */
-    private function decodeStructuredPayload(string $text): ?array
+    private function decodeStructuredPayload(string $text, array $schema = []): ?array
     {
         $trimmed = trim($text);
 
@@ -239,14 +240,14 @@ class TabiTokenProvider implements AiProviderInterface
             return null;
         }
 
-        $decoded = $this->decodeJsonObject($trimmed);
+        $decoded = $this->decodeJsonObject($trimmed, $schema);
 
         if ($decoded !== null) {
             return $decoded;
         }
 
         if (preg_match('/```(?:json)?\s*(\{.*\})\s*```/is', $trimmed, $matches) === 1) {
-            $decoded = $this->decodeJsonObject($matches[1]);
+            $decoded = $this->decodeJsonObject($matches[1], $schema);
 
             if ($decoded !== null) {
                 return $decoded;
@@ -259,13 +260,13 @@ class TabiTokenProvider implements AiProviderInterface
             return null;
         }
 
-        return $this->decodeJsonObject($jsonObject);
+        return $this->decodeJsonObject($jsonObject, $schema);
     }
 
     /**
      * @return array<string, mixed>|null
      */
-    private function decodeJsonObject(string $json): ?array
+    private function decodeJsonObject(string $json, array $schema = []): ?array
     {
         $decoded = json_decode(trim($json), true);
 
@@ -273,37 +274,151 @@ class TabiTokenProvider implements AiProviderInterface
             return null;
         }
 
-        $requiredStringFields = ['assessment', 'summary'];
-        $requiredArrayFields = ['supporting_evidence', 'conflicts', 'missing_information', 'attention_points'];
+        return $this->validateStructuredObject($decoded, $schema);
+    }
 
-        foreach ($requiredStringFields as $field) {
-            if (! isset($decoded[$field]) || ! is_string($decoded[$field]) || trim($decoded[$field]) === '') {
+    /**
+     * @param  array<string, mixed>  $decoded
+     * @param  array<string, mixed>  $schema
+     * @return array<string, mixed>|null
+     */
+    private function validateStructuredObject(array $decoded, array $schema): ?array
+    {
+        $required = is_array($schema['required'] ?? null) ? $schema['required'] : [];
+        $properties = is_array($schema['properties'] ?? null) ? $schema['properties'] : [];
+        $normalized = [];
+
+        foreach ($required as $field) {
+            if (! is_string($field) || ! array_key_exists($field, $decoded)) {
                 return null;
             }
         }
 
-        if (
-            ! array_key_exists('confidence', $decoded)
-            || ! is_numeric($decoded['confidence'])
-        ) {
+        foreach ($properties as $field => $definition) {
+            if (! is_string($field) || ! is_array($definition) || ! array_key_exists($field, $decoded)) {
+                continue;
+            }
+
+            $normalized[$field] = $this->normalizeFieldValue($decoded[$field], $definition);
+
+            if ($normalized[$field] === null) {
+                return null;
+            }
+        }
+
+        foreach ($required as $field) {
+            if (! is_string($field)) {
+                continue;
+            }
+
+            if (! array_key_exists($field, $normalized)) {
+                $definition = is_array($properties[$field] ?? null) ? $properties[$field] : null;
+
+                if ($definition === null) {
+                    $normalized[$field] = $decoded[$field];
+                    continue;
+                }
+
+                $normalized[$field] = $this->normalizeFieldValue($decoded[$field], $definition);
+
+                if ($normalized[$field] === null) {
+                    return null;
+                }
+            }
+        }
+
+        foreach ($normalized as $field => $value) {
+            $definition = is_array($properties[$field] ?? null) ? $properties[$field] : null;
+
+            if ($definition === null) {
+                continue;
+            }
+
+            if (! $this->passesEnumValidation($value, $definition)) {
+                return null;
+            }
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $definition
+     */
+    private function normalizeFieldValue(mixed $value, array $definition): mixed
+    {
+        $type = $definition['type'] ?? null;
+
+        return match ($type) {
+            'string' => $this->normalizeStringValue($value),
+            'integer' => $this->normalizeIntegerValue($value, $definition),
+            'array' => $this->normalizeArrayValue($value, $definition),
+            default => $value,
+        };
+    }
+
+    private function normalizeStringValue(mixed $value): ?string
+    {
+        if (! is_scalar($value)) {
             return null;
         }
 
-        foreach ($requiredArrayFields as $field) {
-            if (! isset($decoded[$field]) || ! is_array($decoded[$field])) {
-                return null;
-            }
+        $normalized = trim((string) $value);
+
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $definition
+     */
+    private function normalizeIntegerValue(mixed $value, array $definition): ?int
+    {
+        if (! is_numeric($value)) {
+            return null;
         }
 
-        return [
-            'assessment' => trim((string) $decoded['assessment']),
-            'confidence' => (int) round((float) $decoded['confidence']),
-            'summary' => trim((string) $decoded['summary']),
-            'supporting_evidence' => $this->normalizeStringList($decoded['supporting_evidence']),
-            'conflicts' => $this->normalizeStringList($decoded['conflicts']),
-            'missing_information' => $this->normalizeStringList($decoded['missing_information']),
-            'attention_points' => $this->normalizeStringList($decoded['attention_points']),
-        ];
+        $normalized = (int) round((float) $value);
+        $minimum = is_numeric($definition['minimum'] ?? null) ? (int) $definition['minimum'] : null;
+        $maximum = is_numeric($definition['maximum'] ?? null) ? (int) $definition['maximum'] : null;
+
+        if (($minimum !== null && $normalized < $minimum) || ($maximum !== null && $normalized > $maximum)) {
+            return null;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param  array<string, mixed>  $definition
+     * @return array<int, string>|null
+     */
+    private function normalizeArrayValue(mixed $value, array $definition): ?array
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $itemType = $definition['items']['type'] ?? null;
+
+        if ($itemType === 'string') {
+            return $this->normalizeStringList($value);
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param  array<string, mixed>  $definition
+     */
+    private function passesEnumValidation(mixed $value, array $definition): bool
+    {
+        $enum = $definition['enum'] ?? null;
+
+        if (! is_array($enum)) {
+            return true;
+        }
+
+        return in_array($value, $enum, true);
     }
 
     private function extractFirstJsonObject(string $text): ?string
