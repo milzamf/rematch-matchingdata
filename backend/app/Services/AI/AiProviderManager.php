@@ -3,6 +3,7 @@
 namespace App\Services\AI;
 
 use App\Services\AI\Providers\OpenAiProvider;
+use App\Services\AI\Providers\TabiTokenProvider;
 
 class AiProviderManager
 {
@@ -12,6 +13,7 @@ class AiProviderManager
     public function __construct(
         private readonly array $config,
         private readonly OpenAiProvider $openAiProvider,
+        private readonly ?TabiTokenProvider $tabiTokenProvider = null,
     ) {
     }
 
@@ -60,6 +62,7 @@ class AiProviderManager
 
         return match ($this->configuredProvider()) {
             'openai' => $this->openAiProvider->isConfigured() ? $this->openAiProvider : null,
+            'tabitoken' => $this->resolveTabiTokenProvider(),
             default => null,
         };
     }
@@ -85,7 +88,7 @@ class AiProviderManager
             ];
         }
 
-        if ($provider !== 'openai') {
+        if (! in_array($provider, ['openai', 'tabitoken'], true)) {
             return [
                 'code' => 'unsupported_provider',
                 'message' => sprintf('Unsupported AI provider [%s].', $provider),
@@ -96,5 +99,14 @@ class AiProviderManager
             'code' => 'provider_misconfigured',
             'message' => 'AI provider configuration is incomplete.',
         ];
+    }
+
+    private function resolveTabiTokenProvider(): ?AiProviderInterface
+    {
+        $provider = $this->tabiTokenProvider ?? new TabiTokenProvider(
+            $this->config['providers']['tabitoken'] ?? [],
+        );
+
+        return $provider->isConfigured() ? $provider : null;
     }
 }
