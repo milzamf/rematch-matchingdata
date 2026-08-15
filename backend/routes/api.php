@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\DatasetInspectionController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\AiReviewCaseController;
 use App\Http\Controllers\Api\AiReviewKnowledgeController;
+use App\Http\Controllers\Api\AiMatchingConfigurationController;
 use App\Http\Controllers\Api\AiReviewRecommendationController;
 use App\Http\Controllers\Api\MatchingRunController;
 use App\Http\Controllers\Api\MatchingStatusController;
@@ -44,6 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::MATCHING_RUN);
     Route::get('/matching-jobs/{job}/status', MatchingStatusController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_VIEW);
+    Route::get('/matching-jobs/{job}/ai-matching-configuration', AiMatchingConfigurationController::class)
+        ->middleware('permission:'.PermissionRegistry::MATCHING_CONFIGURE);
     Route::get('/matching-jobs/{job}/review-results', ReviewResultsController::class)
         ->middleware('permission:'.PermissionRegistry::REVIEW_VIEW);
     Route::get('/matching-results/{result}/ai-review-analysis', AiReviewCaseController::class)
