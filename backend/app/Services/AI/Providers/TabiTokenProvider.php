@@ -142,9 +142,9 @@ class TabiTokenProvider implements AiProviderInterface
      */
     private function buildSystemPrompt(string $instructions, array $schema): string
     {
-        $schemaJson = json_encode($schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $schemaJson = json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-        return trim($instructions."\n\nReturn one JSON object only. Do not add markdown fences, labels, or commentary. Return valid JSON matching this schema exactly:\n".$schemaJson);
+        return trim($instructions."\nJSON only. Schema: ".$schemaJson);
     }
 
     /**

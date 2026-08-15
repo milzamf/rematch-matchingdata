@@ -67,22 +67,17 @@ class ReviewCaseAnalyst
             ->filter(fn ($score) => is_array($score))
             ->map(fn (array $score) => $this->normalizeFieldScore($score, $inputRecord, $referenceRecord))
             ->values();
-        $inputIdentity = $this->compactIdentity($this->extractIdentity($inputRecord));
-        $referenceIdentity = $this->compactIdentity($this->extractIdentity($referenceRecord));
         $mappedFields = collect($this->mappedFields($mappings, $inputRecord, $referenceRecord, $normalizedScores));
         $importantFields = $this->selectImportantFields($mappedFields);
+        $missing = $this->missingImportantFields($importantFields);
 
         return [
             'score' => round((float) $result->overall_score, 2),
-            'rank' => $result->candidate_rank,
-            'input' => $inputIdentity,
-            'reference' => $referenceIdentity,
             'fields' => $importantFields->values()->all(),
             'agreements' => $importantFields
                 ->filter(fn (array $field) => ($field['cmp'] ?? null) === 'same')
-                ->take(4)
-                ->map(fn (array $field) => (string) ($field['label'] ?? ''))
-                ->filter(fn (string $label) => $label !== '')
+                ->map(fn (array $field) => (string) ($field['f'] ?? ''))
+                ->filter(fn (string $field) => $field !== '')
                 ->values()
                 ->all(),
             'conflicts' => $importantFields
@@ -92,33 +87,24 @@ class ReviewCaseAnalyst
                     return is_string($comparison)
                         && in_array($comparison, ['different', 'identity_conflict'], true);
                 })
-                ->take(4)
-                ->map(fn (array $field) => [
-                    'field' => $field['label'] ?? null,
-                    'in' => $field['in'] ?? null,
-                    'ref' => $field['ref'] ?? null,
-                    'cmp' => $field['cmp'] ?? null,
-                ])
-                ->filter(fn (array $field) => is_string($field['field']) && $field['field'] !== '')
+                ->map(fn (array $field) => trim(sprintf(
+                    '%s:%s',
+                    (string) ($field['f'] ?? ''),
+                    (string) ($field['cmp'] ?? '')
+                ), ':'))
+                ->filter(fn (string $field) => $field !== '')
                 ->values()
                 ->all(),
-            'missing_important_fields' => $this->missingImportantFields($inputIdentity, $referenceIdentity),
+            'missing' => $missing,
         ];
     }
 
     private function instructions(): string
     {
-        return <<<'TEXT'
-Analyze one RE-MATCH case using only the supplied compact evidence.
-Advisory only.
-Do not accept, reject, or mark unmatched.
-Do not change similarity.
-Return concise factual JSON only.
-Assessment:
-- likely_match
-- uncertain
-- likely_not_match
-TEXT;
+        return 'Analyze one RE-MATCH case from compact evidence only. Advisory only. '
+            .'Do not change similarity or make decisions. '
+            .'Return JSON with assessment (likely_match|uncertain|likely_not_match), confidence 0-100, '
+            .'summary, supporting_evidence[], conflicts[], missing_information[], attention_points[].';
     }
 
     /**
@@ -273,25 +259,6 @@ TEXT;
     }
 
     /**
-     * @param  array<string, string|null>  $identity
-     * @return array<string, string>
-     */
-    private function compactIdentity(array $identity): array
-    {
-        $compact = [];
-
-        foreach (self::IDENTITY_ORDER as $field) {
-            $value = $identity[$field] ?? null;
-
-            if (is_string($value) && trim($value) !== '') {
-                $compact[$field] = $value;
-            }
-        }
-
-        return $compact;
-    }
-
-    /**
      * @param  Collection<int, array<string, mixed>>  $mappedFields
      * @return Collection<int, array<string, mixed>>
      */
@@ -317,15 +284,15 @@ TEXT;
 
         $selected = $prioritized
             ->filter(fn (array $field) => ($field['importance'] ?? 99) <= 9)
-            ->take(8);
+            ->take(6);
 
         if ($selected->isEmpty()) {
-            $selected = $prioritized->take(6);
+            $selected = $prioritized->take(4);
         }
 
         return $selected->map(function (array $field) {
             return [
-                'label' => $field['label'],
+                'f' => $this->compactFieldName((string) ($field['label'] ?? 'field')),
                 'in' => $field['input_value'],
                 'ref' => $field['reference_value'],
                 'score' => $field['score'],
@@ -335,27 +302,22 @@ TEXT;
     }
 
     /**
-     * @param  array<string, string>  $inputIdentity
-     * @param  array<string, string>  $referenceIdentity
+     * @param  Collection<int, array<string, mixed>>  $fields
      * @return array<int, string>
      */
-    private function missingImportantFields(array $inputIdentity, array $referenceIdentity): array
+    private function missingImportantFields(Collection $fields): array
     {
         $missing = [];
+        $present = $fields
+            ->map(fn (array $field) => (string) ($field['f'] ?? ''))
+            ->filter(fn (string $field) => $field !== '')
+            ->values()
+            ->all();
 
         foreach (self::IDENTITY_ORDER as $field) {
-            $inputMissing = ! array_key_exists($field, $inputIdentity);
-            $referenceMissing = ! array_key_exists($field, $referenceIdentity);
-
-            if (! $inputMissing && ! $referenceMissing) {
-                continue;
+            if (! in_array($field, $present, true)) {
+                $missing[] = $field;
             }
-
-            $missing[] = match (true) {
-                $inputMissing && $referenceMissing => $field.' missing on both sides',
-                $inputMissing => $field.' missing on input side',
-                default => $field.' missing on reference side',
-            };
         }
 
         return array_slice($missing, 0, 5);
@@ -404,10 +366,36 @@ TEXT;
         if (is_string($value)) {
             $trimmed = trim($value);
 
-            return $trimmed !== '' ? $trimmed : null;
+            if ($trimmed === '') {
+                return null;
+            }
+
+            return Str::limit($trimmed, 120, '...');
         }
 
         return is_scalar($value) ? $value : null;
+    }
+
+    private function compactFieldName(string $value): string
+    {
+        $normalized = Str::of($value)
+            ->snake()
+            ->lower()
+            ->toString();
+
+        return match (true) {
+            Str::contains($normalized, ['company', 'entity', 'business', 'name', 'nama']) => 'entity_name',
+            Str::contains($normalized, ['identifier', 'company_id']) => 'identifier',
+            Str::contains($normalized, ['kode', 'code']) => 'code',
+            Str::contains($normalized, ['nib']) => 'nib',
+            Str::contains($normalized, ['npwp', 'tax']) => 'npwp',
+            Str::contains($normalized, ['address', 'alamat', 'street', 'jalan']) => 'address',
+            Str::contains($normalized, ['province', 'provinsi', 'prov']) => 'province',
+            Str::contains($normalized, ['city', 'kota', 'kabupaten', 'kab']) => 'city',
+            Str::contains($normalized, ['email']) => 'email',
+            Str::contains($normalized, ['phone', 'telepon', 'telp', 'mobile', 'hp']) => 'phone',
+            default => $normalized !== '' ? $normalized : 'field',
+        };
     }
 
     private function humanize(string $value): string
