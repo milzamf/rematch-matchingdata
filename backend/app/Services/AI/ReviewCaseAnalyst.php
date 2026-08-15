@@ -79,20 +79,27 @@ class ReviewCaseAnalyst
             'reference' => $referenceIdentity,
             'fields' => $importantFields->values()->all(),
             'agreements' => $importantFields
-                ->where('comparison', 'same')
+                ->filter(fn (array $field) => ($field['cmp'] ?? null) === 'same')
                 ->take(4)
-                ->map(fn (array $field) => $field['label'])
+                ->map(fn (array $field) => (string) ($field['label'] ?? ''))
+                ->filter(fn (string $label) => $label !== '')
                 ->values()
                 ->all(),
             'conflicts' => $importantFields
-                ->filter(fn (array $field) => in_array($field['comparison'], ['different', 'identity_conflict'], true))
+                ->filter(function (array $field) {
+                    $comparison = $field['cmp'] ?? null;
+
+                    return is_string($comparison)
+                        && in_array($comparison, ['different', 'identity_conflict'], true);
+                })
                 ->take(4)
                 ->map(fn (array $field) => [
-                    'field' => $field['label'],
-                    'in' => $field['input_value'],
-                    'ref' => $field['reference_value'],
-                    'cmp' => $field['comparison'],
+                    'field' => $field['label'] ?? null,
+                    'in' => $field['in'] ?? null,
+                    'ref' => $field['ref'] ?? null,
+                    'cmp' => $field['cmp'] ?? null,
                 ])
+                ->filter(fn (array $field) => is_string($field['field']) && $field['field'] !== '')
                 ->values()
                 ->all(),
             'missing_important_fields' => $this->missingImportantFields($inputIdentity, $referenceIdentity),

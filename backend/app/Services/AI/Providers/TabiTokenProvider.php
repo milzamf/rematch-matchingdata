@@ -144,7 +144,7 @@ class TabiTokenProvider implements AiProviderInterface
     {
         $schemaJson = json_encode($schema, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-        return trim($instructions."\n\nReturn only valid JSON matching this schema exactly:\n".$schemaJson);
+        return trim($instructions."\n\nReturn one JSON object only. Do not add markdown fences, labels, or commentary. Return valid JSON matching this schema exactly:\n".$schemaJson);
     }
 
     /**
@@ -200,6 +200,8 @@ class TabiTokenProvider implements AiProviderInterface
             return null;
         }
 
+        $textBlocks = [];
+
         foreach ($content as $item) {
             if (! is_array($item) || ($item['type'] ?? null) !== 'text') {
                 continue;
@@ -211,14 +213,170 @@ class TabiTokenProvider implements AiProviderInterface
                 continue;
             }
 
-            $decoded = json_decode($text, true);
+            $textBlocks[] = $text;
+            $decoded = $this->decodeStructuredPayload($text);
 
-            if (is_array($decoded)) {
+            if ($decoded !== null) {
                 return $decoded;
             }
         }
 
+        if ($textBlocks !== []) {
+            return $this->decodeStructuredPayload(implode("\n", $textBlocks));
+        }
+
         return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeStructuredPayload(string $text): ?array
+    {
+        $trimmed = trim($text);
+
+        if ($trimmed === '') {
+            return null;
+        }
+
+        $decoded = $this->decodeJsonObject($trimmed);
+
+        if ($decoded !== null) {
+            return $decoded;
+        }
+
+        if (preg_match('/```(?:json)?\s*(\{.*\})\s*```/is', $trimmed, $matches) === 1) {
+            $decoded = $this->decodeJsonObject($matches[1]);
+
+            if ($decoded !== null) {
+                return $decoded;
+            }
+        }
+
+        $jsonObject = $this->extractFirstJsonObject($trimmed);
+
+        if ($jsonObject === null) {
+            return null;
+        }
+
+        return $this->decodeJsonObject($jsonObject);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonObject(string $json): ?array
+    {
+        $decoded = json_decode(trim($json), true);
+
+        if (! is_array($decoded)) {
+            return null;
+        }
+
+        $requiredStringFields = ['assessment', 'summary'];
+        $requiredArrayFields = ['supporting_evidence', 'conflicts', 'missing_information', 'attention_points'];
+
+        foreach ($requiredStringFields as $field) {
+            if (! isset($decoded[$field]) || ! is_string($decoded[$field]) || trim($decoded[$field]) === '') {
+                return null;
+            }
+        }
+
+        if (
+            ! array_key_exists('confidence', $decoded)
+            || ! is_numeric($decoded['confidence'])
+        ) {
+            return null;
+        }
+
+        foreach ($requiredArrayFields as $field) {
+            if (! isset($decoded[$field]) || ! is_array($decoded[$field])) {
+                return null;
+            }
+        }
+
+        return [
+            'assessment' => trim((string) $decoded['assessment']),
+            'confidence' => (int) round((float) $decoded['confidence']),
+            'summary' => trim((string) $decoded['summary']),
+            'supporting_evidence' => $this->normalizeStringList($decoded['supporting_evidence']),
+            'conflicts' => $this->normalizeStringList($decoded['conflicts']),
+            'missing_information' => $this->normalizeStringList($decoded['missing_information']),
+            'attention_points' => $this->normalizeStringList($decoded['attention_points']),
+        ];
+    }
+
+    private function extractFirstJsonObject(string $text): ?string
+    {
+        $start = strpos($text, '{');
+
+        if ($start === false) {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escaped = false;
+        $length = strlen($text);
+
+        for ($index = $start; $index < $length; $index++) {
+            $character = $text[$index];
+
+            if ($inString) {
+                if ($escaped) {
+                    $escaped = false;
+                    continue;
+                }
+
+                if ($character === '\\') {
+                    $escaped = true;
+                    continue;
+                }
+
+                if ($character === '"') {
+                    $inString = false;
+                }
+
+                continue;
+            }
+
+            if ($character === '"') {
+                $inString = true;
+                continue;
+            }
+
+            if ($character === '{') {
+                $depth++;
+                continue;
+            }
+
+            if ($character === '}') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return substr($text, $start, $index - $start + 1);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, mixed>  $items
+     * @return array<int, string>
+     */
+    private function normalizeStringList(array $items): array
+    {
+        return array_values(array_filter(array_map(function (mixed $item): ?string {
+            if (! is_scalar($item)) {
+                return null;
+            }
+
+            $value = trim((string) $item);
+
+            return $value !== '' ? $value : null;
+        }, $items)));
     }
 
     private function apiKey(): ?string
