@@ -25,6 +25,7 @@ class MatchingResult extends Model
         'field_scores',
         'candidate_metadata',
         'decision_reason',
+        'verification_evidence',
     ];
 
     protected function casts(): array
@@ -34,6 +35,7 @@ class MatchingResult extends Model
             'candidate_rank' => 'integer',
             'field_scores' => 'array',
             'candidate_metadata' => 'array',
+            'verification_evidence' => 'array',
             'reviewed_at' => 'datetime',
         ];
     }

@@ -42,6 +42,52 @@ class ValueNormalizer
         return trim($text);
     }
 
+    public function normalizeByType(mixed $value, ?string $dataType = null, ?string $columnName = null): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        $text = trim((string) $value);
+
+        if ($text === '') {
+            return '';
+        }
+
+        $column = mb_strtolower(trim((string) $columnName));
+        $type = mb_strtolower(trim((string) $dataType));
+
+        $isIdentifier = $type === 'identifier'
+            || str_contains($column, 'nik')
+            || str_contains($column, 'npwp')
+            || str_contains($column, 'nib')
+            || str_contains($column, 'id')
+            || str_contains($column, 'kode')
+            || str_contains($column, 'code')
+            || str_contains($column, 'identifier');
+
+        if ($isIdentifier) {
+            $cleaned = preg_replace('/[^\pL\pN]+/u', '', mb_strtolower($text)) ?? $text;
+
+            return trim($cleaned);
+        }
+
+        if ($type === 'number' || $type === 'numeric') {
+            $cleaned = preg_replace('/[^\d.,\-+]/u', '', $text) ?? $text;
+
+            return trim($cleaned);
+        }
+
+        if ($type === 'date') {
+            return trim(mb_strtolower($text));
+        }
+
+        $text = mb_strtolower($text);
+        $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+
+        return trim($text);
+    }
+
     /**
      * @return array<int, string>
      */

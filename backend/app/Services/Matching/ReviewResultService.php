@@ -258,6 +258,7 @@ class ReviewResultService
             'rank' => $result->candidate_rank,
             'field_scores' => $this->decorateFieldScores($result->field_scores ?? []),
             'decision_reason' => $result->decision_reason,
+            'verification_evidence' => $result->verification_evidence ?? null,
         ];
     }
 

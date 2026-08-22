@@ -38,7 +38,14 @@ class SimilarityScorer
 
     private function normalizeAlgorithm(string $algorithm): string
     {
-        return trim(str_replace('Similarity', 'Similarity', $algorithm));
+        $cleaned = trim($algorithm);
+
+        return match ($cleaned) {
+            'Token Sort' => 'Token Sort Ratio',
+            'Token Set' => 'Token Set Ratio',
+            'Partial Token' => 'Partial Token Set',
+            default => $cleaned,
+        };
     }
 
     private function levenshteinRatio(string $left, string $right): float
