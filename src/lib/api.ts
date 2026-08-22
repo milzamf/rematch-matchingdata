@@ -46,6 +46,7 @@ export type DatasetInspectResult = {
 type ApiSuccess<T> = {
   success: true;
   data: T;
+  message?: string;
 };
 
 type ApiFailure = {

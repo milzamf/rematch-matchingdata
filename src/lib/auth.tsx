@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const requestVersion = refreshRequestVersionRef.current + 1;
     refreshRequestVersionRef.current = requestVersion;
 
-    const refreshPromise = (async () => {
+    const refreshPromise: Promise<AuthUser | null> = (async () => {
       try {
         const session = await fetchCurrentUser();
         if (refreshRequestVersionRef.current === requestVersion) {
@@ -90,9 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (refreshRequestVersionRef.current === requestVersion) {
           setIsLoadingAuth(false);
         }
-        if (inFlightRefreshRef.current === refreshPromise) {
-          inFlightRefreshRef.current = null;
-        }
+        inFlightRefreshRef.current = null;
       }
     })();
 

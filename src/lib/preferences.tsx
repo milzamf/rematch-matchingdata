@@ -161,7 +161,6 @@ const translations = {
     "auth.username": "Username",
     "auth.usernamePlaceholder": "your username",
     "auth.password": "Password",
-    "auth.passwordPlaceholder": "password",
     "auth.role.admin": "Administrator",
     "auth.role.user": "Operator",
     "auth.role.pimpinan": "Leadership",
@@ -354,6 +353,7 @@ const translations = {
     "step.exportDesc": "Download results",
     "workflow.locked": "Complete the previous step first",
     "matching.title": "New Matching",
+    "matching.loadingDesc": "Loading workspace and dataset information...",
     "matching.description":
       "Prepare datasets, configure matching, review results, and finalize the output",
     "matching.upload.title": "Upload Dataset",
@@ -433,6 +433,14 @@ const translations = {
     "matching.mapping.type.date": "Date",
     "matching.mapping.type.boolean": "Boolean",
     "matching.mapping.type.unknown": "Unknown",
+    "matching.validation.uploadRequired":
+      "Please upload both reference and input datasets before proceeding",
+    "matching.validation.mappingRequired":
+      "Add at least one complete column mapping before proceeding",
+    "matching.validation.duplicateReference":
+      "A reference column cannot be mapped more than once",
+    "matching.validation.runRequired":
+      "Run the matching process first before viewing results",
     "matching.config.title": "Matching Configuration",
     "matching.configV2.desc":
       "Use the recommended configuration or adjust only the fields and rules you need",
@@ -455,6 +463,9 @@ const translations = {
     "matching.configV2.strictWeightHint":
       "Mandatory exact condition, excluded from similarity weight",
     "matching.configV2.reason.identifier": "Identifier-like field with strong uniqueness signal",
+    "matching.configV2.reason.entity_name": "Entity name with character similarity heuristic",
+    "matching.configV2.reason.location": "Location and region attribute comparison",
+    "matching.configV2.reason.address": "Address field with normalization and similarity comparison",
     "matching.configV2.reason.typed": "Typed number or date comparison",
     "matching.configV2.reason.categorical":
       "Repeated or categorical values provide supporting evidence",
@@ -832,7 +843,6 @@ const translations = {
     "matching.review.topCandidates": "Top N Candidates",
     "matching.review.noCandidate": "No candidate",
     "matching.review.noCandidateDesc": "This input record has no reference candidate",
-    "matching.review.recommendation": "Recommendation",
     "matching.review.recApprove": "Approve",
     "matching.review.recReview": "Review closely",
     "matching.review.recReject": "Likely reject",
@@ -852,6 +862,10 @@ const translations = {
     "matching.review.name": "Name",
     "matching.review.identifier": "Identifier",
     "matching.review.address": "Address",
+    "results.totalRecords": "Total Records",
+    "results.matchedRecords": "Matched Records",
+    "results.possibleMatches": "Possible Matches",
+    "results.unmatchedRecords": "Unmatched Records",
     "matching.sync.title": "Synchronize",
     "matching.sync.desc":
       "Choose final handling for matched, unmatched, and reviewed records before export",
@@ -1356,7 +1370,6 @@ const translations = {
     "auth.username": "Username",
     "auth.usernamePlaceholder": "username Anda",
     "auth.password": "Password",
-    "auth.passwordPlaceholder": "password",
     "auth.role.admin": "Administrator",
     "auth.role.user": "Operator",
     "auth.role.pimpinan": "Pimpinan",
@@ -1551,6 +1564,7 @@ const translations = {
     "step.exportDesc": "Unduh hasil",
     "workflow.locked": "Selesaikan tahap sebelumnya terlebih dahulu",
     "matching.title": "Pencocokan Data Baru",
+    "matching.loadingDesc": "Memuat informasi workspace dan dataset...",
     "matching.description":
       "Siapkan data, atur metode pencocokan, periksa hasil, lalu finalisasi data",
     "matching.upload.title": "Unggah Dataset",
@@ -1632,6 +1646,14 @@ const translations = {
     "matching.mapping.type.date": "Tanggal",
     "matching.mapping.type.boolean": "Boolean",
     "matching.mapping.type.unknown": "Tidak diketahui",
+    "matching.validation.uploadRequired":
+      "Unggah dataset acuan dan dataset input terlebih dahulu sebelum melanjutkan",
+    "matching.validation.mappingRequired":
+      "Tambahkan minimal satu mapping kolom yang lengkap sebelum melanjutkan",
+    "matching.validation.duplicateReference":
+      "Kolom data acuan tidak boleh dipetakan lebih dari sekali",
+    "matching.validation.runRequired":
+      "Jalankan proses pencocokan terlebih dahulu sebelum melihat hasil",
     "matching.config.title": "Konfigurasi Matching",
     "matching.configV2.desc":
       "Gunakan konfigurasi yang disarankan atau atur hanya field dan rule yang diperlukan",
@@ -1654,6 +1676,10 @@ const translations = {
     "matching.configV2.strictWeightHint": "Syarat exact wajib, tidak masuk bobot similarity",
     "matching.configV2.reason.identifier":
       "Field menyerupai identifier dengan sinyal keunikan kuat",
+    "matching.configV2.reason.entity_name":
+      "Nama entitas usaha dengan heuristik kemiripan karakter",
+    "matching.configV2.reason.location": "Atribut wilayah/lokasi sebagai guardrail",
+    "matching.configV2.reason.address": "Alamat dengan normalisasi singkatan dan kemiripan",
     "matching.configV2.reason.typed": "Perbandingan sesuai tipe angka atau tanggal",
     "matching.configV2.reason.categorical": "Nilai berulang atau kategori menjadi bukti pendukung",
     "matching.configV2.reason.multiword": "Teks banyak kata dibandingkan berdasarkan token",
@@ -2029,7 +2055,6 @@ const translations = {
     "matching.review.topCandidates": "Top N Kandidat",
     "matching.review.noCandidate": "Tidak ada kandidat",
     "matching.review.noCandidateDesc": "Data input ini tidak memiliki kandidat referensi",
-    "matching.review.recommendation": "Rekomendasi",
     "matching.review.recApprove": "Setujui",
     "matching.review.recReview": "Review teliti",
     "matching.review.recReject": "Kemungkinan tolak",
@@ -2049,6 +2074,10 @@ const translations = {
     "matching.review.name": "Nama",
     "matching.review.identifier": "Identifier",
     "matching.review.address": "Alamat",
+    "results.totalRecords": "Total Data",
+    "results.matchedRecords": "Data Cocok",
+    "results.possibleMatches": "Perlu Review",
+    "results.unmatchedRecords": "Tidak Cocok",
     "matching.sync.title": "Sinkronisasi",
     "matching.sync.desc": "Tentukan hasil akhir sebelum data diekspor",
     "matching.sync.matchedTitle": "Data Matched",

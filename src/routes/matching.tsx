@@ -239,6 +239,46 @@ type MatchingConfiguration = {
 const ALLOWED = [".csv", ".xlsx"];
 const MAX_MB = 50;
 
+function injectVirtualColumns(
+  columns: DatasetInspectResult["columns"],
+  prefix: string,
+): DatasetInspectResult["columns"] {
+  if (columns.length === 0) return [];
+  const hasStringField = columns.some(
+    (c) =>
+      ["text", "string", "varchar"].includes((c.data_type || "").toLowerCase()) || !c.data_type,
+  );
+  if (!hasStringField) return columns;
+
+  const virtualCoreName: DatasetInspectResult["columns"][number] = {
+    id: `virtual-${prefix}-core-name`,
+    name: "[Generated] Nama Inti",
+    normalized_name: "nama_inti",
+    position: 998,
+    data_type: "text",
+    null_count: 0,
+    null_percentage: 0,
+    unique_count: 0,
+    duplicate_percentage: 0,
+    sample_values: ["Nama Inti Usaha"],
+  };
+
+  const virtualLegalForm: DatasetInspectResult["columns"][number] = {
+    id: `virtual-${prefix}-legal-form`,
+    name: "[Generated] Badan Usaha",
+    normalized_name: "badan_usaha",
+    position: 999,
+    data_type: "text",
+    null_count: 0,
+    null_percentage: 0,
+    unique_count: 0,
+    duplicate_percentage: 0,
+    sample_values: ["PT", "CV", "UD"],
+  };
+
+  return [...columns, virtualCoreName, virtualLegalForm];
+}
+
 function MatchingPage() {
   const { t } = usePreferences();
   const { can } = useAuth();
@@ -730,8 +770,10 @@ function MatchingPage() {
       return;
     }
 
-    const referenceIds = new Set(inspectedReferenceColumns.map((column) => column.id));
-    const inputIds = new Set(inspectedInputColumns.map((column) => column.id));
+    const effectiveReference = injectVirtualColumns(inspectedReferenceColumns, "ref");
+    const effectiveInput = injectVirtualColumns(inspectedInputColumns, "inp");
+    const referenceIds = new Set(effectiveReference.map((column) => column.id));
+    const inputIds = new Set(effectiveInput.map((column) => column.id));
     setColumnMappings((current) =>
       current.filter(
         (mapping) =>
@@ -798,8 +840,77 @@ function MatchingPage() {
     }
   };
 
+  const handleNextStep = () => {
+    if (activeStep === 1) {
+      if (!reference?.result || !input?.result) {
+        toast.error(t("matching.validation.uploadRequired"));
+        return;
+      }
+      if (validMappings.length === 0) {
+        toast.error(t("matching.validation.mappingRequired"));
+        return;
+      }
+      if (hasDuplicateReference(validMappings)) {
+        toast.error(t("matching.validation.duplicateReference"));
+        return;
+      }
+      setStep(2);
+      void navigate({
+        to: "/matching",
+        search: buildMatchingSearch(workspaceId, 2),
+        replace: true,
+      });
+      return;
+    }
+
+    if (activeStep === 2) {
+      if (!runResult || runState !== "success") {
+        toast.error(t("matching.validation.runRequired"));
+        return;
+      }
+      setStep(3);
+      void navigate({
+        to: "/matching",
+        search: buildMatchingSearch(workspaceId, 3),
+        replace: true,
+      });
+      return;
+    }
+  };
+
   const selectStep = (nextStep: number) => {
+    if (nextStep === activeStep) return;
+
+    if (nextStep === 2) {
+      if (!reference?.result || !input?.result) {
+        toast.error(t("matching.validation.uploadRequired"));
+        return;
+      }
+      if (validMappings.length === 0) {
+        toast.error(t("matching.validation.mappingRequired"));
+        return;
+      }
+      if (hasDuplicateReference(validMappings)) {
+        toast.error(t("matching.validation.duplicateReference"));
+        return;
+      }
+    } else if (nextStep === 3) {
+      if (!reference?.result || !input?.result) {
+        toast.error(t("matching.validation.uploadRequired"));
+        return;
+      }
+      if (validMappings.length === 0) {
+        toast.error(t("matching.validation.mappingRequired"));
+        return;
+      }
+      if (!runResult || runState !== "success") {
+        toast.error(t("matching.validation.runRequired"));
+        return;
+      }
+    }
+
     if (nextStep > highestAllowedStep) return;
+
     setStep(nextStep);
     void navigate({
       to: "/matching",
@@ -1002,9 +1113,9 @@ function MatchingPage() {
                   </Link>
                 ) : (
                   <button
-                    disabled={!canAdvance}
-                    onClick={() => selectStep(Math.min(wizardSteps.length, activeStep + 1))}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                    type="button"
+                    onClick={handleNextStep}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 transition-opacity"
                   >
                     {t("common.continue")}
                     <ArrowRight className="size-4" />
@@ -1527,42 +1638,6 @@ function ProfileStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function injectVirtualColumns(
-  columns: DatasetInspectResult["columns"],
-  prefix: string,
-): DatasetInspectResult["columns"] {
-  if (columns.length === 0) return [];
-  const hasStringField = columns.some(
-    (c) =>
-      ["text", "string", "varchar"].includes((c.data_type || "").toLowerCase()) || !c.data_type,
-  );
-  if (!hasStringField) return columns;
-
-  const virtualCoreName: DatasetInspectResult["columns"][number] = {
-    id: `virtual-${prefix}-core-name`,
-    name: "[Generated] Nama Inti",
-    data_type: "text",
-    null_count: 0,
-    null_percentage: 0,
-    unique_count: 0,
-    duplicate_percentage: 0,
-    sample_values: ["Nama Inti Usaha"],
-  };
-
-  const virtualLegalForm: DatasetInspectResult["columns"][number] = {
-    id: `virtual-${prefix}-legal-form`,
-    name: "[Generated] Badan Usaha",
-    data_type: "text",
-    null_count: 0,
-    null_percentage: 0,
-    unique_count: 0,
-    duplicate_percentage: 0,
-    sample_values: ["PT", "CV", "UD"],
-  };
-
-  return [...columns, virtualCoreName, virtualLegalForm];
-}
-
 function StepColumnMapping({
   referenceColumns,
   inputColumns,
@@ -1912,15 +1987,13 @@ function defaultAlgorithmForField(
   type: FieldType,
 ): ConfigureAlgorithm {
   const combinedName = `${referenceName} ${inputName}`.toLowerCase();
-  if (type === "number") return "Numeric Exact";
-  if (type === "date") return "Date Exact";
-  if (type === "boolean") return "Exact";
+  if (type === "number" || type === "date" || type === "boolean") return "Exact";
   if (/(npwp|nik|id|kode|code|email)/.test(combinedName)) return "Normalized Exact";
-  if (/(alamat|address)/.test(combinedName)) return "Token Set Ratio";
+  if (/(alamat|address)/.test(combinedName)) return "Jaro-Winkler";
   if (/(perusahaan|company|entity|entitas|nama|name|vendor|customer)/.test(combinedName)) {
     return "Jaro-Winkler";
   }
-  if (/[_\s-]/.test(combinedName)) return "Token Set Ratio";
+  if (/[_\s-]/.test(combinedName)) return "Token Set";
   return "Jaro-Winkler";
 }
 
@@ -1930,8 +2003,7 @@ function defaultExactAlgorithmForField(
   type: FieldType,
 ): ConfigureAlgorithm {
   const combinedName = `${referenceName} ${inputName}`.toLowerCase();
-  if (type === "number") return "Numeric Exact";
-  if (type === "date") return "Date Exact";
+  if (type === "number" || type === "date") return "Exact";
   if (/(npwp|nik|id|kode|code|email)/.test(combinedName)) return "Normalized Exact";
   if (type === "text") return "Normalized Exact";
   return "Exact";
@@ -2223,7 +2295,9 @@ function StepConfigV2({
         .map((id, index) => {
           const field = fields.find((item) => item.id === id);
           if (!field) return null;
-          const method = field.strict ? "Exact" : (methods[field.id]?.algorithm ?? field.algorithm);
+          const method: ConfigureAlgorithm = field.strict
+            ? "Exact"
+            : (methods[field.id]?.algorithm ?? field.algorithm);
           return {
             order: index + 1,
             field: field.label,
@@ -2239,7 +2313,7 @@ function StepConfigV2({
             order: number;
             field: string;
             mappingId: string;
-            method: string;
+            method: ConfigureAlgorithm;
             threshold: number;
           } => Boolean(step),
         ),
@@ -3362,7 +3436,7 @@ function StepRunCard({
             {state === "idle"
               ? "Konfigurasi aturan sudah lengkap. Klik jalankan untuk mengeksekusi pipeline pencocokan."
               : state === "running"
-                ? t("matching.run.running")
+                ? t("matching.run.progressTitle")
                 : state === "success"
                   ? t("matching.run.complete")
                   : t("matching.run.failedGeneric")}
@@ -3434,24 +3508,24 @@ function StepRunCard({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 pt-2 border-t border-border/60 text-xs">
           <div className="rounded-md bg-secondary/30 p-2.5">
             <p className="text-[10px] text-muted-foreground uppercase">{t("results.totalRecords")}</p>
-            <p className="mt-1 text-sm font-bold">{result.job.total_count.toLocaleString()}</p>
+            <p className="mt-1 text-sm font-bold">{result.progress.total.toLocaleString()}</p>
           </div>
           <div className="rounded-md bg-secondary/30 p-2.5">
             <p className="text-[10px] text-muted-foreground uppercase">{t("results.matchedRecords")}</p>
             <p className="mt-1 text-sm font-bold text-success">
-              {result.job.record_counts.matched.toLocaleString()}
+              {result.summary.matched.toLocaleString()}
             </p>
           </div>
           <div className="rounded-md bg-secondary/30 p-2.5">
             <p className="text-[10px] text-muted-foreground uppercase">{t("results.possibleMatches")}</p>
             <p className="mt-1 text-sm font-bold text-warning">
-              {result.job.record_counts.possible_match.toLocaleString()}
+              {result.summary.possible_match.toLocaleString()}
             </p>
           </div>
           <div className="rounded-md bg-secondary/30 p-2.5">
             <p className="text-[10px] text-muted-foreground uppercase">{t("results.unmatchedRecords")}</p>
             <p className="mt-1 text-sm font-bold text-muted-foreground">
-              {result.job.record_counts.unmatched.toLocaleString()}
+              {result.summary.unmatched.toLocaleString()}
             </p>
           </div>
         </div>
@@ -3942,7 +4016,8 @@ function StepReview({
           current,
           next.review,
           [item.input_record_key],
-          next.decision.caseGroupId ?? null,
+          ((next.decision as unknown as Record<string, unknown>).caseGroupId as string | null) ??
+            null,
         ),
       );
       const updated = next.review.items.find(

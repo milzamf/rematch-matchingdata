@@ -38,7 +38,7 @@ export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const { t } = usePreferences();
   const { can, currentUser } = useAuth();
-  const visibleNav = nav.filter((item) => !item.permission || can(item.permission));
+  const visibleNav = nav.filter((item) => !("permission" in item) || can(item.permission));
   const visibleSecondaryNav = secondaryNav.filter((item) => can(item.permission));
 
   return (

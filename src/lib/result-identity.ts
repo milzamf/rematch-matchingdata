@@ -135,7 +135,7 @@ export function extractIdentityMappings(workflowState: unknown): IdentityFieldPa
           source: "mapping" as const,
         };
       })
-      .filter((item): item is IdentityFieldPair => Boolean(item)),
+      .filter((item): item is NonNullable<typeof item> => item !== null),
   );
 }
 
@@ -192,7 +192,7 @@ export function buildRecordIdentity(
           priority: semanticPriority(pair.semantic),
         };
       })
-      .filter((item): item is IdentityFieldValue => Boolean(item)),
+      .filter((item): item is NonNullable<typeof item> => item !== null),
   );
 
   const fallback = dedupeIdentityFields(rankRecordFields(record));
@@ -311,7 +311,7 @@ function extractCandidatePairs(candidate: ReviewCandidate | null): IdentityField
           source: "field_score" as const,
         };
       })
-      .filter((item): item is IdentityFieldPair => Boolean(item)),
+      .filter((item): item is NonNullable<typeof item> => item !== null),
   );
 }
 

@@ -950,11 +950,11 @@ function CasesTab({
                   </div>
 
                   <p className="mt-2 font-medium text-xs text-foreground truncate">
-                    {identity.primaryName.input || "—"}
+                    {identity.primary?.inputValue || "—"}
                   </p>
                   {candidate && (
                     <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
-                      ↔ {identity.primaryName.reference || "—"}
+                      ↔ {identity.primary?.referenceValue || "—"}
                     </p>
                   )}
 
@@ -2112,7 +2112,7 @@ function semanticLabel(
   t: ReturnType<typeof usePreferences>["t"],
 ) {
   if (semantic === "name") return t("results.identity.name");
-  if (semantic === "primary_identifier" || semantic === "secondary_identifier") {
+  if (semantic === "strong_identifier") {
     return t("results.identity.identifier");
   }
   if (semantic === "province") return t("results.identity.province");
