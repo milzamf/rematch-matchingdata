@@ -47,6 +47,7 @@ class RunMatchingRequest extends FormRequest
                 'in:Exact,Character Similarity,Token Similarity,Vector / Statistical,Numeric / Date',
             ],
             'configuration.fields.*.algorithm' => ['nullable', 'string', 'max:64'],
+            'configuration.fields.*.weight' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'configuration.thresholds' => ['nullable', 'array'],
             'configuration.candidateGeneration' => ['nullable', 'array'],
             'configuration.searchOptimization' => ['nullable', 'array'],

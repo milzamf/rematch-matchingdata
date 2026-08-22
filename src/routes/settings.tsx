@@ -22,7 +22,7 @@ function SettingsPage() {
   const { language, resolvedTheme, setLanguage, setTheme, t, theme } = usePreferences();
   const { currentUser } = useAuth();
   const defaultMatchingDefaults = {
-    preset: "Balanced",
+    preset: "Default",
     normalization: "Text Standardization",
     autoThreshold: "90",
     reviewThreshold: "70",
@@ -53,7 +53,6 @@ function SettingsPage() {
 
   const resetLocalState = () => {
     setMatchingDefaults(defaultMatchingDefaults);
-    setAiPreferences(defaultAiPreferences);
     setPrivacy(defaultPrivacy);
     setSettingsError(null);
     toast.info(t("feedback.toast.discarded"));
@@ -109,7 +108,7 @@ function SettingsPage() {
                 onChange={(value) =>
                   setMatchingDefaults((current) => ({ ...current, preset: value }))
                 }
-                options={["Balanced", "Strict", "Exploratory", "Custom"]}
+                options={["Default", "Custom"]}
               />
               <Select
                 label={t("settings.defaultNormalization")}
