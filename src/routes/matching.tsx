@@ -840,7 +840,7 @@ function MatchingPage() {
     }
   };
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     if (activeStep === 1) {
       if (!reference?.result || !input?.result) {
         toast.error("Tidak dapat melanjutkan", {
@@ -860,6 +860,32 @@ function MatchingPage() {
         });
         return;
       }
+
+      if (workspaceIdRef.current && canUpdateWorkspace) {
+        try {
+          setWorkspaceSaveState("saving");
+          await updateWorkspace(workspaceIdRef.current, {
+            name: workspaceName,
+            status: deriveWorkspaceStatus(2, runState),
+            currentStep: 2,
+            referenceDatasetId: reference?.result?.dataset.id ?? null,
+            inputDatasetId: input?.result?.dataset.id ?? null,
+            matchingJobId: runResult?.job.id ?? null,
+            workflowState: workspaceSnapshot,
+            syncState: syncState as Record<string, unknown> | null,
+            exportHistory,
+          });
+          setWorkspaceSaveState("saved");
+          setWorkspaceError(null);
+        } catch (error) {
+          console.error("Mapping Save Error:", error);
+          setWorkspaceSaveState("error");
+          const errorMsg =
+            error instanceof ApiError ? error.message : "Gagal menyimpan konfigurasi mapping.";
+          toast.error("Gagal menyimpan mapping", { description: errorMsg });
+        }
+      }
+
       setStep(2);
       void navigate({
         to: "/matching",
