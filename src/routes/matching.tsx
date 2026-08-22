@@ -843,15 +843,21 @@ function MatchingPage() {
   const handleNextStep = () => {
     if (activeStep === 1) {
       if (!reference?.result || !input?.result) {
-        toast.error(t("matching.validation.uploadRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: t("matching.validation.uploadRequired"),
+        });
         return;
       }
       if (validMappings.length === 0) {
-        toast.error(t("matching.validation.mappingRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: "Pastikan semua mapping wajib telah diisi atau tambahkan minimal satu mapping kolom.",
+        });
         return;
       }
       if (hasDuplicateReference(validMappings)) {
-        toast.error(t("matching.validation.duplicateReference"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: t("matching.validation.duplicateReference"),
+        });
         return;
       }
       setStep(2);
@@ -865,7 +871,9 @@ function MatchingPage() {
 
     if (activeStep === 2) {
       if (!runResult || runState !== "success") {
-        toast.error(t("matching.validation.runRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: t("matching.validation.runRequired"),
+        });
         return;
       }
       setStep(3);
@@ -883,33 +891,43 @@ function MatchingPage() {
 
     if (nextStep === 2) {
       if (!reference?.result || !input?.result) {
-        toast.error(t("matching.validation.uploadRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: t("matching.validation.uploadRequired"),
+        });
         return;
       }
       if (validMappings.length === 0) {
-        toast.error(t("matching.validation.mappingRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: "Pastikan semua mapping wajib telah diisi atau tambahkan minimal satu mapping kolom.",
+        });
         return;
       }
       if (hasDuplicateReference(validMappings)) {
-        toast.error(t("matching.validation.duplicateReference"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: t("matching.validation.duplicateReference"),
+        });
         return;
       }
     } else if (nextStep === 3) {
       if (!reference?.result || !input?.result) {
-        toast.error(t("matching.validation.uploadRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: t("matching.validation.uploadRequired"),
+        });
         return;
       }
       if (validMappings.length === 0) {
-        toast.error(t("matching.validation.mappingRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: "Pastikan semua mapping wajib telah diisi atau tambahkan minimal satu mapping kolom.",
+        });
         return;
       }
       if (!runResult || runState !== "success") {
-        toast.error(t("matching.validation.runRequired"));
+        toast.error("Tidak dapat melanjutkan", {
+          description: t("matching.validation.runRequired"),
+        });
         return;
       }
     }
-
-    if (nextStep > highestAllowedStep) return;
 
     setStep(nextStep);
     void navigate({
@@ -1182,12 +1200,8 @@ function deriveHighestAllowedStep({
   runState: RunState;
   syncState?: SyncState | null;
 }) {
-  const datasetsReady = reference?.status === "success" && input?.status === "success";
-  const step1Ready =
-    datasetsReady &&
-    referenceColumns.length > 0 &&
-    inputColumns.length > 0 &&
-    hasCompletedMapping;
+  const datasetsReady = Boolean(reference?.result && input?.result);
+  const step1Ready = datasetsReady && hasCompletedMapping;
   const matchingReady = Boolean(runResult && runState === "success");
 
   if (!step1Ready) return 1;
