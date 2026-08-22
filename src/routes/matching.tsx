@@ -323,6 +323,7 @@ function MatchingPage() {
   const validMappings = columnMappings.filter(
     (mapping) => mapping.referenceColumnId && mapping.inputColumnId,
   );
+  console.log("Current Mappings:", validMappings);
   const hasCompletedMapping = validMappings.length > 0 && !hasDuplicateReference(validMappings);
   const highestAllowedStep = deriveHighestAllowedStep({
     reference,
@@ -336,8 +337,8 @@ function MatchingPage() {
     runState,
     syncState,
   });
-  const activeStep = Math.min(step, highestAllowedStep);
-  const canAdvance = activeStep < wizardSteps.length && activeStep + 1 <= highestAllowedStep;
+  const activeStep = Math.max(1, Math.min(3, step));
+  const canAdvance = activeStep < wizardSteps.length;
   const canViewMatching = can(PERMISSIONS.MATCHING_VIEW);
   const canViewWorkspaces = can(PERMISSIONS.WORKSPACE_VIEW);
   const canCreateMatching = can(PERMISSIONS.MATCHING_CREATE);
@@ -975,6 +976,46 @@ function MatchingPage() {
 
   return (
     <AppLayout>
+      {/* INJECT THIS AT THE TOP OF YOUR MAIN RENDER RETURN */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          console.log("EMERGENCY BYPASS CLICKED");
+
+          // Force step change
+          if (typeof setStep === "function") setStep(2);
+
+          // Force router navigation
+          try {
+            navigate({
+              to: "/matching",
+              search: (prev: any) => ({ ...prev, step: 2 }),
+              replace: true,
+            });
+          } catch (err) {
+            console.error("Router navigate failed:", err);
+          }
+        }}
+        style={{
+          position: "fixed",
+          top: "10px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 9999,
+          padding: "15px 30px",
+          backgroundColor: "red",
+          color: "white",
+          fontWeight: "bold",
+          borderRadius: "8px",
+          border: "2px solid black",
+          cursor: "pointer",
+        }}
+      >
+        EMERGENCY: FORCE TO STEP 2
+      </button>
+
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
         <PageHeader
           title={t("matching.title")}
