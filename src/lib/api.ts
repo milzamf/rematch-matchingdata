@@ -263,6 +263,38 @@ export type ReviewFieldScore = {
   };
 };
 
+export type VerificationRuleEvaluated = {
+  order: number;
+  mapping_id: string | null;
+  field_name: string;
+  reference_column: string;
+  input_column: string;
+  method: string;
+  required_threshold: number;
+  actual_score: number;
+  passed: boolean;
+  is_mandatory: boolean;
+};
+
+export type VerificationEvidence = {
+  phase: string;
+  is_exact_match: boolean;
+  bypassed_fuzzy: boolean;
+  initial_classification: string;
+  final_classification: string;
+  weighted_similarity: number;
+  downgraded: boolean;
+  downgrade_reason: string | null;
+  rules_evaluated: VerificationRuleEvaluated[];
+  summary: {
+    total_rules: number;
+    passed_rules: number;
+    failed_rules: number;
+    all_passed: boolean;
+    message?: string;
+  };
+};
+
 export type ReviewCandidate = {
   id: string;
   reference_record_key: string | null;
@@ -273,6 +305,7 @@ export type ReviewCandidate = {
   rank: number;
   field_scores: ReviewFieldScore[];
   decision_reason: string | null;
+  verification_evidence?: VerificationEvidence | null;
 };
 
 export type ReviewDecisionSummary = {

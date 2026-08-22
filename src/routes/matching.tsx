@@ -24,6 +24,10 @@ import {
   type StoredExportHistoryEntry,
 } from "@/lib/result-exports";
 import {
+  VerificationEvidenceBadge,
+  VerificationEvidenceBreakdown,
+} from "@/components/verification-evidence";
+import {
   fetchAiMatchingConfiguration,
   fetchAiReviewAnalysis,
   fetchAiReviewRecommendation,
@@ -4103,6 +4107,12 @@ function StepReview({
                     ))}
                   </div>
                 </details>
+              )}
+
+              {selectedCandidate?.verification_evidence && (
+                <div className="mt-5">
+                  <VerificationEvidenceBreakdown candidate={selectedCandidate} />
+                </div>
               )}
 
               <details className="mt-5 rounded-lg border border-border p-3" open>

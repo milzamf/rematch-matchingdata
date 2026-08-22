@@ -1,16 +1,21 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
+  BarChart3,
   CheckCircle2,
   ClipboardCheck,
   Download,
   FileDown,
   FileSpreadsheet,
   Inbox,
+  Layers,
   Loader2,
   RefreshCw,
   SearchX,
+  ShieldCheck,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,6 +23,11 @@ import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorPanel, LoadingPanel } from "@/components/feedback-states";
+import {
+  ExploratoryDiagnosticsPanel,
+  VerificationEvidenceBadge,
+  VerificationEvidenceBreakdown,
+} from "@/components/verification-evidence";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import {
@@ -65,6 +75,8 @@ export const Route = createFileRoute("/results")({
 
 const tabs = [
   "overview",
+  "cases",
+  "exploratory",
   "matched",
   "review",
   "unmatched",
@@ -84,6 +96,7 @@ function ResultsPage() {
   const requestedWorkspaceId = search.workspace ?? null;
 
   const [tab, setTab] = useState<TabKey>("overview");
+  const [selectedRuleFilter, setSelectedRuleFilter] = useState<string | null>(null);
   const [historyView, setHistoryView] = useState<ReviewHistoryView>("groups");
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
@@ -423,6 +436,24 @@ function ResultsPage() {
                   syncSummary={syncSummary}
                 />
               )}
+              {tab === "cases" && (
+                <CasesTab
+                  items={items}
+                  identityMappings={identityMappings}
+                  selectedRuleFilter={selectedRuleFilter}
+                  onClearRuleFilter={() => setSelectedRuleFilter(null)}
+                />
+              )}
+              {tab === "exploratory" && (
+                <ExploratoryDiagnosticsPanel
+                  items={items}
+                  selectedRuleFilter={selectedRuleFilter}
+                  onFilterRule={(rule) => {
+                    setSelectedRuleFilter(rule);
+                    if (rule) setTab("cases");
+                  }}
+                />
+              )}
               {tab === "matched" && <MatchedTab items={matchedItems} identityMappings={identityMappings} />}
               {tab === "review" && (
                 <NeedReviewTab
@@ -538,8 +569,131 @@ function OverviewTab({
   const { t } = usePreferences();
   const job = workspace.matching_job;
 
+  const total = activeStatuses.total || 1;
+  const exactPercent = Math.round((activeStatuses.exactMatched / total) * 100);
+  const fuzzyPercent = Math.round((activeStatuses.fuzzyMatched / total) * 100);
+  const reviewPercent = Math.round((activeStatuses.review / total) * 100);
+  const unmatchedPercent = Math.round((activeStatuses.unmatched / total) * 100);
+
   return (
     <div className="space-y-6 p-6">
+      {/* Top Level Aggregate Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="rounded-lg border border-border bg-card p-4">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("results.summary.total")}
+          </span>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-foreground">
+            {formatNumber(activeStatuses.total)}
+          </p>
+          <span className="text-[11px] text-muted-foreground">Total records processed</span>
+        </div>
+
+        <div className="rounded-lg border border-border border-l-4 border-l-success bg-card p-4">
+          <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-success">
+            <CheckCircle2 className="size-3.5" />
+            <span>{t("results.summary.exactMatched")}</span>
+          </div>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-success">
+            {formatNumber(activeStatuses.exactMatched)}
+          </p>
+          <span className="text-[11px] text-muted-foreground">{exactPercent}% of total</span>
+        </div>
+
+        <div className="rounded-lg border border-border border-l-4 border-l-brand bg-card p-4">
+          <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-brand">
+            <ShieldCheck className="size-3.5" />
+            <span>{t("results.summary.fuzzyMatched")}</span>
+          </div>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-brand">
+            {formatNumber(activeStatuses.fuzzyMatched)}
+          </p>
+          <span className="text-[11px] text-muted-foreground">{fuzzyPercent}% of total</span>
+        </div>
+
+        <div className="rounded-lg border border-border border-l-4 border-l-warning bg-card p-4">
+          <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-warning">
+            <AlertTriangle className="size-3.5" />
+            <span>{t("results.summary.needReview")}</span>
+          </div>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-warning">
+            {formatNumber(activeStatuses.review)}
+          </p>
+          <span className="text-[11px] text-muted-foreground">
+            {activeStatuses.downgraded > 0
+              ? `${activeStatuses.downgraded} downgraded`
+              : `${reviewPercent}% of total`}
+          </span>
+        </div>
+
+        <div className="rounded-lg border border-border border-l-4 border-l-destructive bg-card p-4">
+          <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-destructive">
+            <XCircle className="size-3.5" />
+            <span>{t("results.summary.finalUnmatched")}</span>
+          </div>
+          <p className="mt-2 text-2xl font-bold tabular-nums text-destructive">
+            {formatNumber(activeStatuses.unmatched)}
+          </p>
+          <span className="text-[11px] text-muted-foreground">{unmatchedPercent}% of total</span>
+        </div>
+      </div>
+
+      {/* Visual Proportional Distribution Bar */}
+      <div className="rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between text-xs font-semibold mb-2">
+          <span>Matching Outcome Distribution</span>
+          <span className="text-muted-foreground font-normal">{activeStatuses.total} records</span>
+        </div>
+        <div className="h-4 w-full overflow-hidden rounded-full bg-secondary flex">
+          {activeStatuses.exactMatched > 0 && (
+            <div
+              className="h-full bg-success transition-all"
+              style={{ width: `${(activeStatuses.exactMatched / total) * 100}%` }}
+              title={`Exact Matches: ${activeStatuses.exactMatched} (${exactPercent}%)`}
+            />
+          )}
+          {activeStatuses.fuzzyMatched > 0 && (
+            <div
+              className="h-full bg-brand transition-all"
+              style={{ width: `${(activeStatuses.fuzzyMatched / total) * 100}%` }}
+              title={`Auto Matches (Fuzzy): ${activeStatuses.fuzzyMatched} (${fuzzyPercent}%)`}
+            />
+          )}
+          {activeStatuses.review > 0 && (
+            <div
+              className="h-full bg-warning transition-all"
+              style={{ width: `${(activeStatuses.review / total) * 100}%` }}
+              title={`Need Review: ${activeStatuses.review} (${reviewPercent}%)`}
+            />
+          )}
+          {activeStatuses.unmatched > 0 && (
+            <div
+              className="h-full bg-destructive transition-all"
+              style={{ width: `${(activeStatuses.unmatched / total) * 100}%` }}
+              title={`Unmatched: ${activeStatuses.unmatched} (${unmatchedPercent}%)`}
+            />
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-4 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="size-2.5 rounded-full bg-success" />
+            <span className="text-muted-foreground">Exact Match ({exactPercent}%)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="size-2.5 rounded-full bg-brand" />
+            <span className="text-muted-foreground">Auto Match ({fuzzyPercent}%)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="size-2.5 rounded-full bg-warning" />
+            <span className="text-muted-foreground">Need Review ({reviewPercent}%)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="size-2.5 rounded-full bg-destructive" />
+            <span className="text-muted-foreground">Unmatched ({unmatchedPercent}%)</span>
+          </div>
+        </div>
+      </div>
+
       <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="rounded-lg border border-border p-5">
           <p className="text-sm font-semibold">{t("results.overview.processInfo")}</p>
@@ -584,7 +738,8 @@ function OverviewTab({
         <div className="rounded-lg border border-border p-5">
           <p className="text-sm font-semibold">{t("results.overview.distribution")}</p>
           <div className="mt-4 space-y-3">
-            <MetricRow label={t("results.summary.autoMatched")} value={activeStatuses.autoMatched} />
+            <MetricRow label={t("results.summary.exactMatched")} value={activeStatuses.exactMatched} />
+            <MetricRow label={t("results.summary.fuzzyMatched")} value={activeStatuses.fuzzyMatched} />
             <MetricRow label={t("results.summary.manualAccepted")} value={activeStatuses.manualAccepted} />
             <MetricRow label={t("results.summary.needReview")} value={activeStatuses.review} />
             <MetricRow label={t("results.summary.finalUnmatched")} value={activeStatuses.unmatched} />
@@ -618,6 +773,289 @@ function OverviewTab({
           <p className="mt-3 text-sm text-muted-foreground">{t("results.sync.notStarted")}</p>
         )}
       </section>
+    </div>
+  );
+}
+
+function CasesTab({
+  items,
+  identityMappings,
+  selectedRuleFilter,
+  onClearRuleFilter,
+}: {
+  items: ReviewItem[];
+  identityMappings: ReturnType<typeof extractIdentityMappings>;
+  selectedRuleFilter?: string | null;
+  onClearRuleFilter?: () => void;
+}) {
+  const { t } = usePreferences();
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "possible_match" | "matched" | "unmatched">("all");
+  const [selectedKey, setSelectedKey] = useState<string | null>(items[0]?.input_record_key ?? null);
+
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      if (statusFilter !== "all" && item.status !== statusFilter) {
+        return false;
+      }
+
+      if (selectedRuleFilter) {
+        const candidate = selectDisplayCandidate(item);
+        const rules = candidate?.verification_evidence?.rules_evaluated ?? [];
+        const hasFailedRule = rules.some((r) => r.field_name === selectedRuleFilter && !r.passed);
+        if (!hasFailedRule) return false;
+      }
+
+      if (!query) return true;
+      const haystack = JSON.stringify([
+        item.input_record_key,
+        item.input_record,
+        item.candidates.map((c) => c.reference_record),
+        item.candidates.map((c) => c.decision_reason),
+      ]).toLowerCase();
+      return haystack.includes(query.toLowerCase());
+    });
+  }, [items, statusFilter, selectedRuleFilter, query]);
+
+  const selectedItem = useMemo(() => {
+    return (
+      (selectedKey ? filteredItems.find((i) => i.input_record_key === selectedKey) : null) ??
+      filteredItems[0] ??
+      null
+    );
+  }, [filteredItems, selectedKey]);
+
+  const selectedCandidate = selectDisplayCandidate(selectedItem);
+  const selectedIdentity = selectedItem
+    ? buildIdentitySummary(selectedItem, selectedCandidate, identityMappings)
+    : null;
+
+  if (items.length === 0) {
+    return (
+      <SimpleTabEmpty
+        icon={ClipboardCheck}
+        title={t("results.review.emptyTitle")}
+        description={t("results.review.emptyDesc")}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4 bg-secondary/10">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search record key, values, reasons..."
+            className="h-9 w-64 rounded-md border border-border bg-background px-3 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+          />
+          <div className="flex items-center gap-1 rounded-md border border-border bg-background p-1 text-xs">
+            {(["all", "possible_match", "matched", "unmatched"] as const).map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setStatusFilter(st)}
+                className={[
+                  "rounded px-2.5 py-1 font-medium transition-colors",
+                  statusFilter === st
+                    ? "bg-brand text-brand-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                {st === "all"
+                  ? "All"
+                  : st === "possible_match"
+                    ? t("results.metric.review")
+                    : st === "matched"
+                      ? t("results.metric.match")
+                      : t("results.metric.unmatched")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {selectedRuleFilter && (
+          <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-1.5 text-xs text-warning font-semibold">
+            <span>Filtered by Rule: {selectedRuleFilter}</span>
+            <button
+              type="button"
+              onClick={onClearRuleFilter}
+              className="rounded p-0.5 hover:bg-warning/20 text-warning"
+            >
+              <XCircle className="size-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {filteredItems.length === 0 ? (
+        <div className="rounded-lg border border-border p-8 text-center text-xs text-muted-foreground">
+          No records match the current filters.
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+          {/* Master List */}
+          <div className="max-h-[720px] overflow-y-auto rounded-lg border border-border divide-y divide-border">
+            {filteredItems.map((item) => {
+              const candidate = selectDisplayCandidate(item);
+              const isSelected = selectedItem?.input_record_key === item.input_record_key;
+              const identity = buildIdentitySummary(item, candidate, identityMappings);
+              const evidence = candidate?.verification_evidence;
+              const isExact = evidence?.is_exact_match || evidence?.bypassed_fuzzy;
+
+              return (
+                <div
+                  key={item.input_record_key}
+                  onClick={() => setSelectedKey(item.input_record_key)}
+                  className={[
+                    "cursor-pointer p-4 transition-colors",
+                    isSelected ? "bg-brand/10 border-l-4 border-l-brand" : "hover:bg-secondary/20",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs text-foreground">
+                        Record #{item.input_record_key}
+                      </span>
+                      <StatusBadge
+                        label={
+                          item.status === "matched"
+                            ? isExact
+                              ? "Exact Match"
+                              : "Auto-Match"
+                            : item.status === "possible_match"
+                              ? "Need Review"
+                              : "Unmatched"
+                        }
+                        tone={
+                          item.status === "matched"
+                            ? "success"
+                            : item.status === "possible_match"
+                              ? "warning"
+                              : "destructive"
+                        }
+                      />
+                    </div>
+                    {isExact ? (
+                      <span className="rounded bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">
+                        Exact Match
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-xs tabular-nums text-foreground">
+                        {formatScore(candidate?.score)}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="mt-2 font-medium text-xs text-foreground truncate">
+                    {identity.primaryName.input || "—"}
+                  </p>
+                  {candidate && (
+                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
+                      ↔ {identity.primaryName.reference || "—"}
+                    </p>
+                  )}
+
+                  {evidence?.downgraded && (
+                    <div className="mt-2 inline-flex items-center gap-1 rounded bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">
+                      <AlertTriangle className="size-3" />
+                      <span>Auto-Match Downgraded</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Detailed Side-by-Side Comparison & Evidence Breakdown */}
+          {selectedItem && (
+            <div className="space-y-4">
+              <Card className="p-5 border-border">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground">
+                      Record #{selectedItem.input_record_key} Side-by-Side Comparison
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedItem.status === "matched"
+                        ? "Matched Record"
+                        : selectedItem.status === "possible_match"
+                          ? "Review Candidate"
+                          : "Unmatched Record"}
+                    </p>
+                  </div>
+                  <VerificationEvidenceBadge
+                    evidence={selectedCandidate?.verification_evidence}
+                    score={selectedCandidate?.score}
+                  />
+                </div>
+
+                {/* Side-by-Side Values Comparison */}
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-secondary/15 p-3.5">
+                    <p className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">
+                      Input Record
+                    </p>
+                    <div className="space-y-2 text-xs">
+                      {Object.entries(selectedItem.input_record).map(([key, val]) => (
+                        <div key={key} className="flex flex-col">
+                          <span className="text-[11px] text-muted-foreground">{key}</span>
+                          <span className="font-medium text-foreground">{String(val ?? "—")}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-secondary/15 p-3.5">
+                    <p className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">
+                      Reference Candidate
+                    </p>
+                    {selectedCandidate ? (
+                      <div className="space-y-2 text-xs">
+                        {Object.entries(selectedCandidate.reference_record).map(([key, val]) => (
+                          <div key={key} className="flex flex-col">
+                            <span className="text-[11px] text-muted-foreground">{key}</span>
+                            <span className="font-medium text-foreground">{String(val ?? "—")}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">No candidate matched</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Field Similarity Scores */}
+                {selectedCandidate?.field_scores && selectedCandidate.field_scores.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-foreground mb-2">Field Similarities</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {selectedCandidate.field_scores.map((field) => (
+                        <div
+                          key={`${field.reference_column}-${field.input_column}`}
+                          className="flex items-center justify-between rounded-md border border-border bg-secondary/10 px-3 py-2 text-xs"
+                        >
+                          <span className="font-medium text-muted-foreground">
+                            {field.input_column} ↔ {field.reference_column}
+                          </span>
+                          <span className="font-semibold tabular-nums text-foreground">
+                            {field.score}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              {/* Evidence Breakdown */}
+              <VerificationEvidenceBreakdown candidate={selectedCandidate} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -658,6 +1096,11 @@ function MatchedTab({
           {items.map((item) => {
             const candidate = selectDisplayCandidate(item);
             const identity = buildIdentitySummary(item, candidate, identityMappings);
+            const isExact = Boolean(
+              candidate?.verification_evidence?.is_exact_match ||
+                candidate?.verification_evidence?.bypassed_fuzzy,
+            );
+
             return (
               <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
                 <td className="px-6 py-4">
@@ -667,9 +1110,17 @@ function MatchedTab({
                   <RecordIdentityPreview summary={identity} side="reference" showDetails />
                 </td>
                 <td className="px-6 py-4 text-right font-medium tabular-nums">
-                  {formatScore(candidate?.score)}
+                  {isExact ? (
+                    <span className="inline-flex rounded bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
+                      Exact Match
+                    </span>
+                  ) : (
+                    formatScore(candidate?.score)
+                  )}
                 </td>
-                <td className="px-6 py-4">{methodDisplayLabel(candidate)}</td>
+                <td className="px-6 py-4">
+                  {isExact ? "Mandatory Exact Key" : methodDisplayLabel(candidate)}
+                </td>
                 <td className="px-6 py-4">
                   <StatusBadge label={displayDecisionLabel(item, t)} tone="success" />
                 </td>
@@ -756,10 +1207,20 @@ function NeedReviewTab({
                     <RecordIdentityPreview summary={identity} side="reference" showDetails />
                   </td>
                   <td className="px-6 py-4 text-right font-medium tabular-nums">
-                    {formatScore(candidate?.score)}
+                    <div className="flex flex-col items-end gap-1">
+                      <span>{formatScore(candidate?.score)}</span>
+                      <VerificationEvidenceBadge evidence={candidate?.verification_evidence} />
+                    </div>
                   </td>
                   <td className="px-6 py-4">
-                    {caseReasonLabel(item, t)}
+                    <div>
+                      <p className="font-medium text-foreground">{caseReasonLabel(item, t)}</p>
+                      {candidate?.verification_evidence?.downgraded && (
+                        <p className="mt-1 text-xs text-warning">
+                          {candidate.verification_evidence.downgrade_reason}
+                        </p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4">{caseGroupLabel(item, t)}</td>
                 </tr>
@@ -1324,7 +1785,10 @@ function StatusBadge({
 
 type FinalStatusCounts = {
   autoMatched: number;
+  exactMatched: number;
+  fuzzyMatched: number;
   manualAccepted: number;
+  downgraded: number;
   review: number;
   unmatched: number;
   matched: number;
@@ -1342,8 +1806,21 @@ type SyncSummary = {
 function countFinalStatuses(items: ReviewItem[]): FinalStatusCounts {
   return items.reduce<FinalStatusCounts>(
     (counts, item) => {
+      const candidate = selectDisplayCandidate(item);
+      const ev = candidate?.verification_evidence;
+      const isExact = Boolean(ev?.is_exact_match || ev?.bypassed_fuzzy);
+      const isDowngraded = Boolean(ev?.downgraded);
+
       if (isPendingReview(item)) counts.review += 1;
-      if (isAutoMatched(item)) counts.autoMatched += 1;
+      if (isAutoMatched(item)) {
+        counts.autoMatched += 1;
+        if (isExact) {
+          counts.exactMatched += 1;
+        } else {
+          counts.fuzzyMatched += 1;
+        }
+      }
+      if (isDowngraded) counts.downgraded += 1;
       if (isManualAccepted(item)) counts.manualAccepted += 1;
       if (isFinalMatched(item)) counts.matched += 1;
       if (isFinalUnmatched(item)) counts.unmatched += 1;
@@ -1352,7 +1829,10 @@ function countFinalStatuses(items: ReviewItem[]): FinalStatusCounts {
     },
     {
       autoMatched: 0,
+      exactMatched: 0,
+      fuzzyMatched: 0,
       manualAccepted: 0,
+      downgraded: 0,
       review: 0,
       unmatched: 0,
       matched: 0,
