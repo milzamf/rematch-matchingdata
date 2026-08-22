@@ -23,8 +23,8 @@ export function normalizeWorkflowStep(value: unknown) {
 
   if (!Number.isInteger(parsed)) return undefined;
   if (parsed < 1) return 1;
-  // Map legacy steps (1..8) to 3-step wizard
-  if (parsed <= 3) return 1;
+  if (parsed === 1 || parsed === 2 || parsed === 3) return parsed;
+  // Map legacy steps (4..5 -> 2, 6..8 -> 3)
   if (parsed <= 5) return 2;
   return 3;
 }

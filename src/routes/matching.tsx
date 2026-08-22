@@ -313,10 +313,22 @@ function MatchingPage() {
   const [exportHistory, setExportHistory] = useState<StoredExportHistoryEntry[]>([]);
   const [isHydratingWorkspace, setIsHydratingWorkspace] = useState(Boolean(initialWorkspaceId));
   const [workspaceNotFound, setWorkspaceNotFound] = useState(false);
+  const [isNavigatingStep, setIsNavigatingStep] = useState(false);
   const workspaceIdRef = useRef<string | null>(initialWorkspaceId);
   const suppressMappingSuggestRef = useRef(false);
   const restoringWorkspaceRef = useRef(false);
   const hydratedWorkspaceRouteRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      typeof search.step === "number" &&
+      search.step >= 1 &&
+      search.step <= 3 &&
+      search.step !== step
+    ) {
+      setStep(search.step);
+    }
+  }, [search.step, step]);
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
@@ -337,7 +349,7 @@ function MatchingPage() {
     runState,
     syncState,
   });
-  const activeStep = Math.max(1, Math.min(3, step));
+  const activeStep = Math.max(1, Math.min(3, Number(search.step) || step || 1));
   const canAdvance = activeStep < wizardSteps.length;
   const canViewMatching = can(PERMISSIONS.MATCHING_VIEW);
   const canViewWorkspaces = can(PERMISSIONS.WORKSPACE_VIEW);
@@ -843,27 +855,22 @@ function MatchingPage() {
 
   const handleNextStep = async () => {
     if (activeStep === 1) {
-      if (!reference?.result || !input?.result) {
-        toast.error("Tidak dapat melanjutkan", {
-          description: t("matching.validation.uploadRequired"),
-        });
-        return;
-      }
       if (validMappings.length === 0) {
-        toast.error("Tidak dapat melanjutkan", {
-          description: "Pastikan semua mapping wajib telah diisi atau tambahkan minimal satu mapping kolom.",
+        toast.error("Validasi Gagal", {
+          description: "Pilih minimal satu mapping kolom untuk melanjutkan.",
         });
         return;
       }
       if (hasDuplicateReference(validMappings)) {
-        toast.error("Tidak dapat melanjutkan", {
+        toast.error("Validasi Gagal", {
           description: t("matching.validation.duplicateReference"),
         });
         return;
       }
 
-      if (workspaceIdRef.current && canUpdateWorkspace) {
-        try {
+      setIsNavigatingStep(true);
+      try {
+        if (workspaceIdRef.current && canUpdateWorkspace) {
           setWorkspaceSaveState("saving");
           await updateWorkspace(workspaceIdRef.current, {
             name: workspaceName,
@@ -878,37 +885,53 @@ function MatchingPage() {
           });
           setWorkspaceSaveState("saved");
           setWorkspaceError(null);
-        } catch (error) {
-          console.error("Mapping Save Error:", error);
-          setWorkspaceSaveState("error");
-          const errorMsg =
-            error instanceof ApiError ? error.message : "Gagal menyimpan konfigurasi mapping.";
-          toast.error("Gagal menyimpan mapping", { description: errorMsg });
         }
-      }
 
-      setStep(2);
-      void navigate({
-        to: "/matching",
-        search: buildMatchingSearch(workspaceId, 2),
-        replace: true,
-      });
+        setStep(2);
+        await navigate({
+          to: "/matching",
+          search: (prev: any) => ({ ...prev, step: 2 }),
+          replace: true,
+        });
+      } catch (error: any) {
+        console.error("Critical Error during Step 1 transition:", error);
+        setWorkspaceSaveState("error");
+        toast.error("Gagal Menyimpan Mapping", {
+          description:
+            error?.response?.data?.message ||
+            (error instanceof ApiError ? error.message : error?.message) ||
+            "Terjadi kesalahan pada server.",
+        });
+      } finally {
+        setIsNavigatingStep(false);
+      }
       return;
     }
 
     if (activeStep === 2) {
       if (!runResult || runState !== "success") {
-        toast.error("Tidak dapat melanjutkan", {
+        toast.error("Validasi Gagal", {
           description: t("matching.validation.runRequired"),
         });
         return;
       }
-      setStep(3);
-      void navigate({
-        to: "/matching",
-        search: buildMatchingSearch(workspaceId, 3),
-        replace: true,
-      });
+
+      setIsNavigatingStep(true);
+      try {
+        setStep(3);
+        await navigate({
+          to: "/matching",
+          search: (prev: any) => ({ ...prev, step: 3 }),
+          replace: true,
+        });
+      } catch (error: any) {
+        console.error("Critical Error during Step 2 transition:", error);
+        toast.error("Gagal Berpindah Tahap", {
+          description: error?.message || "Terjadi kesalahan pada navigasi.",
+        });
+      } finally {
+        setIsNavigatingStep(false);
+      }
       return;
     }
   };
@@ -976,46 +999,6 @@ function MatchingPage() {
 
   return (
     <AppLayout>
-      {/* INJECT THIS AT THE TOP OF YOUR MAIN RENDER RETURN */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          console.log("EMERGENCY BYPASS CLICKED");
-
-          // Force step change
-          if (typeof setStep === "function") setStep(2);
-
-          // Force router navigation
-          try {
-            navigate({
-              to: "/matching",
-              search: (prev: any) => ({ ...prev, step: 2 }),
-              replace: true,
-            });
-          } catch (err) {
-            console.error("Router navigate failed:", err);
-          }
-        }}
-        style={{
-          position: "fixed",
-          top: "10px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 9999,
-          padding: "15px 30px",
-          backgroundColor: "red",
-          color: "white",
-          fontWeight: "bold",
-          borderRadius: "8px",
-          border: "2px solid black",
-          cursor: "pointer",
-        }}
-      >
-        EMERGENCY: FORCE TO STEP 2
-      </button>
-
       <div className="px-8 py-8 max-w-[1400px] mx-auto">
         <PageHeader
           title={t("matching.title")}
@@ -1199,11 +1182,21 @@ function MatchingPage() {
                 ) : (
                   <button
                     type="button"
+                    disabled={isNavigatingStep || workspaceSaveState === "saving"}
                     onClick={handleNextStep}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 transition-opacity"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
                   >
-                    {t("common.continue")}
-                    <ArrowRight className="size-4" />
+                    {isNavigatingStep || workspaceSaveState === "saving" ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        <span>{t("common.loading")}</span>
+                      </>
+                    ) : (
+                      <>
+                        {t("common.continue")}
+                        <ArrowRight className="size-4" />
+                      </>
+                    )}
                   </button>
                 )}
               </div>
