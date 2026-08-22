@@ -8,6 +8,7 @@ import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog } from "@/components/feedback-states";
+import { PromptDialog } from "@/components/prompt-dialog";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { wizardSteps } from "@/lib/dummy-data";
@@ -261,6 +262,7 @@ function MatchingPage() {
   const [runResult, setRunResult] = useState<MatchingRunResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [columnMappings, setColumnMappings] = useState<ColumnMappingDraft[]>([]);
   const [configureValid, setConfigureValid] = useState(true);
   const [matchingConfiguration, setMatchingConfiguration] = useState<MatchingConfiguration | null>(
@@ -759,13 +761,15 @@ function MatchingPage() {
     if (runState === "failed") toast.error(t("feedback.toast.runFailed"));
   }, [runState, t]);
 
-  const renameWorkspace = async () => {
+  const renameWorkspace = () => {
     if (!canUpdateWorkspace) {
       toast.error(t("feedback.toast.accessDenied"));
       return;
     }
+    setIsRenameDialogOpen(true);
+  };
 
-    const nextName = window.prompt(t("workspace.renamePrompt"), workspaceName)?.trim();
+  const handleRenameConfirm = async (nextName: string) => {
     if (!nextName || nextName === workspaceName) return;
 
     setWorkspaceName(nextName);
@@ -1009,6 +1013,16 @@ function MatchingPage() {
           cancelLabel={t("common.cancel")}
           actionLabel={t("matching.run.start")}
           onConfirm={startRun}
+        />
+        <PromptDialog
+          open={isRenameDialogOpen}
+          onOpenChange={setIsRenameDialogOpen}
+          title={t("workspace.rename")}
+          description={t("workspace.renamePrompt")}
+          defaultValue={workspaceName}
+          confirmLabel={t("common.saveChanges")}
+          cancelLabel={t("common.cancel")}
+          onConfirm={handleRenameConfirm}
         />
       </div>
     </AppLayout>

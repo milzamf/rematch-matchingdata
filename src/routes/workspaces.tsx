@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
-import { ErrorPanel } from "@/components/feedback-states";
+import { ConfirmationDialog, ErrorPanel } from "@/components/feedback-states";
+import { PromptDialog } from "@/components/prompt-dialog";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import {
@@ -38,6 +39,8 @@ function WorkspacesPage() {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workspaceToRename, setWorkspaceToRename] = useState<WorkspaceSummary | null>(null);
+  const [workspaceToDelete, setWorkspaceToDelete] = useState<WorkspaceSummary | null>(null);
   const canViewWorkspaces = can(PERMISSIONS.WORKSPACE_VIEW);
 
   const load = useCallback(() => {
@@ -66,30 +69,33 @@ function WorkspacesPage() {
     );
   }
 
-  const rename = async (workspace: WorkspaceSummary) => {
-    const nextName = window.prompt(t("workspace.renamePrompt"), workspace.name)?.trim();
-    if (!nextName || nextName === workspace.name) return;
+  const handleRenameConfirm = async (nextName: string) => {
+    if (!workspaceToRename || !nextName || nextName === workspaceToRename.name) return;
 
     try {
-      const updated = await updateWorkspace(workspace.id, { name: nextName });
+      const updated = await updateWorkspace(workspaceToRename.id, { name: nextName });
       setWorkspaces((current) =>
-        current.map((item) => (item.id === workspace.id ? updated : item)),
+        current.map((item) => (item.id === workspaceToRename.id ? updated : item)),
       );
       toast.success(t("workspace.renamed"));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("workspace.saveFailed"));
+    } finally {
+      setWorkspaceToRename(null);
     }
   };
 
-  const remove = async (workspace: WorkspaceSummary) => {
-    if (!window.confirm(t("workspace.deleteConfirm", { name: workspace.name }))) return;
+  const handleDeleteConfirm = async () => {
+    if (!workspaceToDelete) return;
 
     try {
-      await deleteWorkspace(workspace.id);
-      setWorkspaces((current) => current.filter((item) => item.id !== workspace.id));
+      await deleteWorkspace(workspaceToDelete.id);
+      setWorkspaces((current) => current.filter((item) => item.id !== workspaceToDelete.id));
       toast.success(t("workspace.deleted"));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("workspace.deleteFailed"));
+    } finally {
+      setWorkspaceToDelete(null);
     }
   };
 
@@ -200,7 +206,7 @@ function WorkspacesPage() {
                           </Link>
                           {can(PERMISSIONS.WORKSPACE_UPDATE) && (
                             <button
-                              onClick={() => rename(workspace)}
+                              onClick={() => setWorkspaceToRename(workspace)}
                               className="grid size-8 place-items-center rounded-md border border-border hover:bg-secondary"
                               aria-label={t("workspace.rename")}
                             >
@@ -209,7 +215,7 @@ function WorkspacesPage() {
                           )}
                           {can(PERMISSIONS.WORKSPACE_DELETE) && (
                             <button
-                              onClick={() => remove(workspace)}
+                              onClick={() => setWorkspaceToDelete(workspace)}
                               className="grid size-8 place-items-center rounded-md border border-border text-destructive hover:bg-destructive/10"
                               aria-label={t("workspace.delete")}
                             >
@@ -225,6 +231,37 @@ function WorkspacesPage() {
             </div>
           )}
         </Card>
+
+        {/* Rename Dialog */}
+        <PromptDialog
+          open={Boolean(workspaceToRename)}
+          onOpenChange={(open) => {
+            if (!open) setWorkspaceToRename(null);
+          }}
+          title={t("workspace.rename")}
+          description={t("workspace.renamePrompt")}
+          defaultValue={workspaceToRename?.name ?? ""}
+          confirmLabel={t("common.saveChanges")}
+          cancelLabel={t("common.cancel")}
+          onConfirm={handleRenameConfirm}
+        />
+
+        {/* Delete Confirmation Dialog */}
+        <ConfirmationDialog
+          open={Boolean(workspaceToDelete)}
+          setOpen={(open) => {
+            if (!open) setWorkspaceToDelete(null);
+          }}
+          title={t("workspace.delete")}
+          description={
+            workspaceToDelete
+              ? t("workspace.deleteConfirm", { name: workspaceToDelete.name })
+              : ""
+          }
+          actionLabel={t("workspace.delete")}
+          cancelLabel={t("common.cancel")}
+          onConfirm={handleDeleteConfirm}
+        />
       </div>
     </AppLayout>
   );
