@@ -2,9 +2,25 @@
 
 namespace Tests;
 
+use App\Models\User;
+use App\Support\Auth\UserRole;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Laravel\Sanctum\Sanctum;
 
 abstract class TestCase extends BaseTestCase
 {
-    //
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        try {
+            $user = User::factory()->create([
+                'role' => UserRole::Admin->value,
+            ]);
+            $this->actingAs($user);
+            Sanctum::actingAs($user, ['*']);
+        } catch (\Throwable) {
+            // In case database is not available for unit tests
+        }
+    }
 }

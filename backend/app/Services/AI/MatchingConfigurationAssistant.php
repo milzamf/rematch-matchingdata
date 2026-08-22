@@ -41,8 +41,15 @@ class MatchingConfigurationAssistant
     ) {
     }
 
-    public function suggest(User $user, string $jobId): AiResponse
-    {
+    /**
+     * @param  array<int, array<string, mixed>>|null  $draftMappings
+     */
+    public function suggest(
+        User $user,
+        string $jobId,
+        string $locale = 'id',
+        ?array $draftMappings = null,
+    ): AiResponse {
         $job = $this->ownership->scopeMatchingJobs(
             MatchingJob::query()->with([
                 'referenceDataset.columns',
@@ -57,18 +64,80 @@ class MatchingConfigurationAssistant
             throw (new ModelNotFoundException())->setModel(MatchingJob::class, [$jobId]);
         }
 
-        $payload = [
-            'job' => [
-                'strategy' => $job->configuration?->strategy,
-                'preset' => $job->configuration?->preset,
-            ],
-            'mappings' => $this->compactMappings($job),
-            'existing_configuration' => $this->compactConfiguration($job->configuration),
-            'supported_algorithms' => self::SUPPORTED_ALGORITHMS,
-        ];
+        $normalizedLocale = str_starts_with(strtolower($locale), 'en') ? 'en' : 'id';
+
+        $compactedMappings = ! empty($draftMappings)
+            ? $this->compactDraftMappings($draftMappings, $job)
+            : $this->compactMappings($job);
+
+        $isPartial = ! empty($compactedMappings);
+        $mode = $isPartial ? 'partial' : 'global';
+
+        $targetFieldNames = $isPartial
+            ? collect($compactedMappings)->map(function (array $m) {
+                return $m['reference_column'].' ↔ '.$m['input_column'];
+            })->all()
+            : [];
+
+        if ($isPartial) {
+            $payload = [
+                'mode' => 'partial',
+                'locale' => $normalizedLocale,
+                'job' => [
+                    'strategy' => $job->configuration?->strategy,
+                    'preset' => $job->configuration?->preset,
+                ],
+                'selected_mapped_fields' => $compactedMappings,
+                'existing_configuration' => $this->compactConfiguration($job->configuration),
+                'supported_algorithms' => self::SUPPORTED_ALGORITHMS,
+            ];
+        } else {
+            $referenceCols = $job->referenceDataset?->columns
+                ? $job->referenceDataset->columns->map(fn (DatasetColumn $col) => [
+                    'name' => $col->name,
+                    'data_type' => $col->data_type,
+                    'null_rate' => round((float) $col->null_percentage, 2),
+                    'unique_rate' => $this->rate($col->unique_count, $job->referenceDataset?->row_count),
+                    'duplicate_rate' => round((float) $col->duplicate_percentage, 2),
+                    'samples' => array_slice((array) $col->sample_values, 0, 5),
+                ])->values()->all()
+                : [];
+
+            $inputCols = $job->inputDataset?->columns
+                ? $job->inputDataset->columns->map(fn (DatasetColumn $col) => [
+                    'name' => $col->name,
+                    'data_type' => $col->data_type,
+                    'null_rate' => round((float) $col->null_percentage, 2),
+                    'unique_rate' => $this->rate($col->unique_count, $job->inputDataset?->row_count),
+                    'duplicate_rate' => round((float) $col->duplicate_percentage, 2),
+                    'samples' => array_slice((array) $col->sample_values, 0, 5),
+                ])->values()->all()
+                : [];
+
+            $payload = [
+                'mode' => 'global',
+                'locale' => $normalizedLocale,
+                'job' => [
+                    'strategy' => $job->configuration?->strategy,
+                    'preset' => $job->configuration?->preset,
+                ],
+                'reference_dataset' => [
+                    'name' => $job->referenceDataset?->name,
+                    'row_count' => $job->referenceDataset?->row_count,
+                    'columns' => $referenceCols,
+                ],
+                'input_dataset' => [
+                    'name' => $job->inputDataset?->name,
+                    'row_count' => $job->inputDataset?->row_count,
+                    'columns' => $inputCols,
+                ],
+                'existing_configuration' => $this->compactConfiguration($job->configuration),
+                'supported_algorithms' => self::SUPPORTED_ALGORITHMS,
+            ];
+        }
 
         $response = $this->providers->generateStructured([
-            'instructions' => $this->instructions(),
+            'instructions' => $this->instructions($normalizedLocale, $mode, $targetFieldNames),
             'schema_name' => 'rematch_matching_configuration_assistant',
             'schema' => $this->schema(),
             'input' => [[
@@ -83,7 +152,10 @@ class MatchingConfigurationAssistant
         }
 
         $data = $response->data;
-        $data['recommended_fields'] = $this->normalizeRecommendedFields($data['recommended_fields'] ?? null);
+        $data['recommended_fields'] = $this->normalizeRecommendedFields(
+            $data['recommended_fields'] ?? null,
+            $isPartial ? $compactedMappings : null,
+        );
 
         return AiResponse::success(
             provider: $response->provider,
@@ -92,6 +164,61 @@ class MatchingConfigurationAssistant
             usage: $response->usage,
             latencyMs: $response->latencyMs,
         );
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $draftMappings
+     * @return array<int, array<string, mixed>>
+     */
+    private function compactDraftMappings(array $draftMappings, MatchingJob $job): array
+    {
+        $referenceColumns = $job->referenceDataset?->columns
+            ? $job->referenceDataset->columns->keyBy(fn (DatasetColumn $column) => Str::lower($column->name))
+            : collect();
+        $inputColumns = $job->inputDataset?->columns
+            ? $job->inputDataset->columns->keyBy(fn (DatasetColumn $column) => Str::lower($column->name))
+            : collect();
+
+        return collect($draftMappings)
+            ->filter(function ($item) {
+                if (! is_array($item)) {
+                    return false;
+                }
+                $ref = $item['reference_column'] ?? $item['referenceColumnName'] ?? $item['reference'] ?? null;
+                $inp = $item['input_column'] ?? $item['inputColumnName'] ?? $item['input'] ?? null;
+
+                return is_string($ref) && trim($ref) !== '' && is_string($inp) && trim($inp) !== '';
+            })
+            ->map(function (array $mapping, int $index) use ($job, $referenceColumns, $inputColumns) {
+                $refName = (string) ($mapping['reference_column'] ?? $mapping['referenceColumnName'] ?? $mapping['reference'] ?? '');
+                $inpName = (string) ($mapping['input_column'] ?? $mapping['inputColumnName'] ?? $mapping['input'] ?? '');
+                $mappingId = (string) ($mapping['mapping_id'] ?? $mapping['mappingId'] ?? $mapping['id'] ?? $index);
+
+                $reference = $referenceColumns->get(Str::lower($refName));
+                $input = $inputColumns->get(Str::lower($inpName));
+                $semanticType = $this->semanticFieldType(
+                    $refName,
+                    $inpName,
+                    $reference,
+                    $input,
+                );
+
+                return [
+                    'mapping_id' => $mappingId,
+                    'reference_column' => $refName,
+                    'input_column' => $inpName,
+                    'semantic_type' => $semanticType,
+                    'reference_profile' => $this->columnProfile($reference, $semanticType, $job->referenceDataset?->row_count),
+                    'input_profile' => $this->columnProfile($input, $semanticType, $job->inputDataset?->row_count),
+                    'existing' => [
+                        'algorithm' => $mapping['algorithm'] ?? null,
+                        'weight' => $mapping['weight'] ?? null,
+                        'required_match' => (bool) ($mapping['strict'] ?? $mapping['required_match'] ?? false),
+                    ],
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     /**
@@ -107,6 +234,7 @@ class MatchingConfigurationAssistant
             : collect();
 
         return $job->mappings
+            ->filter(fn (ColumnMapping $mapping) => ! empty($mapping->reference_column_name) && ! empty($mapping->input_column_name))
             ->map(function (ColumnMapping $mapping) use ($job, $referenceColumns, $inputColumns) {
                 $reference = $referenceColumns->get(Str::lower($mapping->reference_column_name));
                 $input = $inputColumns->get(Str::lower($mapping->input_column_name));
@@ -165,15 +293,31 @@ class MatchingConfigurationAssistant
         ];
     }
 
-    private function instructions(): string
+    /**
+     * @param  array<int, string>  $targetFields
+     */
+    private function instructions(string $locale, string $mode, array $targetFields = []): string
     {
-        return 'Generate one advisory matching configuration suggestion for RE-MATCH. '
-            .'Use compact metadata only. Do not invent unsupported algorithms or unsupported configuration options. '
-            .'Prioritize strong identifiers: entity/company name, company ID, NIB, NPWP. '
-            .'Province, city, and address are supporting fields with lower identity importance. '
-            .'Never apply changes. Return one JSON object only with fields: '
-            .'recommended_fields[], suggested_thresholds, hard_conflict_rules[], warnings[], rationale. '
-            .'For each recommended field include field, use_for_matching, priority, suggested_weight, suggested_algorithm, reason.';
+        $languageRule = $locale === 'id'
+            ? 'BAHASA WAJIB: Seluruh nilai teks deskripsi (semua "reason" per field, "hard_conflict_rules", "warnings", dan "rationale") WAJIB ditulis sepenuhnya dalam Bahasa Indonesia yang formal, ringkas, dan jelas. JANGAN mencampur dengan Bahasa Inggris.'
+            : 'MANDATORY LANGUAGE: All descriptive text values (every "reason" per field, "hard_conflict_rules", "warnings", and "rationale") MUST be written strictly in clear, concise, professional English. Do not mix languages.';
+
+        if ($mode === 'partial') {
+            $fieldListStr = implode(', ', array_map(fn ($f) => '"'.$f.'"', $targetFields));
+            $modeRule = "MODE: PARTIAL / ASSISTED SETUP. The user has explicitly selected the following mapped fields: [{$fieldListStr}]. "
+                ."CRITICAL REQUIREMENT: You MUST ONLY provide recommendations for these EXACT mapped fields in 'recommended_fields'. "
+                ."DO NOT invent, add, or suggest any new or unmapped fields. "
+                ."For each of these mapped fields, select the most accurate algorithm from the 3 supported families (Exact, Character Similarity, Token Similarity) and assign optimal similarity weights (suggested_weight) totaling exactly 100% among active matching fields.";
+        } else {
+            $modeRule = "MODE: GLOBAL RECOMMENDATION (BLANK SLATE). The user has not mapped fields yet. "
+                ."Analyze the reference and input dataset columns to discover the best field pairings, assign appropriate algorithms from the 3 supported families (Exact, Character Similarity, Token Similarity), and allocate optimal weights totaling exactly 100%. "
+                ."Prioritize strong primary identifiers (NIB, NPWP, entity ID) and entity names over general attributes.";
+        }
+
+        return "You are RE-MATCH AI Matching Configuration Assistant. {$languageRule} {$modeRule} "
+            ."Supported algorithms are: Exact, Normalized Exact, Jaro-Winkler, Levenshtein, Damerau-Levenshtein, Token Sort, Token Set, Partial Token. "
+            ."Return one JSON object with: recommended_fields[], suggested_thresholds, hard_conflict_rules[], warnings[], rationale. "
+            ."For each entry in recommended_fields, provide: field (string), use_for_matching (bool), priority (critical|high|medium|low), suggested_weight (int|float), suggested_algorithm (string), reason (string in mandatory language).";
     }
 
     /**
@@ -288,15 +432,52 @@ class MatchingConfigurationAssistant
     }
 
     /**
+     * @param  array<int, array<string, mixed>>|null  $targetMappedFields
      * @return array<int, array<string, mixed>>
      */
-    private function normalizeRecommendedFields(mixed $fields): array
+    private function normalizeRecommendedFields(mixed $fields, ?array $targetMappedFields = null): array
     {
-        if (! is_array($fields)) {
-            return [];
+        $rawList = is_array($fields) ? $fields : [];
+
+        // If in partial/assisted mode, ensure only the user-selected mapped fields are returned
+        if ($targetMappedFields !== null && ! empty($targetMappedFields)) {
+            $mappedItems = collect($targetMappedFields);
+            $normalizedList = [];
+
+            foreach ($mappedItems as $mapped) {
+                $refName = $mapped['reference_column'] ?? '';
+                $inpName = $mapped['input_column'] ?? '';
+                $pairLabel = $refName.' ↔ '.$inpName;
+
+                // Find matching recommendation by field or mapping
+                $matchedRec = collect($rawList)->first(function ($rec) use ($refName, $inpName, $pairLabel) {
+                    if (! is_array($rec)) return false;
+                    $fieldVal = Str::lower((string) ($rec['field'] ?? $rec['mapping'] ?? ''));
+                    return $fieldVal === Str::lower($pairLabel)
+                        || $fieldVal === Str::lower($refName)
+                        || $fieldVal === Str::lower($inpName)
+                        || Str::contains($fieldVal, Str::lower($refName));
+                });
+
+                $isStrict = (bool) ($mapped['existing']['required_match'] ?? false);
+                $semantic = $mapped['semantic_type'] ?? 'text';
+                $defaultAlgorithm = $this->defaultAlgorithmForSemantic($semantic, $isStrict);
+
+                $normalizedList[] = [
+                    'field' => $pairLabel,
+                    'mapping_id' => $mapped['mapping_id'] ?? null,
+                    'use_for_matching' => true,
+                    'priority' => is_array($matchedRec) ? ($matchedRec['priority'] ?? 'high') : ($isStrict ? 'critical' : 'high'),
+                    'suggested_weight' => is_array($matchedRec) ? ($matchedRec['suggested_weight'] ?? 0) : 0,
+                    'suggested_algorithm' => is_array($matchedRec) ? ($matchedRec['suggested_algorithm'] ?? $defaultAlgorithm) : $defaultAlgorithm,
+                    'reason' => is_array($matchedRec) ? ($matchedRec['reason'] ?? '') : '',
+                ];
+            }
+
+            $rawList = $normalizedList;
         }
 
-        $normalized = collect($fields)
+        $normalized = collect($rawList)
             ->filter(fn ($field) => is_array($field))
             ->map(function (array $field, int $index) {
                 $useForMatching = (bool) ($field['use_for_matching'] ?? false);
@@ -392,6 +573,23 @@ class MatchingConfigurationAssistant
         }
 
         return $normalized->values()->all();
+    }
+
+    private function defaultAlgorithmForSemantic(string $semanticType, bool $isStrict): string
+    {
+        if ($isStrict) {
+            return 'Normalized Exact';
+        }
+
+        return match ($semanticType) {
+            'nib', 'npwp', 'identifier' => 'Normalized Exact',
+            'entity_name' => 'Token Set',
+            'address' => 'Token Sort',
+            'province', 'city' => 'Jaro-Winkler',
+            'date' => 'Exact',
+            'number' => 'Exact',
+            default => 'Jaro-Winkler',
+        };
     }
 
     private function priorityRank(mixed $priority): int

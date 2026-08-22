@@ -45,7 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::MATCHING_RUN);
     Route::get('/matching-jobs/{job}/status', MatchingStatusController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_VIEW);
-    Route::get('/matching-jobs/{job}/ai-matching-configuration', AiMatchingConfigurationController::class)
+    Route::match(['GET', 'POST'], '/matching-jobs/{job}/ai-matching-configuration', AiMatchingConfigurationController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_CONFIGURE);
     Route::get('/matching-jobs/{job}/review-results', ReviewResultsController::class)
         ->middleware('permission:'.PermissionRegistry::REVIEW_VIEW);

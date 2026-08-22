@@ -86,6 +86,8 @@ import {
   X,
   Sparkles,
   ChevronDown,
+  ChevronUp,
+  GripVertical,
   Search,
 } from "lucide-react";
 import {
@@ -2004,7 +2006,7 @@ function StepConfigV2({
   onConfigurationChange: (configuration: MatchingConfiguration) => void;
   onValidityChange: (valid: boolean) => void;
 }) {
-  const { t } = usePreferences();
+  const { t, language } = usePreferences();
   const initialMode = configuration?.mode === "custom" ? "custom" : "default";
   const [mode, setMode] = useState<"default" | "custom">(initialMode);
   const [showDetails, setShowDetails] = useState(false);
@@ -2018,6 +2020,8 @@ function StepConfigV2({
   const [verificationOrder, setVerificationOrder] = useState<string[]>(
     () => configuration?.rules?.verificationOrder?.map((step) => step.mappingId) ?? [],
   );
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [verificationThresholds, setVerificationThresholds] = useState<Record<string, number>>(() =>
     Object.fromEntries(
       (configuration?.rules?.verificationOrder ?? []).map((step) => [
@@ -2270,6 +2274,17 @@ function StepConfigV2({
     });
   };
 
+  const reorderVerificationSteps = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    setVerificationOrder((current) => {
+      const currentList = verificationSteps.map((s) => s.mappingId);
+      const next = [...currentList];
+      const [removed] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, removed);
+      return next;
+    });
+  };
+
   const requestAiSuggestion = async () => {
     if (!jobId || aiLoading) {
       if (!jobId) setAiError(t("matching.ai.configUnavailableDesc"));
@@ -2278,7 +2293,16 @@ function StepConfigV2({
     setAiLoading(true);
     setAiError(null);
     try {
-      const next = await fetchAiMatchingConfiguration(jobId);
+      const next = await fetchAiMatchingConfiguration(jobId, {
+        locale: language,
+        mappings: fields.map((field) => ({
+          mapping_id: field.id,
+          reference_column: field.reference,
+          input_column: field.input,
+          data_type: field.type,
+          strict: field.strict,
+        })),
+      });
       setAiSuggestion(next);
       if (!next.success) setAiError(next.error.message ?? t("matching.ai.unavailable"));
     } catch (error) {
@@ -2672,21 +2696,70 @@ function StepConfigV2({
                   <table className="w-full min-w-[760px] text-left text-xs">
                     <thead className="bg-secondary/40 text-muted-foreground">
                       <tr>
-                        <th className="px-3 py-2 font-semibold">{t("matching.configV2.order")}</th>
+                        <th className="w-24 px-3 py-2 font-semibold">{t("matching.configV2.order")}</th>
                         <th className="px-3 py-2 font-semibold">{t("matching.configV2.field")}</th>
                         <th className="px-3 py-2 font-semibold">{t("matching.configV2.method")}</th>
                         <th className="px-3 py-2 text-right font-semibold">
                           {t("matching.configV2.threshold")}
                         </th>
-                        <th className="px-3 py-2 text-right font-semibold">{t("common.action")}</th>
+                        <th className="w-28 px-3 py-2 text-right font-semibold">{t("common.action")}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {verificationSteps.map((step) => {
+                      {verificationSteps.map((step, index) => {
                         const field = fields.find((item) => item.id === step.mappingId);
+                        const isDragging = draggedIndex === index;
+                        const isDragOver = dragOverIndex === index;
                         return (
-                          <tr key={step.mappingId}>
-                            <td className="px-3 py-2 tabular-nums">{step.order}</td>
+                          <tr
+                            key={step.mappingId}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", String(index));
+                              e.dataTransfer.effectAllowed = "move";
+                              setDraggedIndex(index);
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                              if (dragOverIndex !== index) {
+                                setDragOverIndex(index);
+                              }
+                            }}
+                            onDragLeave={() => {
+                              if (dragOverIndex === index) {
+                                setDragOverIndex(null);
+                              }
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (draggedIndex !== null) {
+                                reorderVerificationSteps(draggedIndex, index);
+                              }
+                              setDraggedIndex(null);
+                              setDragOverIndex(null);
+                            }}
+                            onDragEnd={() => {
+                              setDraggedIndex(null);
+                              setDragOverIndex(null);
+                            }}
+                            className={`transition-colors ${
+                              isDragging ? "bg-secondary/40 opacity-50" : ""
+                            } ${
+                              isDragOver ? "border-t-2 border-brand bg-brand/10" : "hover:bg-secondary/20"
+                            }`}
+                          >
+                            <td className="px-3 py-2 tabular-nums">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="inline-flex cursor-grab items-center text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+                                  title="Drag to reorder"
+                                >
+                                  <GripVertical className="size-3.5" />
+                                </span>
+                                <span>{step.order}</span>
+                              </div>
+                            </td>
                             <td className="px-3 py-2 font-medium">{step.field}</td>
                             <td className="px-3 py-2 text-muted-foreground">
                               {field?.strict ? t("matching.mapping.strict") : step.method}
@@ -2723,17 +2796,21 @@ function StepConfigV2({
                                   type="button"
                                   onClick={() => moveVerificationStep(step.mappingId, -1)}
                                   disabled={step.order === 1}
-                                  className="rounded border border-border px-2 py-1 font-semibold disabled:opacity-40"
+                                  className="inline-flex size-7 items-center justify-center rounded border border-border bg-background text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-30"
+                                  aria-label={t("matching.configV2.moveUp")}
+                                  title={t("matching.configV2.moveUp")}
                                 >
-                                  {t("matching.configV2.moveUp")}
+                                  <ChevronUp className="size-4" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => moveVerificationStep(step.mappingId, 1)}
                                   disabled={step.order === verificationSteps.length}
-                                  className="rounded border border-border px-2 py-1 font-semibold disabled:opacity-40"
+                                  className="inline-flex size-7 items-center justify-center rounded border border-border bg-background text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-30"
+                                  aria-label={t("matching.configV2.moveDown")}
+                                  title={t("matching.configV2.moveDown")}
                                 >
-                                  {t("matching.configV2.moveDown")}
+                                  <ChevronDown className="size-4" />
                                 </button>
                               </div>
                             </td>

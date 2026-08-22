@@ -801,11 +801,45 @@ export async function fetchReviewKnowledge(resultId: string): Promise<ReviewKnow
   return payload.data;
 }
 
+export type FetchAiMatchingConfigurationOptions = {
+  locale?: string;
+  mappings?: Array<{
+    mapping_id?: string;
+    reference_column?: string;
+    input_column?: string;
+    data_type?: string;
+    strict?: boolean;
+  }>;
+};
+
 export async function fetchAiMatchingConfiguration(
   jobId: string,
+  options?: FetchAiMatchingConfigurationOptions,
 ): Promise<AiEnvelope<AiMatchingConfigurationSuggestion>> {
-  const response = await apiFetch(`/matching-jobs/${jobId}/ai-matching-configuration`, {
-    headers: { Accept: "application/json" },
+  const queryParams = new URLSearchParams();
+  if (options?.locale) {
+    queryParams.set("locale", options.locale);
+  }
+  const queryString = queryParams.toString();
+  const url = `/matching-jobs/${jobId}/ai-matching-configuration${queryString ? `?${queryString}` : ""}`;
+
+  const hasMappings = Boolean(options?.mappings && options.mappings.length > 0);
+
+  const response = await apiFetch(url, {
+    method: hasMappings ? "POST" : "GET",
+    headers: {
+      Accept: "application/json",
+      ...(options?.locale ? { "X-Locale": options.locale } : {}),
+      ...(hasMappings ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(hasMappings
+      ? {
+          body: JSON.stringify({
+            locale: options?.locale,
+            mappings: options?.mappings,
+          }),
+        }
+      : {}),
   });
   const payload = (await response.json().catch(() => null)) as
     | ApiSuccess<AiEnvelope<AiMatchingConfigurationSuggestion>>
