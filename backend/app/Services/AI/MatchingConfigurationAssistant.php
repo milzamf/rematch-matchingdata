@@ -315,6 +315,11 @@ class MatchingConfigurationAssistant
         }
 
         return "You are RE-MATCH AI Matching Configuration Assistant. {$languageRule} {$modeRule} "
+            ."CRITICAL HEURISTICS FOR ACCURACY & FALSE POSITIVE PREVENTION: "
+            ."1. Name/Entity fields: Allocate ~40% weight. MUST use Character Similarity (Jaro-Winkler) to punish reversed word orders and prevent false positives (DO NOT use Token algorithms for company names by default). "
+            ."2. Identifiers (NPWP/NIB/NIK/ID): Allocate ~30% weight using Normalized Exact. "
+            ."3. Location (Kabupaten/Kota/Provinsi): Allocate ~15% weight using Normalized Exact. "
+            ."4. Address: Allocate ~15% weight using Jaro-Winkler. "
             ."Supported algorithms are: Exact, Normalized Exact, Jaro-Winkler, Levenshtein, Damerau-Levenshtein, Token Sort, Token Set, Partial Token. "
             ."Return one JSON object with: recommended_fields[], suggested_thresholds, hard_conflict_rules[], warnings[], rationale. "
             ."For each entry in recommended_fields, provide: field (string), use_for_matching (bool), priority (critical|high|medium|low), suggested_weight (int|float), suggested_algorithm (string), reason (string in mandatory language).";
@@ -583,9 +588,9 @@ class MatchingConfigurationAssistant
 
         return match ($semanticType) {
             'nib', 'npwp', 'identifier' => 'Normalized Exact',
-            'entity_name' => 'Token Set',
-            'address' => 'Token Sort',
-            'province', 'city' => 'Jaro-Winkler',
+            'entity_name' => 'Jaro-Winkler',
+            'address' => 'Jaro-Winkler',
+            'province', 'city', 'location' => 'Normalized Exact',
             'date' => 'Exact',
             'number' => 'Exact',
             default => 'Jaro-Winkler',
@@ -609,15 +614,11 @@ class MatchingConfigurationAssistant
     {
         $normalized = Str::lower($fieldName);
         $base = match (true) {
-            Str::contains($normalized, ['npwp']) => 10.0,
-            Str::contains($normalized, ['nib']) => 10.0,
-            Str::contains($normalized, ['company id', 'company_id', 'identifier', 'kode', 'code', 'id']) => 9.5,
-            Str::contains($normalized, ['entity', 'company', 'business', 'nama', 'name']) => 8.5,
-            Str::contains($normalized, ['email', 'phone', 'telepon', 'telp', 'mobile', 'hp']) => 5.0,
-            Str::contains($normalized, ['address', 'alamat', 'street', 'jalan']) => 4.0,
-            Str::contains($normalized, ['province', 'provinsi', 'prov']) => 2.0,
-            Str::contains($normalized, ['city', 'kota', 'kabupaten', 'kab']) => 2.0,
-            default => 3.0,
+            Str::contains($normalized, ['entity', 'company', 'business', 'nama', 'name', 'nama inti', 'badan usaha']) => 40.0,
+            Str::contains($normalized, ['npwp', 'nib', 'nik', 'identifier', 'kode', 'code', 'id']) => 30.0,
+            Str::contains($normalized, ['city', 'kota', 'kabupaten', 'kab', 'province', 'provinsi', 'prov', 'wilayah']) => 15.0,
+            Str::contains($normalized, ['address', 'alamat', 'street', 'jalan']) => 15.0,
+            default => 10.0,
         };
 
         return match ($priorityRank) {

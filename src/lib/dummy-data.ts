@@ -1,4 +1,4 @@
-export const kpis = [
+﻿export const kpis = [
   { label: "Total Records", value: "1,248,302", delta: "+12% vs last sync", tone: "success" as const },
   { label: "Matched Records", value: "842,091", delta: "67.4% of dataset", tone: "success" as const, progress: 67 },
   { label: "Possible Matches", value: "14,203", delta: "Requires manual review", tone: "warning" as const },
@@ -109,14 +109,9 @@ export const insights = [
 ];
 
 export const wizardSteps = [
-  { id: 1, title: "Upload", desc: "Reference & input" },
-  { id: 2, title: "Profiling", desc: "Preview & stats" },
-  { id: 3, title: "Mapping", desc: "Match fields" },
-  { id: 4, title: "Configure", desc: "Rules & weights" },
-  { id: 5, title: "Run", desc: "Execute" },
-  { id: 6, title: "Review", desc: "Manual approval" },
-  { id: 7, title: "Sync", desc: "Merge plan" },
-  { id: 8, title: "Export", desc: "Download" },
+  { id: 1, title: "Persiapan Data", desc: "Upload, profil & mapping" },
+  { id: 2, title: "Aturan Pencocokan", desc: "Konfigurasi & eksekusi" },
+  { id: 3, title: "Review & Hasil", desc: "Evaluasi & ekspor" },
 ];
 
 export const synchronizationSummary = {
@@ -126,7 +121,6 @@ export const synchronizationSummary = {
   conflictsToReview: "214",
   finalReferenceSize: "186,547",
 };
-
 
 export const columnProfile = [
   { name: "id_usaha", type: "STRING", nulls: "0.0%", unique: "100%", pattern: "US-#####", flag: "Primary key candidate" },

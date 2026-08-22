@@ -1,5 +1,5 @@
 const MIN_WORKFLOW_STEP = 1;
-const MAX_WORKFLOW_STEP = 8;
+const MAX_WORKFLOW_STEP = 3;
 
 export type WorkflowSearch = {
   workspace?: string;
@@ -22,8 +22,11 @@ export function normalizeWorkflowStep(value: unknown) {
         : Number.NaN;
 
   if (!Number.isInteger(parsed)) return undefined;
-  if (parsed < MIN_WORKFLOW_STEP || parsed > MAX_WORKFLOW_STEP) return undefined;
-  return parsed;
+  if (parsed < 1) return 1;
+  // Map legacy steps (1..8) to 3-step wizard
+  if (parsed <= 3) return 1;
+  if (parsed <= 5) return 2;
+  return 3;
 }
 
 export function validateWorkflowSearch(search: Record<string, unknown>): WorkflowSearch {

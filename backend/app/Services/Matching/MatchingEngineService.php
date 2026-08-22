@@ -291,6 +291,46 @@ class MatchingEngineService
         return $base + ($index === 0 ? 100 - ($base * $total) : 0);
     }
 
+    private function resolveColumnValue(array $row, string $columnName): ?string
+    {
+        if (isset($row[$columnName])) {
+            return (string) $row[$columnName];
+        }
+
+        if ($columnName === '[Generated] Nama Inti') {
+            $nameVal = $this->findEntityNameValue($row);
+            if ($nameVal !== null) {
+                $parsed = $this->entityNameParser->parse($nameVal);
+                return $parsed['core_name'] !== '' ? $parsed['core_name'] : $nameVal;
+            }
+        }
+
+        if ($columnName === '[Generated] Badan Usaha') {
+            $nameVal = $this->findEntityNameValue($row);
+            if ($nameVal !== null) {
+                $parsed = $this->entityNameParser->parse($nameVal);
+                return $parsed['legal_form'] ?? '';
+            }
+        }
+
+        return null;
+    }
+
+    private function findEntityNameValue(array $row): ?string
+    {
+        foreach ($row as $col => $val) {
+            if ($this->entityNameParser->isEntityNameColumn((string) $col) && is_string($val) && trim($val) !== '') {
+                return $val;
+            }
+        }
+        foreach ($row as $col => $val) {
+            if (is_string($val) && trim($val) !== '') {
+                return $val;
+            }
+        }
+        return null;
+    }
+
     /**
      * Phase 1: Automatic Normalization
      *
@@ -313,8 +353,20 @@ class MatchingEngineService
 
                 foreach ($mappings as $mapping) {
                     $columnName = $mapping[$columnKey];
-                    $rawValue = $row[$columnName] ?? null;
+                    $rawValue = $this->resolveColumnValue($row, $columnName);
                     $dataType = $columnDataTypes[$columnName] ?? null;
+
+                    if ($columnName === '[Generated] Badan Usaha') {
+                        $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
+                        $identity[$columnName] = ['legal_form' => $rawValue];
+                        continue;
+                    }
+
+                    if ($columnName === '[Generated] Nama Inti') {
+                        $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
+                        $identity[$columnName] = ['core_name' => $rawValue];
+                        continue;
+                    }
 
                     $parsedEntity = $this->entityNameParser->parse($rawValue);
                     $isEntityName = $this->entityNameParser->isEntityNameColumn($columnName)
@@ -777,19 +829,60 @@ class MatchingEngineService
             return $customRules;
         }
 
-        // Fallback: build default verification rules from mappings in order
+        // Sort mappings for default verification order:
+        // 1. Mandatory / Exact
+        // 2. Name / Entity (threshold 90)
+        // 3. Location (threshold 100)
+        // 4. Address & others (threshold defaultThreshold)
+        $sorted = $mappings;
+        usort($sorted, function ($a, $b) {
+            $aMandatory = (bool) ($a['required_match'] ?? false);
+            $bMandatory = (bool) ($b['required_match'] ?? false);
+            if ($aMandatory !== $bMandatory) return $bMandatory <=> $aMandatory;
+
+            $aName = $this->entityNameParser->isEntityNameColumn((string) $a['reference_column_name']);
+            $bName = $this->entityNameParser->isEntityNameColumn((string) $b['reference_column_name']);
+            if ($aName !== $bName) return $bName <=> $aName;
+
+            $aLoc = $this->isLocationColumn((string) $a['reference_column_name']);
+            $bLoc = $this->isLocationColumn((string) $b['reference_column_name']);
+            if ($aLoc !== $bLoc) return $bLoc <=> $aLoc;
+
+            return 0;
+        });
+
         $rules = [];
-        foreach ($mappings as $index => $mapping) {
+        foreach ($sorted as $index => $mapping) {
+            $refCol = (string) $mapping['reference_column_name'];
+            $isMandatory = (bool) ($mapping['required_match'] ?? false);
+            $isName = $this->entityNameParser->isEntityNameColumn($refCol)
+                || str_contains(mb_strtolower($refCol), 'nama')
+                || str_contains(mb_strtolower($refCol), 'name');
+            $isLoc = $this->isLocationColumn($refCol);
+
+            $threshold = $isMandatory ? 100.0 : ($isName ? 90.0 : ($isLoc ? 100.0 : $defaultThreshold));
+
             $rules[] = [
                 'order' => $index + 1,
                 'mappingId' => $mapping['id'] ?? (string) $index,
                 'field' => "{$mapping['input_column_name']} ↔ {$mapping['reference_column_name']}",
                 'method' => $mapping['algorithm'],
-                'threshold' => $mapping['required_match'] ? 100.0 : $defaultThreshold,
+                'threshold' => $threshold,
             ];
         }
 
         return $rules;
+    }
+
+    private function isLocationColumn(string $columnName): bool
+    {
+        $normalized = mb_strtolower($columnName);
+        foreach (['kabupaten', 'kota', 'kab', 'provinsi', 'prov', 'wilayah', 'kecamatan', 'kelurahan', 'city', 'province', 'region'] as $kw) {
+            if (str_contains($normalized, $kw)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

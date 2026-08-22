@@ -94,6 +94,7 @@ import {
   ChevronUp,
   GripVertical,
   Search,
+  RefreshCw,
 } from "lucide-react";
 import {
   Sheet,
@@ -662,7 +663,14 @@ function MatchingPage() {
       setRunResult(result);
       setProgress(result.progress.percentage || 100);
       setRunState(result.job.status === "completed" ? "success" : "failed");
-      if (result.job.status !== "completed") {
+      if (result.job.status === "completed") {
+        setStep(3);
+        void navigate({
+          to: "/matching",
+          search: buildMatchingSearch(workspaceId, 3),
+          replace: true,
+        });
+      } else {
         setRunError(result.job.error_message ?? t("matching.run.failedGeneric"));
       }
     } catch (error) {
@@ -891,81 +899,82 @@ function MatchingPage() {
           ) : (
             <>
               {activeStep === 1 && (
-                <StepUpload
-                  reference={reference}
-                  input={input}
-                  onInspectFile={handleInspectFile}
-                  onClearReference={() => {
-                    if (reference)
-                      toast.info(t("feedback.toast.removed", { name: reference.name }));
-                    setReference(null);
-                  }}
-                  onClearInput={() => {
-                    if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
-                    setInput(null);
-                  }}
-                  error={uploadError}
-                />
+                <div className="space-y-8">
+                  <StepUpload
+                    reference={reference}
+                    input={input}
+                    onInspectFile={handleInspectFile}
+                    onClearReference={() => {
+                      if (reference)
+                        toast.info(t("feedback.toast.removed", { name: reference.name }));
+                      setReference(null);
+                    }}
+                    onClearInput={() => {
+                      if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
+                      setInput(null);
+                    }}
+                    error={uploadError}
+                  />
+
+                  {(reference?.result || input?.result) && (
+                    <div className="border-t border-border pt-6">
+                      <StepProfile reference={reference?.result} input={input?.result} />
+                    </div>
+                  )}
+
+                  {referenceColumns.length > 0 && inputColumns.length > 0 && (
+                    <div className="border-t border-border pt-6">
+                      <StepColumnMapping
+                        referenceColumns={referenceColumns}
+                        inputColumns={inputColumns}
+                        mappings={columnMappings}
+                        setMappings={setColumnMappings}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
               {activeStep === 2 && (
-                <StepProfile reference={reference?.result} input={input?.result} />
+                <div className="space-y-8">
+                  <StepConfigV2
+                    jobId={runResult?.job.id ?? null}
+                    mappings={columnMappings}
+                    configuration={matchingConfiguration}
+                    onConfigurationChange={setMatchingConfiguration}
+                    onValidityChange={setConfigureValid}
+                  />
+
+                  <div className="border-t border-border pt-6">
+                    <StepRunCard
+                      state={runState}
+                      progress={progress}
+                      configuration={matchingConfiguration}
+                      result={runResult}
+                      error={runError}
+                      onStart={() => setRunConfirmOpen(true)}
+                      onRetry={() => {
+                        setRunState("idle");
+                        setProgress(0);
+                        setRunResult(null);
+                        setRunError(null);
+                      }}
+                      onProceed={() => selectStep(3)}
+                      canRun={canRunMatching}
+                    />
+                  </div>
+                </div>
               )}
               {activeStep === 3 && (
-                <StepColumnMapping
-                  referenceColumns={referenceColumns}
-                  inputColumns={inputColumns}
-                  mappings={columnMappings}
-                  setMappings={setColumnMappings}
-                />
-              )}
-              {activeStep === 4 && (
-                <StepConfigV2
-                  jobId={runResult?.job.id ?? null}
-                  mappings={columnMappings}
-                  configuration={matchingConfiguration}
-                  onConfigurationChange={setMatchingConfiguration}
-                  onValidityChange={setConfigureValid}
-                />
-              )}
-              {activeStep === 5 && (
-                <StepRun
-                  state={runState}
-                  progress={progress}
-                  configuration={matchingConfiguration}
-                  result={runResult}
-                  error={runError}
-                  onStart={() => setRunConfirmOpen(true)}
-                  onRetry={() => {
-                    setRunState("idle");
-                    setProgress(0);
-                    setRunResult(null);
-                    setRunError(null);
-                  }}
-                  onBack={() => selectStep(4)}
-                  canRun={canRunMatching}
-                />
-              )}
-              {activeStep === 6 && (
-                <StepReview
+                <StepReviewAndResults
                   jobId={runResult?.job.id ?? null}
                   canDecide={canReviewDecide}
                   columnMappings={columnMappings}
-                />
-              )}
-              {activeStep === 7 && (
-                <StepSynchronize
-                  jobId={runResult?.job.id ?? null}
                   syncState={syncState}
-                  onBackToReview={() => selectStep(6)}
                   onSyncStateChange={setSyncState}
-                  canExecute={canExecuteSync}
-                />
-              )}
-              {activeStep === 8 && (
-                <StepExport
-                  jobId={runResult?.job.id ?? null}
-                  canExecute={canExecuteExport}
+                  canExecuteSync={canExecuteSync}
+                  canExecuteExport={canExecuteExport}
                   onExportHistoryChange={setExportHistory}
+                  workspaceId={workspaceId}
                 />
               )}
 
@@ -1030,9 +1039,9 @@ function MatchingPage() {
 }
 
 function stepKey(id: number) {
-  return ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
-    id - 1
-  ] as "upload" | "profiling" | "mapping" | "configure" | "run" | "review" | "sync" | "export";
+  return ["preparation", "rules", "results"][
+    Math.max(0, Math.min(2, id - 1))
+  ] as "preparation" | "rules" | "results";
 }
 
 function hasDuplicateReference(mappings: { referenceColumnId: string }[]) {
@@ -1050,7 +1059,6 @@ function deriveHighestAllowedStep({
   configureValid,
   runResult,
   runState,
-  syncState,
 }: {
   reference: UploadedFile | null;
   input: UploadedFile | null;
@@ -1061,22 +1069,19 @@ function deriveHighestAllowedStep({
   configureValid: boolean;
   runResult: MatchingRunResult | null;
   runState: RunState;
-  syncState: SyncState | null;
+  syncState?: SyncState | null;
 }) {
   const datasetsReady = reference?.status === "success" && input?.status === "success";
-  const profilingReady = datasetsReady && referenceColumns.length > 0 && inputColumns.length > 0;
-  const configurationReady = Boolean(
-    matchingConfiguration?.isValid && configureValid && hasCompletedMapping,
-  );
+  const step1Ready =
+    datasetsReady &&
+    referenceColumns.length > 0 &&
+    inputColumns.length > 0 &&
+    hasCompletedMapping;
   const matchingReady = Boolean(runResult && runState === "success");
 
-  if (!datasetsReady) return 1;
-  if (!profilingReady) return 2;
-  if (!hasCompletedMapping) return 3;
-  if (!configurationReady) return 4;
-  if (!matchingReady) return 5;
-  if (!syncState?.confirmed) return 7;
-  return 8;
+  if (!step1Ready) return 1;
+  if (!matchingReady) return 2;
+  return 3;
 }
 
 function SectionTitle({ title, desc }: { title: string; desc: string }) {
@@ -1220,11 +1225,9 @@ function stripFileExtension(value: string) {
 
 function deriveWorkspaceStatus(step: number, runState: RunState): WorkspaceStatus {
   if (runState === "failed") return "failed";
-  if (step >= 8) return "completed";
-  if (step >= 7) return "ready_to_sync";
-  if (step >= 6) return "reviewing";
-  if (step >= 5 || runState === "running") return "matching";
-  if (step >= 3) return "configuring";
+  if (runState === "running") return "matching";
+  if (step >= 3) return "reviewing";
+  if (step === 2) return "configuring";
   return "draft";
 }
 
@@ -1393,6 +1396,86 @@ function FileSlot({
   );
 }
 
+function DatasetProfileCard({
+  title,
+  result,
+}: {
+  title: string;
+  result: DatasetInspectResult;
+}) {
+  const { t } = usePreferences();
+  return (
+    <div className="rounded-lg border border-border p-4 space-y-3 bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+        <div>
+          <span className="text-[11px] font-bold uppercase tracking-wider text-brand">
+            {title}
+          </span>
+          <p className="mt-0.5 text-sm font-semibold text-foreground truncate">
+            {result.dataset.original_filename}
+          </p>
+        </div>
+        <div className="flex items-center gap-4 text-xs">
+          <ProfileStat
+            label={t("matching.profile.rows")}
+            value={result.dataset.row_count.toLocaleString()}
+          />
+          <ProfileStat
+            label={t("matching.profile.columns")}
+            value={result.dataset.column_count.toLocaleString()}
+          />
+          <ProfileStat
+            label={t("matching.profile.preview")}
+            value={result.preview_rows.length.toLocaleString()}
+          />
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full min-w-[760px] text-xs">
+          <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-3.5 py-2.5 text-left font-medium">{t("matching.profile.column")}</th>
+              <th className="px-3.5 py-2.5 text-left font-medium">{t("matching.profile.type")}</th>
+              <th className="px-3.5 py-2.5 text-right font-medium">{t("matching.profile.nulls")}</th>
+              <th className="px-3.5 py-2.5 text-right font-medium">{t("matching.profile.unique")}</th>
+              <th className="px-3.5 py-2.5 text-right font-medium">{t("matching.profile.duplicates")}</th>
+              <th className="px-3.5 py-2.5 text-left font-medium">{t("matching.profile.samples")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {result.columns.map((column) => (
+              <tr key={column.id} className="hover:bg-secondary/20">
+                <td className="px-3.5 py-2.5 font-mono font-medium text-foreground">{column.name}</td>
+                <td className="px-3.5 py-2.5">
+                  <span className="inline-flex text-[10px] font-mono bg-secondary rounded px-1.5 py-0.5 uppercase">
+                    {column.data_type}
+                  </span>
+                </td>
+                <td className="px-3.5 py-2.5 text-right tabular-nums text-muted-foreground">
+                  {column.null_count} ({column.null_percentage}%)
+                </td>
+                <td className="px-3.5 py-2.5 text-right tabular-nums text-foreground font-medium">
+                  {column.unique_count.toLocaleString()}
+                </td>
+                <td className="px-3.5 py-2.5 text-right tabular-nums text-muted-foreground">
+                  {column.duplicate_percentage}%
+                </td>
+                <td
+                  className="px-3.5 py-2.5 text-muted-foreground truncate max-w-[240px]"
+                  title={column.sample_values.join(", ")}
+                >
+                  {column.sample_values.length > 0 ? column.sample_values.join(", ") : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function StepProfile({
   reference,
   input,
@@ -1401,14 +1484,8 @@ function StepProfile({
   input?: DatasetInspectResult;
 }) {
   const { t } = usePreferences();
-  const profiles = [
-    { label: t("matching.upload.reference"), result: reference },
-    { label: t("matching.upload.input"), result: input },
-  ].filter((profile): profile is { label: string; result: DatasetInspectResult } =>
-    Boolean(profile.result),
-  );
 
-  if (profiles.length === 0) {
+  if (!reference && !input) {
     return (
       <>
         <SectionTitle title={t("matching.profile.title")} desc={t("matching.profile.desc")} />
@@ -1423,92 +1500,21 @@ function StepProfile({
   }
 
   return (
-    <>
+    <div className="space-y-4">
       <SectionTitle title={t("matching.profile.title")} desc={t("matching.profile.desc")} />
-      <div className="space-y-5">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {profiles.map(({ label, result }) => (
-            <div key={result.dataset.id} className="rounded-lg border border-border p-4">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {label}
-              </p>
-              <p className="mt-1 truncate text-sm font-semibold">
-                {result.dataset.original_filename}
-              </p>
-              <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
-                <ProfileStat
-                  label={t("matching.profile.rows")}
-                  value={result.dataset.row_count.toLocaleString()}
-                />
-                <ProfileStat
-                  label={t("matching.profile.columns")}
-                  value={result.dataset.column_count.toLocaleString()}
-                />
-                <ProfileStat
-                  label={t("matching.profile.preview")}
-                  value={result.preview_rows.length.toLocaleString()}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="border border-border rounded-lg overflow-x-auto">
-          <table className="w-full min-w-[920px] text-sm">
-            <thead className="bg-secondary/40">
-              <tr className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="text-left px-4 py-2.5 font-medium">
-                  {t("matching.profile.dataset")}
-                </th>
-                <th className="text-left px-4 py-2.5 font-medium">
-                  {t("matching.profile.column")}
-                </th>
-                <th className="text-left px-4 py-2.5 font-medium">{t("matching.profile.type")}</th>
-                <th className="text-right px-4 py-2.5 font-medium">
-                  {t("matching.profile.nulls")}
-                </th>
-                <th className="text-right px-4 py-2.5 font-medium">
-                  {t("matching.profile.unique")}
-                </th>
-                <th className="text-right px-4 py-2.5 font-medium">
-                  {t("matching.profile.duplicates")}
-                </th>
-                <th className="text-left px-4 py-2.5 font-medium">
-                  {t("matching.profile.samples")}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {profiles.flatMap(({ label, result }) =>
-                result.columns.map((column) => (
-                  <tr key={`${result.dataset.id}-${column.id}`} className="hover:bg-secondary/30">
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{label}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{column.name}</td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex text-[10px] font-mono bg-secondary rounded px-1.5 py-0.5 uppercase">
-                        {column.data_type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs tabular-nums">
-                      {column.null_count} ({column.null_percentage}%)
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs tabular-nums">
-                      {column.unique_count.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right text-xs tabular-nums">
-                      {column.duplicate_percentage}%
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      {column.sample_values.length > 0 ? column.sample_values.join(", ") : "-"}
-                    </td>
-                  </tr>
-                )),
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </>
+      {reference && (
+        <DatasetProfileCard
+          title={t("matching.upload.reference")}
+          result={reference}
+        />
+      )}
+      {input && (
+        <DatasetProfileCard
+          title={t("matching.upload.input")}
+          result={input}
+        />
+      )}
+    </div>
   );
 }
 
@@ -1516,9 +1522,45 @@ function ProfileStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-1 text-base font-semibold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   );
+}
+
+function injectVirtualColumns(
+  columns: DatasetInspectResult["columns"],
+  prefix: string,
+): DatasetInspectResult["columns"] {
+  if (columns.length === 0) return [];
+  const hasStringField = columns.some(
+    (c) =>
+      ["text", "string", "varchar"].includes((c.data_type || "").toLowerCase()) || !c.data_type,
+  );
+  if (!hasStringField) return columns;
+
+  const virtualCoreName: DatasetInspectResult["columns"][number] = {
+    id: `virtual-${prefix}-core-name`,
+    name: "[Generated] Nama Inti",
+    data_type: "text",
+    null_count: 0,
+    null_percentage: 0,
+    unique_count: 0,
+    duplicate_percentage: 0,
+    sample_values: ["Nama Inti Usaha"],
+  };
+
+  const virtualLegalForm: DatasetInspectResult["columns"][number] = {
+    id: `virtual-${prefix}-legal-form`,
+    name: "[Generated] Badan Usaha",
+    data_type: "text",
+    null_count: 0,
+    null_percentage: 0,
+    unique_count: 0,
+    duplicate_percentage: 0,
+    sample_values: ["PT", "CV", "UD"],
+  };
+
+  return [...columns, virtualCoreName, virtualLegalForm];
 }
 
 function StepColumnMapping({
@@ -1533,9 +1575,18 @@ function StepColumnMapping({
   setMappings: Dispatch<SetStateAction<ColumnMappingDraft[]>>;
 }) {
   const { t } = usePreferences();
+  const effectiveReferenceColumns = useMemo(
+    () => injectVirtualColumns(referenceColumns, "ref"),
+    [referenceColumns],
+  );
+  const effectiveInputColumns = useMemo(
+    () => injectVirtualColumns(inputColumns, "inp"),
+    [inputColumns],
+  );
+
   const usedReferenceIds = new Set(mappings.map((mapping) => mapping.referenceColumnId));
-  const hasColumns = referenceColumns.length > 0 && inputColumns.length > 0;
-  const hasAvailableReference = referenceColumns.some((column) => !usedReferenceIds.has(column.id));
+  const hasColumns = effectiveReferenceColumns.length > 0 && effectiveInputColumns.length > 0;
+  const hasAvailableReference = effectiveReferenceColumns.some((column) => !usedReferenceIds.has(column.id));
   const selectClass =
     "h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -1555,10 +1606,10 @@ function StepColumnMapping({
         if (mapping.id !== id) return mapping;
 
         const next = { ...mapping, ...patch, suggested: false };
-        const referenceColumn = referenceColumns.find(
+        const referenceColumn = effectiveReferenceColumns.find(
           (column) => column.id === next.referenceColumnId,
         );
-        const inputColumn = inputColumns.find((column) => column.id === next.inputColumnId);
+        const inputColumn = effectiveInputColumns.find((column) => column.id === next.inputColumnId);
 
         if (patch.referenceColumnId !== undefined || patch.inputColumnId !== undefined) {
           next.algorithm = next.required_match
@@ -1596,7 +1647,7 @@ function StepColumnMapping({
   };
 
   const addMapping = () => {
-    if (!hasAvailableReference || inputColumns.length === 0) {
+    if (!hasAvailableReference || effectiveInputColumns.length === 0) {
       toast.error(t("matching.mapping.noAvailableReference"));
       return;
     }
@@ -1654,10 +1705,10 @@ function StepColumnMapping({
             )}
 
             {mappings.map((mapping, index) => {
-              const referenceColumn = referenceColumns.find(
+              const referenceColumn = effectiveReferenceColumns.find(
                 (column) => column.id === mapping.referenceColumnId,
               );
-              const inputColumn = inputColumns.find(
+              const inputColumn = effectiveInputColumns.find(
                 (column) => column.id === mapping.inputColumnId,
               );
               const usedByOtherRows = new Set(
@@ -1683,7 +1734,7 @@ function StepColumnMapping({
                       className={selectClass}
                     >
                       <option value="">{t("matching.mapping.noInputSelected")}</option>
-                      {inputColumns.map((column) => (
+                      {effectiveInputColumns.map((column) => (
                         <option key={column.id} value={column.id}>
                           {column.name}
                         </option>
@@ -1718,7 +1769,7 @@ function StepColumnMapping({
                       className={selectClass}
                     >
                       <option value="">{t("matching.mapping.noReferenceSelected")}</option>
-                      {referenceColumns.map((column) => (
+                      {effectiveReferenceColumns.map((column) => (
                         <option
                           key={column.id}
                           value={column.id}
@@ -1906,9 +1957,57 @@ type ConfigFieldV2 = {
   family: ComparisonFamily;
   algorithm: ConfigureAlgorithm;
   normalization: string;
-  reason: "identifier" | "typed" | "categorical" | "multiword" | "text";
+  reason: "identifier" | "entity_name" | "location" | "address" | "typed" | "categorical" | "multiword" | "text";
   signal: number;
 };
+
+function isEntityNameField(names: string): boolean {
+  const normalized = names.toLowerCase().replace(/[^a-z0-9]/g, " ");
+  return [
+    "nama",
+    "name",
+    "perusahaan",
+    "company",
+    "usaha",
+    "badan usaha",
+    "entity",
+    "entitas",
+    "vendor",
+    "customer",
+    "client",
+  ].some((kw) => normalized.includes(kw));
+}
+
+function isIdentifierField(names: string): boolean {
+  const normalized = names.toLowerCase().replace(/[^a-z0-9]/g, " ");
+  return ["nik", "npwp", "nib", "id", "kode", "code", "nomor", "no_"].some((kw) =>
+    normalized.includes(kw),
+  );
+}
+
+function isLocationField(names: string): boolean {
+  const normalized = names.toLowerCase().replace(/[^a-z0-9]/g, " ");
+  return [
+    "kabupaten",
+    "kota",
+    "kab",
+    "provinsi",
+    "prov",
+    "wilayah",
+    "kecamatan",
+    "kelurahan",
+    "city",
+    "province",
+    "region",
+  ].some((kw) => normalized.includes(kw));
+}
+
+function isAddressField(names: string): boolean {
+  const normalized = names.toLowerCase().replace(/[^a-z0-9]/g, " ");
+  return ["alamat", "address", "jalan", "street", "lokasi"].some((kw) =>
+    normalized.includes(kw),
+  );
+}
 
 function isGenericIdentifierName(value: string) {
   return /(^|[\s_-])(id|code|kode|key|number|nomor|identifier|uuid)([\s_-]|$)/i.test(value);
@@ -1927,42 +2026,58 @@ function recommendComparison(
   const names = `${mapping.referenceColumnName} ${mapping.inputColumnName}`;
   const completeness =
     100 - Math.max(mapping.referenceNullPercentage ?? 0, mapping.inputNullPercentage ?? 0);
-  const duplicateRate = Math.max(
-    mapping.referenceDuplicatePercentage ?? 0,
-    mapping.inputDuplicatePercentage ?? 0,
-  );
-  const identifier = isGenericIdentifierName(names);
-  const multiword =
-    Math.max(
-      averageSampleWords(mapping.referenceSampleValues),
-      averageSampleWords(mapping.inputSampleValues),
-    ) >= 2;
 
-  if (type === "number" || type === "date" || type === "boolean" || identifier) {
+  // 1. Identifiers (NPWP/NIB/NIK/ID) -> Normalized Exact, ~30% weight
+  if (isIdentifierField(names) || isGenericIdentifierName(names)) {
     return {
       family: "Exact",
       algorithm: "Normalized Exact",
       normalization: "Automatic by field type",
-      reason: identifier ? "identifier" : type === "number" || type === "date" ? "typed" : "categorical",
-      signal: completeness + (identifier ? 50 : 30),
+      reason: "identifier",
+      signal: 30 + completeness * 0.05,
     };
   }
-  if (duplicateRate >= 60) {
+
+  // 2. Name / Entity Fields -> Jaro-Winkler (Character Similarity) to punish reversed word orders! ~40% weight
+  if (isEntityNameField(names) || names.includes("Nama Inti") || names.includes("Badan Usaha")) {
+    return {
+      family: "Character Similarity",
+      algorithm: "Jaro-Winkler",
+      normalization: "Automatic by field type",
+      reason: "entity_name",
+      signal: 40 + completeness * 0.05,
+    };
+  }
+
+  // 3. Location / Category -> Normalized Exact, ~15% weight
+  if (isLocationField(names)) {
     return {
       family: "Exact",
       algorithm: "Normalized Exact",
       normalization: "Automatic by field type",
-      reason: "categorical",
-      signal: completeness - 10,
+      reason: "location",
+      signal: 15 + completeness * 0.05,
     };
   }
-  if (multiword) {
+
+  // 4. Address -> Jaro-Winkler, ~15% weight
+  if (isAddressField(names)) {
     return {
-      family: "Token Similarity",
-      algorithm: "Token Set",
+      family: "Character Similarity",
+      algorithm: "Jaro-Winkler",
       normalization: "Automatic by field type",
-      reason: "multiword",
-      signal: completeness + 20,
+      reason: "address",
+      signal: 15 + completeness * 0.05,
+    };
+  }
+
+  if (type === "number" || type === "date" || type === "boolean") {
+    return {
+      family: "Exact",
+      algorithm: "Normalized Exact",
+      normalization: "Automatic by field type",
+      reason: "typed",
+      signal: 15 + completeness * 0.05,
     };
   }
 
@@ -1971,7 +2086,7 @@ function recommendComparison(
     algorithm: "Jaro-Winkler",
     normalization: "Automatic by field type",
     reason: "text",
-    signal: completeness + 15,
+    signal: 10 + completeness * 0.05,
   };
 }
 
@@ -2166,7 +2281,35 @@ function StepConfigV2({
       const fieldIds = fields.map((field) => field.id);
       const currentValid = current.filter((id) => fieldIds.includes(id));
       const missing = fieldIds.filter((id) => !currentValid.includes(id));
+      if (currentValid.length === 0) {
+        return [...fields]
+          .sort((a, b) => {
+            if (a.strict !== b.strict) return a.strict ? -1 : 1;
+            const aName = isEntityNameField(a.reference + " " + a.input);
+            const bName = isEntityNameField(b.reference + " " + b.input);
+            if (aName !== bName) return aName ? -1 : 1;
+            const aLoc = isLocationField(a.reference + " " + a.input);
+            const bLoc = isLocationField(b.reference + " " + b.input);
+            if (aLoc !== bLoc) return aLoc ? -1 : 1;
+            return a.id.localeCompare(b.id);
+          })
+          .map((f) => f.id);
+      }
       return [...currentValid, ...missing];
+    });
+
+    setVerificationThresholds((current) => {
+      const next = { ...current };
+      fields.forEach((field) => {
+        if (next[field.id] === undefined) {
+          const names = `${field.reference} ${field.input}`;
+          if (field.strict) next[field.id] = 100;
+          else if (isEntityNameField(names)) next[field.id] = 90;
+          else if (isLocationField(names)) next[field.id] = 100;
+          else next[field.id] = 75;
+        }
+      });
+      return next;
     });
   }, [fields]);
 
@@ -3181,6 +3324,242 @@ function RunConfigItem({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-1 text-xs font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function StepRunCard({
+  state,
+  progress,
+  configuration,
+  result,
+  error,
+  onStart,
+  onRetry,
+  onProceed,
+  canRun,
+}: {
+  state: RunState;
+  progress: number;
+  configuration: MatchingConfiguration | null;
+  result: MatchingRunResult | null;
+  error: string | null;
+  onStart: () => void;
+  onRetry: () => void;
+  onProceed: () => void;
+  canRun: boolean;
+}) {
+  const { t } = usePreferences();
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">
+            {t("matching.run.title")}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {state === "idle"
+              ? "Konfigurasi aturan sudah lengkap. Klik jalankan untuk mengeksekusi pipeline pencocokan."
+              : state === "running"
+                ? t("matching.run.running")
+                : state === "success"
+                  ? t("matching.run.complete")
+                  : t("matching.run.failedGeneric")}
+          </p>
+        </div>
+
+        <div>
+          {state === "idle" && (
+            <button
+              type="button"
+              disabled={!canRun || !configuration?.isValid}
+              onClick={onStart}
+              className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground shadow hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Play className="size-4" />
+              {t("matching.run.start")}
+            </button>
+          )}
+
+          {state === "running" && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-brand">
+              <Loader2 className="size-4 animate-spin" />
+              <span>Memproses {progress}%...</span>
+            </div>
+          )}
+
+          {state === "failed" && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+            >
+              <RefreshCw className="size-3.5" />
+              {t("common.retry")}
+            </button>
+          )}
+
+          {state === "success" && (
+            <button
+              type="button"
+              onClick={onProceed}
+              className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground shadow hover:bg-brand/90"
+            >
+              <span>{t("step.results")}</span>
+              <ArrowRight className="size-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {state === "running" && (
+        <div className="space-y-1.5">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full bg-brand transition-all duration-300 rounded-full"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {state === "failed" && error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+          {error}
+        </div>
+      )}
+
+      {state === "success" && result && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 pt-2 border-t border-border/60 text-xs">
+          <div className="rounded-md bg-secondary/30 p-2.5">
+            <p className="text-[10px] text-muted-foreground uppercase">{t("results.totalRecords")}</p>
+            <p className="mt-1 text-sm font-bold">{result.job.total_count.toLocaleString()}</p>
+          </div>
+          <div className="rounded-md bg-secondary/30 p-2.5">
+            <p className="text-[10px] text-muted-foreground uppercase">{t("results.matchedRecords")}</p>
+            <p className="mt-1 text-sm font-bold text-success">
+              {result.job.record_counts.matched.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-md bg-secondary/30 p-2.5">
+            <p className="text-[10px] text-muted-foreground uppercase">{t("results.possibleMatches")}</p>
+            <p className="mt-1 text-sm font-bold text-warning">
+              {result.job.record_counts.possible_match.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-md bg-secondary/30 p-2.5">
+            <p className="text-[10px] text-muted-foreground uppercase">{t("results.unmatchedRecords")}</p>
+            <p className="mt-1 text-sm font-bold text-muted-foreground">
+              {result.job.record_counts.unmatched.toLocaleString()}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StepReviewAndResults({
+  jobId,
+  canDecide,
+  columnMappings,
+  syncState,
+  onSyncStateChange,
+  canExecuteSync,
+  canExecuteExport,
+  onExportHistoryChange,
+  workspaceId,
+}: {
+  jobId: string | null;
+  canDecide: boolean;
+  columnMappings: ColumnMappingDraft[];
+  syncState: SyncState | null;
+  onSyncStateChange: Dispatch<SetStateAction<SyncState | null>>;
+  canExecuteSync: boolean;
+  canExecuteExport: boolean;
+  onExportHistoryChange: Dispatch<SetStateAction<StoredExportHistoryEntry[]>>;
+  workspaceId?: string | null;
+}) {
+  const { t } = usePreferences();
+  const [activeSubTab, setActiveSubTab] = useState<"review" | "sync" | "export">("review");
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("review")}
+            className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              activeSubTab === "review"
+                ? "bg-brand text-brand-foreground"
+                : "bg-secondary text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t("step.review")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("sync")}
+            className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              activeSubTab === "sync"
+                ? "bg-brand text-brand-foreground"
+                : "bg-secondary text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t("step.sync")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("export")}
+            className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              activeSubTab === "export"
+                ? "bg-brand text-brand-foreground"
+                : "bg-secondary text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t("step.export")}
+          </button>
+        </div>
+
+        {workspaceId && (
+          <Link
+            to="/results"
+            search={buildResultsSearch(workspaceId)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+          >
+            {t("common.goToResults")}
+            <ArrowRight className="size-3.5" />
+          </Link>
+        )}
+      </div>
+
+      {activeSubTab === "review" && (
+        <StepReview
+          jobId={jobId}
+          canDecide={canDecide}
+          columnMappings={columnMappings}
+        />
+      )}
+
+      {activeSubTab === "sync" && (
+        <StepSynchronize
+          jobId={jobId}
+          syncState={syncState}
+          onBackToReview={() => setActiveSubTab("review")}
+          onSyncStateChange={onSyncStateChange}
+          canExecute={canExecuteSync}
+        />
+      )}
+
+      {activeSubTab === "export" && (
+        <StepExport
+          jobId={jobId}
+          canExecute={canExecuteExport}
+          onExportHistoryChange={onExportHistoryChange}
+        />
+      )}
     </div>
   );
 }

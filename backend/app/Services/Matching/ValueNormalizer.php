@@ -82,6 +82,28 @@ class ValueNormalizer
             return trim(mb_strtolower($text));
         }
 
+        $isAddress = str_contains($column, 'alamat')
+            || str_contains($column, 'address')
+            || str_contains($column, 'jalan')
+            || str_contains($column, 'street')
+            || str_contains($column, 'lokasi');
+
+        if ($isAddress) {
+            $text = mb_strtolower($text);
+            $text = preg_replace('/\b(jl|jln)\b/u', 'jalan', $text) ?? $text;
+            $text = preg_replace('/\bno\b/u', 'nomor', $text) ?? $text;
+            $text = preg_replace('/\bgg\b/u', 'gang', $text) ?? $text;
+            $text = preg_replace('/\bds\b/u', 'desa', $text) ?? $text;
+            $text = preg_replace('/\bkp\b/u', 'kampung', $text) ?? $text;
+            $text = preg_replace('/\bkab\b/u', 'kabupaten', $text) ?? $text;
+            $text = preg_replace('/\bkec\b/u', 'kecamatan', $text) ?? $text;
+            $text = preg_replace('/\bkel\b/u', 'kelurahan', $text) ?? $text;
+            $text = preg_replace('/\bprov\b/u', 'provinsi', $text) ?? $text;
+            $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+
+            return trim($text);
+        }
+
         $text = mb_strtolower($text);
         $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
 

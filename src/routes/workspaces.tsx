@@ -273,10 +273,9 @@ function statusLabel(status: WorkspaceSummary["status"], t: ReturnType<typeof us
 }
 
 function stepLabel(step: number, t: ReturnType<typeof usePreferences>["t"]) {
-  const stepKey = ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
-    Math.max(0, Math.min(7, step - 1))
-  ];
-  return t(`step.${stepKey}` as Parameters<typeof t>[0]);
+  if (step <= 1) return t("step.preparation");
+  if (step === 2) return t("step.rules");
+  return t("step.results");
 }
 
 function formatDate(value: string | null) {
