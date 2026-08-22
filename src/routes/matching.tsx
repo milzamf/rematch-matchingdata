@@ -24,6 +24,10 @@ import {
   type StoredExportHistoryEntry,
 } from "@/lib/result-exports";
 import {
+  fetchAiMatchingConfiguration,
+  fetchAiReviewAnalysis,
+  fetchAiReviewRecommendation,
+  fetchReviewKnowledge,
   ApiError,
   createWorkspace,
   fetchReviewResults,
@@ -31,11 +35,17 @@ import {
   inspectDataset,
   runMatching,
   saveReviewDecision,
+  type AiConfigRecommendedField,
+  type AiEnvelope,
+  type AiMatchingConfigurationSuggestion,
+  type AiReviewAnalysis,
+  type AiReviewRecommendation,
   type DatasetInspectResult,
   type DatasetRole,
   type MatchingRunResult,
   type ReviewCaseGroup,
   type ReviewCandidate,
+  type ReviewKnowledgeResponse,
   type ReviewItem,
   type ReviewResults,
   type WorkspaceStatePayload,
@@ -54,7 +64,11 @@ import {
   type IdentityFieldPair,
   type IdentitySemantic,
 } from "@/lib/result-identity";
-import { buildMatchingSearch, buildResultsSearch, validateWorkflowSearch } from "@/lib/workflow-route";
+import {
+  buildMatchingSearch,
+  buildResultsSearch,
+  validateWorkflowSearch,
+} from "@/lib/workflow-route";
 import {
   Check,
   Upload,
@@ -122,6 +136,7 @@ type ColumnMappingDraft = {
   referenceColumnId: string;
   inputColumnId: string;
   algorithm: MatchingAlgorithm;
+  required_match: boolean;
   suggested: boolean;
   suggestionSource: MappingSuggestionSource;
   suggestionScore: number | null;
@@ -129,9 +144,17 @@ type ColumnMappingDraft = {
   inputColumnName: string;
   referenceDataType: string;
   inputDataType: string;
+  referenceNullPercentage?: number;
+  inputNullPercentage?: number;
+  referenceDuplicatePercentage?: number;
+  inputDuplicatePercentage?: number;
+  referenceSampleValues?: string[];
+  inputSampleValues?: string[];
 };
 type Preset = "Balanced" | "Strict" | "Exploratory" | "Custom";
 type Strategy = "Hybrid" | "Exact" | "Fuzzy" | "Composite" | "Rule-Based";
+type ComparisonFamily =
+  "Exact" | "Character Similarity" | "Token Similarity" | "Vector / Statistical" | "Numeric / Date";
 type FieldType = "text" | "number" | "date" | "boolean" | "unknown";
 type CandidateCount = 1 | 3 | 5 | 10 | "custom";
 type ConfigureAlgorithm =
@@ -163,11 +186,14 @@ type ConfigurationField = {
   inputColumnName: string;
   dataType: FieldType;
   algorithm: ConfigureAlgorithm;
+  strict?: boolean;
+  comparisonFamily?: ComparisonFamily;
+  normalization?: string;
 };
 
 type MatchingConfiguration = {
   preset: Preset;
-  mode: "preset" | "custom";
+  mode: "preset" | "default" | "custom";
   strategy: Strategy;
   isValid: boolean;
   fields: ConfigurationField[];
@@ -199,6 +225,14 @@ type MatchingConfiguration = {
     dateTolerance: string | null;
     combinedScoring: boolean;
     similarityFormula: string | null;
+    verificationEnabled?: boolean;
+    verificationOrder?: {
+      order: number;
+      field: string;
+      mappingId: string;
+      method: string;
+      threshold: number;
+    }[];
   };
   output: {
     mode: "standard" | "custom";
@@ -221,9 +255,9 @@ function MatchingPage() {
   const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
   const [workspaceName, setWorkspaceName] = useState(t("workspace.untitled"));
   const [workspaceNameEdited, setWorkspaceNameEdited] = useState(false);
-  const [workspaceSaveState, setWorkspaceSaveState] = useState<"idle" | "saving" | "saved" | "error">(
-    initialWorkspaceId ? "saving" : "idle",
-  );
+  const [workspaceSaveState, setWorkspaceSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >(initialWorkspaceId ? "saving" : "idle");
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [reference, setReference] = useState<UploadedFile | null>(null);
   const [input, setInput] = useState<UploadedFile | null>(null);
@@ -354,14 +388,8 @@ function MatchingPage() {
             (workspace.sync_state as SyncState | null | undefined) ??
             null,
         );
-        const restoredProgress =
-          snapshot?.progress ??
-          restoredRunResult?.progress.percentage ??
-          0;
-        const restoredRunError =
-          snapshot?.runError ??
-          restoredRunResult?.job.error_message ??
-          null;
+        const restoredProgress = snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0;
+        const restoredRunError = snapshot?.runError ?? restoredRunResult?.job.error_message ?? null;
         const restoredHasCompletedMapping =
           restoredMappings.filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
             .length > 0 && !hasDuplicateReference(restoredMappings);
@@ -505,7 +533,9 @@ function MatchingPage() {
     if (!initialWorkspaceId || isHydratingWorkspace) return;
     if (workspaceId !== initialWorkspaceId) return;
 
-    const resolvedStep = hasRequestedStep ? Math.min(requestedStep, highestAllowedStep) : highestAllowedStep;
+    const resolvedStep = hasRequestedStep
+      ? Math.min(requestedStep, highestAllowedStep)
+      : highestAllowedStep;
     if (step !== resolvedStep) {
       setStep(resolvedStep);
     }
@@ -567,9 +597,9 @@ function MatchingPage() {
       ? workspaceName
       : buildWorkspaceName(role, result, reference, input, t("workspace.untitled"));
     const nextReferenceDatasetId =
-      role === "reference" ? result.dataset.id : reference?.result?.dataset.id ?? null;
+      role === "reference" ? result.dataset.id : (reference?.result?.dataset.id ?? null);
     const nextInputDatasetId =
-      role === "input" ? result.dataset.id : input?.result?.dataset.id ?? null;
+      role === "input" ? result.dataset.id : (input?.result?.dataset.id ?? null);
 
     try {
       if (existingWorkspaceId) {
@@ -686,7 +716,7 @@ function MatchingPage() {
     const inspectedReferenceColumns = reference?.result?.columns ?? [];
     const inspectedInputColumns = input?.result?.columns ?? [];
 
-    if (suppressMappingSuggestRef.current || columnMappings.length > 0) {
+    if (suppressMappingSuggestRef.current) {
       return;
     }
 
@@ -696,9 +726,15 @@ function MatchingPage() {
       return;
     }
 
-    setColumnMappings(suggestColumnMappings(inspectedReferenceColumns, inspectedInputColumns));
-    setMatchingConfiguration(null);
-  }, [columnMappings.length, reference?.result, input?.result]);
+    const referenceIds = new Set(inspectedReferenceColumns.map((column) => column.id));
+    const inputIds = new Set(inspectedInputColumns.map((column) => column.id));
+    setColumnMappings((current) =>
+      current.filter(
+        (mapping) =>
+          referenceIds.has(mapping.referenceColumnId) && inputIds.has(mapping.inputColumnId),
+      ),
+    );
+  }, [reference?.result, input?.result]);
 
   useEffect(() => {
     if (step > highestAllowedStep) {
@@ -833,7 +869,9 @@ function MatchingPage() {
                 <Loader2 className="size-5 animate-spin text-accent" />
                 <div>
                   <p className="text-sm font-semibold">{t("workspace.loading")}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{t("matching.loadingDesc")}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {t("matching.loadingDesc")}
+                  </p>
                 </div>
               </div>
             </div>
@@ -854,114 +892,118 @@ function MatchingPage() {
             />
           ) : (
             <>
-          {activeStep === 1 && (
-            <StepUpload
-              reference={reference}
-              input={input}
-              onInspectFile={handleInspectFile}
-              onClearReference={() => {
-                if (reference) toast.info(t("feedback.toast.removed", { name: reference.name }));
-                setReference(null);
-              }}
-              onClearInput={() => {
-                if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
-                setInput(null);
-              }}
-              error={uploadError}
-            />
-          )}
-          {activeStep === 2 && <StepProfile reference={reference?.result} input={input?.result} />}
-          {activeStep === 3 && (
-            <StepColumnMapping
-              referenceColumns={referenceColumns}
-              inputColumns={inputColumns}
-              mappings={columnMappings}
-              setMappings={setColumnMappings}
-            />
-          )}
-          {activeStep === 4 && (
-            <StepConfig
-              mappings={columnMappings}
-              configuration={matchingConfiguration}
-              onConfigurationChange={setMatchingConfiguration}
-              onValidityChange={setConfigureValid}
-            />
-          )}
-          {activeStep === 5 && (
-            <StepRun
-              state={runState}
-              progress={progress}
-              configuration={matchingConfiguration}
-              result={runResult}
-              error={runError}
-              onStart={() => setRunConfirmOpen(true)}
-              onRetry={() => {
-                setRunState("idle");
-                setProgress(0);
-                setRunResult(null);
-                setRunError(null);
-              }}
-              onBack={() => selectStep(4)}
-              canRun={canRunMatching}
-            />
-          )}
-          {activeStep === 6 && (
-            <StepReview
-              jobId={runResult?.job.id ?? null}
-              canDecide={canReviewDecide}
-              columnMappings={columnMappings}
-            />
-          )}
-          {activeStep === 7 && (
-            <StepSynchronize
-              jobId={runResult?.job.id ?? null}
-              syncState={syncState}
-              onBackToReview={() => selectStep(6)}
-              onSyncStateChange={setSyncState}
-              canExecute={canExecuteSync}
-            />
-          )}
-          {activeStep === 8 && (
-            <StepExport
-              jobId={runResult?.job.id ?? null}
-              canExecute={canExecuteExport}
-              onExportHistoryChange={setExportHistory}
-            />
-          )}
+              {activeStep === 1 && (
+                <StepUpload
+                  reference={reference}
+                  input={input}
+                  onInspectFile={handleInspectFile}
+                  onClearReference={() => {
+                    if (reference)
+                      toast.info(t("feedback.toast.removed", { name: reference.name }));
+                    setReference(null);
+                  }}
+                  onClearInput={() => {
+                    if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
+                    setInput(null);
+                  }}
+                  error={uploadError}
+                />
+              )}
+              {activeStep === 2 && (
+                <StepProfile reference={reference?.result} input={input?.result} />
+              )}
+              {activeStep === 3 && (
+                <StepColumnMapping
+                  referenceColumns={referenceColumns}
+                  inputColumns={inputColumns}
+                  mappings={columnMappings}
+                  setMappings={setColumnMappings}
+                />
+              )}
+              {activeStep === 4 && (
+                <StepConfigV2
+                  jobId={runResult?.job.id ?? null}
+                  mappings={columnMappings}
+                  configuration={matchingConfiguration}
+                  onConfigurationChange={setMatchingConfiguration}
+                  onValidityChange={setConfigureValid}
+                />
+              )}
+              {activeStep === 5 && (
+                <StepRun
+                  state={runState}
+                  progress={progress}
+                  configuration={matchingConfiguration}
+                  result={runResult}
+                  error={runError}
+                  onStart={() => setRunConfirmOpen(true)}
+                  onRetry={() => {
+                    setRunState("idle");
+                    setProgress(0);
+                    setRunResult(null);
+                    setRunError(null);
+                  }}
+                  onBack={() => selectStep(4)}
+                  canRun={canRunMatching}
+                />
+              )}
+              {activeStep === 6 && (
+                <StepReview
+                  jobId={runResult?.job.id ?? null}
+                  canDecide={canReviewDecide}
+                  columnMappings={columnMappings}
+                />
+              )}
+              {activeStep === 7 && (
+                <StepSynchronize
+                  jobId={runResult?.job.id ?? null}
+                  syncState={syncState}
+                  onBackToReview={() => selectStep(6)}
+                  onSyncStateChange={setSyncState}
+                  canExecute={canExecuteSync}
+                />
+              )}
+              {activeStep === 8 && (
+                <StepExport
+                  jobId={runResult?.job.id ?? null}
+                  canExecute={canExecuteExport}
+                  onExportHistoryChange={setExportHistory}
+                />
+              )}
 
-          {/* Nav */}
-          <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
-            <button
-              disabled={activeStep === 1}
-              onClick={() => selectStep(Math.max(1, activeStep - 1))}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <ArrowLeft className="size-4" />
-              {t("common.back")}
-            </button>
-            <p className="text-xs text-muted-foreground">
-              {t("common.stepOf", { current: activeStep, total: wizardSteps.length })}
-            </p>
-            {activeStep === wizardSteps.length ? (
-              <Link
-                to="/results"
-                search={buildResultsSearch(workspaceId)}
-                className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
-              >
-                {t("common.goToResults")}
-                <ArrowRight className="size-4" />
-              </Link>
-            ) : (
-              <button
-                disabled={!canAdvance}
-                onClick={() => selectStep(Math.min(wizardSteps.length, activeStep + 1))}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {t("common.continue")}
-                <ArrowRight className="size-4" />
-              </button>
-            )}
-          </div>
+              {/* Nav */}
+              <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
+                <button
+                  disabled={activeStep === 1}
+                  onClick={() => selectStep(Math.max(1, activeStep - 1))}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ArrowLeft className="size-4" />
+                  {t("common.back")}
+                </button>
+                <p className="text-xs text-muted-foreground">
+                  {t("common.stepOf", { current: activeStep, total: wizardSteps.length })}
+                </p>
+                {activeStep === wizardSteps.length ? (
+                  <Link
+                    to="/results"
+                    search={buildResultsSearch(workspaceId)}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
+                  >
+                    {t("common.goToResults")}
+                    <ArrowRight className="size-4" />
+                  </Link>
+                ) : (
+                  <button
+                    disabled={!canAdvance}
+                    onClick={() => selectStep(Math.min(wizardSteps.length, activeStep + 1))}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {t("common.continue")}
+                    <ArrowRight className="size-4" />
+                  </button>
+                )}
+              </div>
             </>
           )}
         </Card>
@@ -1178,10 +1220,7 @@ function deriveWorkspaceStatus(step: number, runState: RunState): WorkspaceStatu
   return "draft";
 }
 
-function workspaceStatusLabel(
-  status: WorkspaceStatus,
-  t: ReturnType<typeof usePreferences>["t"],
-) {
+function workspaceStatusLabel(status: WorkspaceStatus, t: ReturnType<typeof usePreferences>["t"]) {
   return t(`workspace.status.${status}` as Parameters<typeof t>[0]);
 }
 
@@ -1513,17 +1552,34 @@ function StepColumnMapping({
         );
         const inputColumn = inputColumns.find((column) => column.id === next.inputColumnId);
 
-        if ((patch.referenceColumnId || patch.inputColumnId) && referenceColumn) {
-          next.algorithm =
-            inputColumn && patch.algorithm === undefined
+        if (patch.referenceColumnId !== undefined || patch.inputColumnId !== undefined) {
+          next.algorithm = next.required_match
+            ? "Exact"
+            : referenceColumn && inputColumn
               ? defaultMappingAlgorithm(referenceColumn, inputColumn)
-              : defaultAlgorithmForColumn(referenceColumn);
+              : referenceColumn
+                ? defaultAlgorithmForColumn(referenceColumn)
+                : "Normalized Exact";
           next.suggestionSource = "manual";
           next.suggestionScore = null;
-          next.referenceColumnName = referenceColumn.name;
-          next.referenceDataType = referenceColumn.data_type;
+          next.referenceColumnName = referenceColumn?.name ?? "";
+          next.referenceDataType = referenceColumn?.data_type ?? "";
           next.inputColumnName = inputColumn?.name ?? "";
           next.inputDataType = inputColumn?.data_type ?? "";
+          next.referenceNullPercentage = referenceColumn?.null_percentage;
+          next.inputNullPercentage = inputColumn?.null_percentage;
+          next.referenceDuplicatePercentage = referenceColumn?.duplicate_percentage;
+          next.inputDuplicatePercentage = inputColumn?.duplicate_percentage;
+          next.referenceSampleValues = referenceColumn?.sample_values ?? [];
+          next.inputSampleValues = inputColumn?.sample_values ?? [];
+        }
+
+        if (patch.required_match !== undefined) {
+          next.algorithm = patch.required_match
+            ? "Exact"
+            : referenceColumn && inputColumn
+              ? defaultMappingAlgorithm(referenceColumn, inputColumn)
+              : "Normalized Exact";
         }
 
         return next;
@@ -1532,32 +1588,28 @@ function StepColumnMapping({
   };
 
   const addMapping = () => {
-    const referenceColumn = referenceColumns.find((column) => !usedReferenceIds.has(column.id));
-    if (!referenceColumn || inputColumns.length === 0) {
+    if (!hasAvailableReference || inputColumns.length === 0) {
       toast.error(t("matching.mapping.noAvailableReference"));
       return;
     }
-
-    const suggestedInput = findBestInputColumn(referenceColumn, inputColumns, new Set());
-    const inputColumn =
-      suggestedInput && suggestedInput.score >= 0.6 ? suggestedInput.column : null;
 
     setMappings((current) => [
       ...current,
       {
         id: `manual-${Date.now()}`,
-        referenceColumnId: referenceColumn.id,
-        inputColumnId: inputColumn?.id ?? "",
-        algorithm: inputColumn
-          ? defaultMappingAlgorithm(referenceColumn, inputColumn)
-          : defaultAlgorithmForColumn(referenceColumn),
+        referenceColumnId: "",
+        inputColumnId: "",
+        algorithm: "Normalized Exact",
+        required_match: false,
         suggested: false,
-        suggestionSource: inputColumn ? (suggestedInput?.source ?? "similarity") : "manual",
-        suggestionScore: inputColumn ? (suggestedInput?.score ?? null) : null,
-        referenceColumnName: referenceColumn.name,
-        inputColumnName: inputColumn?.name ?? "",
-        referenceDataType: referenceColumn.data_type,
-        inputDataType: inputColumn?.data_type ?? "",
+        suggestionSource: "manual",
+        suggestionScore: null,
+        referenceColumnName: "",
+        inputColumnName: "",
+        referenceDataType: "",
+        inputDataType: "",
+        referenceSampleValues: [],
+        inputSampleValues: [],
       },
     ]);
     toast.success(t("matching.mapping.added"));
@@ -1580,43 +1632,18 @@ function StepColumnMapping({
         />
       ) : (
         <div className="space-y-5">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <MappingStat
-              label={t("matching.mapping.referenceCount")}
-              value={referenceColumns.length}
-            />
-            <MappingStat label={t("matching.mapping.inputCount")} value={inputColumns.length} />
-            <MappingStat
-              label={t("matching.mapping.mappedCount")}
-              value={mappings.filter((mapping) => mapping.inputColumnId).length}
-            />
-          </div>
-
-          <div className="rounded-lg border border-border bg-secondary/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">{t("matching.mapping.suggestionTitle")}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("matching.mapping.suggestionDesc")}
-                </p>
-              </div>
-              <span className="rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand">
-                {t("matching.mapping.suggestedCount", {
-                  count: mappings.filter((mapping) => mapping.suggested).length,
-                })}
-              </span>
-            </div>
-          </div>
-
           <div className="space-y-2.5 overflow-x-auto">
-            <div className="grid min-w-[720px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_44px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-              <span>{t("matching.mapping.reference")}</span>
-              <span className="text-center" aria-hidden="true">
-                &harr;
-              </span>
-              <span>{t("matching.mapping.input")}</span>
-              <span className="sr-only">{t("common.action")}</span>
-            </div>
+            {mappings.length > 0 && (
+              <div className="grid min-w-[840px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_150px_44px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <span>{t("matching.mapping.input")}</span>
+                <span className="text-center" aria-hidden="true">
+                  &harr;
+                </span>
+                <span>{t("matching.mapping.reference")}</span>
+                <span>{t("matching.mapping.strict")}</span>
+                <span className="sr-only">{t("common.action")}</span>
+              </div>
+            )}
 
             {mappings.map((mapping, index) => {
               const referenceColumn = referenceColumns.find(
@@ -1635,47 +1662,8 @@ function StepColumnMapping({
                 <div
                   key={mapping.id}
                   data-testid="mapping-row"
-                  className="grid min-w-[720px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_44px] items-center gap-4 rounded-lg border border-border px-4 py-3"
+                  className="grid min-w-[840px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_150px_44px] items-center gap-4 rounded-lg border border-border px-4 py-3"
                 >
-                  <div className="min-w-0">
-                    <select
-                      aria-label={t("matching.mapping.referenceSelect", { row: index + 1 })}
-                      data-testid="mapping-reference-select"
-                      value={mapping.referenceColumnId}
-                      onChange={(event) =>
-                        updateMapping(mapping.id, { referenceColumnId: event.target.value })
-                      }
-                      className={selectClass}
-                    >
-                      {referenceColumns.map((column) => (
-                        <option
-                          key={column.id}
-                          value={column.id}
-                          disabled={usedByOtherRows.has(column.id)}
-                        >
-                          {column.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      {referenceColumn && (
-                        <ColumnTypeBadge column={referenceColumn} testId="mapping-reference-type" />
-                      )}
-                      {mapping.suggested && (
-                        <p className="text-[11px] text-muted-foreground">
-                          {t("matching.mapping.autoSuggested")}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <span
-                    className="text-center text-sm font-medium text-muted-foreground"
-                    aria-hidden="true"
-                  >
-                    &harr;
-                  </span>
-
                   <div className="min-w-0">
                     <select
                       aria-label={t("matching.mapping.inputSelect", { row: index + 1 })}
@@ -1703,6 +1691,62 @@ function StepColumnMapping({
                       )}
                     </div>
                   </div>
+
+                  <span
+                    className="text-center text-sm font-medium text-muted-foreground"
+                    aria-hidden="true"
+                  >
+                    &harr;
+                  </span>
+
+                  <div className="min-w-0">
+                    <select
+                      aria-label={t("matching.mapping.referenceSelect", { row: index + 1 })}
+                      data-testid="mapping-reference-select"
+                      value={mapping.referenceColumnId}
+                      onChange={(event) =>
+                        updateMapping(mapping.id, { referenceColumnId: event.target.value })
+                      }
+                      className={selectClass}
+                    >
+                      <option value="">{t("matching.mapping.noReferenceSelected")}</option>
+                      {referenceColumns.map((column) => (
+                        <option
+                          key={column.id}
+                          value={column.id}
+                          disabled={usedByOtherRows.has(column.id)}
+                        >
+                          {column.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
+                      {referenceColumn ? (
+                        <ColumnTypeBadge column={referenceColumn} testId="mapping-reference-type" />
+                      ) : (
+                        <span className="text-[11px] text-muted-foreground">
+                          {t("matching.mapping.noReferenceSelected")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(mapping.required_match)}
+                      onChange={(event) =>
+                        updateMapping(mapping.id, { required_match: event.target.checked })
+                      }
+                      className="mt-0.5 size-4 accent-brand"
+                    />
+                    <span>
+                      <span className="font-semibold">{t("matching.mapping.strict")}</span>
+                      <span className="mt-0.5 block text-[10px] leading-relaxed text-muted-foreground">
+                        {t("matching.mapping.strictHint")}
+                      </span>
+                    </span>
+                  </label>
 
                   <button
                     type="button"
@@ -1743,15 +1787,6 @@ function StepColumnMapping({
   );
 }
 
-function MappingStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border px-4 py-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
-    </div>
-  );
-}
-
 function ColumnTypeBadge({
   column,
   testId,
@@ -1782,66 +1817,6 @@ function ColumnTypeBadge({
   );
 }
 
-function suggestColumnMappings(
-  referenceColumns: DatasetInspectResult["columns"],
-  inputColumns: DatasetInspectResult["columns"],
-): ColumnMappingDraft[] {
-  const usedInputIds = new Set<string>();
-
-  return referenceColumns.map((referenceColumn) => {
-    const match = findBestInputColumn(referenceColumn, inputColumns, usedInputIds);
-    const hasSuggestion = Boolean(match && match.score >= 0.6);
-    const inputColumn = hasSuggestion ? match?.column : null;
-
-    if (inputColumn) {
-      usedInputIds.add(inputColumn.id);
-    }
-
-    return {
-      id: inputColumn
-        ? `suggested-${referenceColumn.id}-${inputColumn.id}`
-        : `unmatched-${referenceColumn.id}`,
-      referenceColumnId: referenceColumn.id,
-      inputColumnId: inputColumn?.id ?? "",
-      algorithm: inputColumn
-        ? defaultMappingAlgorithm(referenceColumn, inputColumn)
-        : defaultAlgorithmForColumn(referenceColumn),
-      suggested: hasSuggestion,
-      suggestionSource: hasSuggestion ? (match?.source ?? "similarity") : "none",
-      suggestionScore: hasSuggestion ? (match?.score ?? null) : null,
-      referenceColumnName: referenceColumn.name,
-      inputColumnName: inputColumn?.name ?? "",
-      referenceDataType: referenceColumn.data_type,
-      inputDataType: inputColumn?.data_type ?? "",
-    };
-  });
-}
-
-function findBestInputColumn(
-  referenceColumn: DatasetInspectResult["columns"][number],
-  inputColumns: DatasetInspectResult["columns"],
-  usedInputIds: Set<string>,
-): {
-  column: DatasetInspectResult["columns"][number];
-  score: number;
-  source: MappingSuggestionSource;
-} | null {
-  return inputColumns.reduce<{
-    column: DatasetInspectResult["columns"][number];
-    score: number;
-    source: MappingSuggestionSource;
-  } | null>((best, inputColumn) => {
-    if (usedInputIds.has(inputColumn.id)) return best;
-
-    const similarity = columnNameSimilarity(referenceColumn.name, inputColumn.name);
-    if (!best || similarity.score > best.score) {
-      return { column: inputColumn, score: similarity.score, source: similarity.source };
-    }
-
-    return best;
-  }, null);
-}
-
 function defaultMappingAlgorithm(
   referenceColumn: DatasetInspectResult["columns"][number],
   inputColumn: DatasetInspectResult["columns"][number],
@@ -1863,66 +1838,6 @@ function defaultAlgorithmForColumn(
   return ["number", "date", "boolean"].includes(column.data_type.toLowerCase())
     ? "Exact"
     : "Normalized Exact";
-}
-
-function columnNameSimilarity(
-  referenceName: string,
-  inputName: string,
-): { score: number; source: MappingSuggestionSource } {
-  if (referenceName === inputName) return { score: 1, source: "exact_name" };
-  if (referenceName.toLowerCase() === inputName.toLowerCase()) {
-    return { score: 1, source: "case_insensitive" };
-  }
-
-  const referenceNormalized = normalizeColumnName(referenceName);
-  const inputNormalized = normalizeColumnName(inputName);
-
-  if (referenceNormalized.compact === inputNormalized.compact) {
-    return { score: 1, source: "normalized_name" };
-  }
-
-  if (
-    referenceNormalized.compact.length > 2 &&
-    inputNormalized.compact.length > 2 &&
-    (referenceNormalized.compact.includes(inputNormalized.compact) ||
-      inputNormalized.compact.includes(referenceNormalized.compact))
-  ) {
-    return { score: 0.8, source: "similarity" };
-  }
-
-  const referenceTokens = new Set(referenceNormalized.tokens);
-  const inputTokens = new Set(inputNormalized.tokens);
-  const shared = [...referenceTokens].filter((token) => inputTokens.has(token)).length;
-  const total = new Set([...referenceTokens, ...inputTokens]).size;
-
-  return {
-    score: total === 0 ? 0 : shared / total,
-    source: "similarity",
-  };
-}
-
-function normalizeColumnName(name: string): { compact: string; tokens: string[] } {
-  const separated = name.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
-  const tokens = separated
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean)
-    .map(expandColumnToken);
-
-  return {
-    compact: tokens.join(""),
-    tokens,
-  };
-}
-
-function expandColumnToken(token: string): string {
-  const aliases: Record<string, string> = {
-    kab: "kabupaten",
-    kabkota: "kabupatenkota",
-    kota: "kota",
-  };
-
-  return aliases[token] ?? token;
 }
 
 function normalizedDataType(dataType: string): "text" | "number" | "date" | "boolean" | "unknown" {
@@ -2054,12 +1969,1099 @@ const PRESET_DEFAULTS: Record<
   },
 };
 
-function StepConfig({
+const COMPARISON_FAMILY_ALGORITHMS: Record<ComparisonFamily, ConfigureAlgorithm[]> = {
+  Exact: ["Exact", "Normalized Exact"],
+  "Character Similarity": ["Jaro-Winkler", "Levenshtein", "Damerau-Levenshtein"],
+  "Token Similarity": [
+    "Token Sort Ratio",
+    "Token Set Ratio",
+    "Partial Ratio",
+    "Partial Token Sort",
+    "Partial Token Set",
+  ],
+  "Vector / Statistical": ["Cosine Similarity"],
+  "Numeric / Date": ["Numeric Exact", "Date Exact"],
+};
+
+type ConfigFieldV2 = {
+  id: string;
+  label: string;
+  referenceColumnId: string;
+  inputColumnId: string;
+  reference: string;
+  input: string;
+  type: FieldType;
+  strict: boolean;
+  family: ComparisonFamily;
+  algorithm: ConfigureAlgorithm;
+  normalization: string;
+  reason: "identifier" | "typed" | "categorical" | "multiword" | "text";
+  signal: number;
+};
+
+function isGenericIdentifierName(value: string) {
+  return /(^|[\s_-])(id|code|kode|key|number|nomor|identifier|uuid)([\s_-]|$)/i.test(value);
+}
+
+function averageSampleWords(values: string[] | undefined) {
+  const samples = (values ?? []).filter(Boolean).slice(0, 5);
+  if (samples.length === 0) return 0;
+  return samples.reduce((sum, value) => sum + value.trim().split(/\s+/).length, 0) / samples.length;
+}
+
+function recommendComparison(
+  mapping: ColumnMappingDraft,
+): Pick<ConfigFieldV2, "family" | "algorithm" | "normalization" | "reason" | "signal"> {
+  const type = normalizedDataType(mapping.referenceDataType || mapping.inputDataType);
+  const names = `${mapping.referenceColumnName} ${mapping.inputColumnName}`;
+  const completeness =
+    100 - Math.max(mapping.referenceNullPercentage ?? 0, mapping.inputNullPercentage ?? 0);
+  const duplicateRate = Math.max(
+    mapping.referenceDuplicatePercentage ?? 0,
+    mapping.inputDuplicatePercentage ?? 0,
+  );
+  const identifier = isGenericIdentifierName(names);
+  const multiword =
+    Math.max(
+      averageSampleWords(mapping.referenceSampleValues),
+      averageSampleWords(mapping.inputSampleValues),
+    ) >= 2;
+
+  if (type === "number") {
+    return {
+      family: "Numeric / Date",
+      algorithm: "Numeric Exact",
+      normalization: "Automatic by field type",
+      reason: "typed",
+      signal: completeness + 35,
+    };
+  }
+  if (type === "date") {
+    return {
+      family: "Numeric / Date",
+      algorithm: "Date Exact",
+      normalization: "Automatic by field type",
+      reason: "typed",
+      signal: completeness + 30,
+    };
+  }
+  if (type === "boolean") {
+    return {
+      family: "Exact",
+      algorithm: "Exact",
+      normalization: "Automatic by field type",
+      reason: "categorical",
+      signal: completeness + 5,
+    };
+  }
+  if (identifier) {
+    return {
+      family: "Exact",
+      algorithm: "Normalized Exact",
+      normalization: "Identifier Strict",
+      reason: "identifier",
+      signal: completeness + 50,
+    };
+  }
+  if (duplicateRate >= 60) {
+    return {
+      family: "Exact",
+      algorithm: "Normalized Exact",
+      normalization: "Automatic by field type",
+      reason: "categorical",
+      signal: completeness - 10,
+    };
+  }
+  if (multiword) {
+    return {
+      family: "Token Similarity",
+      algorithm: "Token Set Ratio",
+      normalization: "Text Standardization",
+      reason: "multiword",
+      signal: completeness + 20,
+    };
+  }
+
+  return {
+    family: "Character Similarity",
+    algorithm: "Jaro-Winkler",
+    normalization: "Text Standardization",
+    reason: "text",
+    signal: completeness + 15,
+  };
+}
+
+function algorithmsForField(family: ComparisonFamily, type: FieldType) {
+  if (family !== "Numeric / Date") return COMPARISON_FAMILY_ALGORITHMS[family];
+  if (type === "number") return ["Numeric Exact"] as ConfigureAlgorithm[];
+  if (type === "date") return ["Date Exact"] as ConfigureAlgorithm[];
+  return ["Exact"] as ConfigureAlgorithm[];
+}
+
+function normalizeIntegerWeights(
+  fields: Array<{ id: string; signal: number }>,
+  source?: Record<string, number>,
+) {
+  if (fields.length === 0) return {};
+  const values = fields.map((field) => ({
+    ...field,
+    raw: Math.max(0, source?.[field.id] ?? field.signal),
+  }));
+  const rawTotal = values.reduce((sum, field) => sum + field.raw, 0) || values.length;
+  const weighted = values.map((field) => ({
+    ...field,
+    exact: ((field.raw || 1) / rawTotal) * 100,
+  }));
+  const result = Object.fromEntries(weighted.map((field) => [field.id, Math.floor(field.exact)]));
+  let remainder = 100 - Object.values(result).reduce((sum, value) => sum + value, 0);
+  [...weighted]
+    .sort(
+      (a, b) =>
+        b.exact - Math.floor(b.exact) - (a.exact - Math.floor(a.exact)) ||
+        b.signal - a.signal ||
+        a.id.localeCompare(b.id),
+    )
+    .forEach((field) => {
+      if (remainder > 0) {
+        result[field.id] += 1;
+        remainder -= 1;
+      }
+    });
+  return result;
+}
+
+function StepConfigV2({
+  jobId,
   mappings,
   configuration,
   onConfigurationChange,
   onValidityChange,
 }: {
+  jobId: string | null;
+  mappings: ColumnMappingDraft[];
+  configuration: MatchingConfiguration | null;
+  onConfigurationChange: (configuration: MatchingConfiguration) => void;
+  onValidityChange: (valid: boolean) => void;
+}) {
+  const { t } = usePreferences();
+  const initialMode = configuration?.mode === "custom" ? "custom" : "default";
+  const [mode, setMode] = useState<"default" | "custom">(initialMode);
+  const [showDetails, setShowDetails] = useState(false);
+  const [autoMatchThreshold, setAutoMatchThreshold] = useState(
+    configuration?.thresholds?.autoMatch ?? 90,
+  );
+  const [reviewThreshold, setReviewThreshold] = useState(configuration?.thresholds?.review ?? 75);
+  const [verificationEnabled, setVerificationEnabled] = useState(
+    configuration?.rules?.verificationEnabled ?? true,
+  );
+  const [verificationOrder, setVerificationOrder] = useState<string[]>(
+    () => configuration?.rules?.verificationOrder?.map((step) => step.mappingId) ?? [],
+  );
+  const [verificationThresholds, setVerificationThresholds] = useState<Record<string, number>>(() =>
+    Object.fromEntries(
+      (configuration?.rules?.verificationOrder ?? []).map((step) => [
+        step.mappingId,
+        step.threshold,
+      ]),
+    ),
+  );
+  const [methods, setMethods] = useState<
+    Record<
+      string,
+      { family: ComparisonFamily; algorithm: ConfigureAlgorithm; normalization: string }
+    >
+  >(() =>
+    Object.fromEntries(
+      (configuration?.fields ?? []).map((field) => [
+        field.mappingId,
+        {
+          family:
+            field.comparisonFamily ?? comparisonFamilyForAlgorithm(field.algorithm, field.dataType),
+          algorithm: field.algorithm,
+          normalization: field.normalization ?? "Automatic by field type",
+        },
+      ]),
+    ),
+  );
+  const [weights, setWeights] = useState<Record<string, number>>(() =>
+    Object.fromEntries(
+      (configuration?.weighting.fields ?? []).map((field) => [field.mappingId, field.weight]),
+    ),
+  );
+  const [aiSuggestion, setAiSuggestion] =
+    useState<AiEnvelope<AiMatchingConfigurationSuggestion> | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const fields = useMemo<ConfigFieldV2[]>(
+    () =>
+      mappings
+        .filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
+        .map((mapping) => {
+          const recommended = recommendComparison(mapping);
+          return {
+            id: mapping.id,
+            label: `${mapping.inputColumnName} ↔ ${mapping.referenceColumnName}`,
+            referenceColumnId: mapping.referenceColumnId,
+            inputColumnId: mapping.inputColumnId,
+            reference: mapping.referenceColumnName,
+            input: mapping.inputColumnName,
+            type: normalizedDataType(mapping.referenceDataType || mapping.inputDataType),
+            strict: Boolean(mapping.required_match),
+            family: recommended.family,
+            algorithm: recommended.algorithm,
+            normalization: recommended.normalization,
+            reason: recommended.reason,
+            signal: recommended.signal,
+          };
+        }),
+    [mappings],
+  );
+  const similarityFields = useMemo(() => fields.filter((field) => !field.strict), [fields]);
+  const strictFields = useMemo(() => fields.filter((field) => field.strict), [fields]);
+  const verificationSteps = useMemo(
+    () =>
+      verificationOrder
+        .map((id, index) => {
+          const field = fields.find((item) => item.id === id);
+          if (!field) return null;
+          const method = field.strict ? "Exact" : (methods[field.id]?.algorithm ?? field.algorithm);
+          return {
+            order: index + 1,
+            field: field.label,
+            mappingId: field.id,
+            method,
+            threshold: field.strict ? 100 : (verificationThresholds[field.id] ?? reviewThreshold),
+          };
+        })
+        .filter(
+          (
+            step,
+          ): step is {
+            order: number;
+            field: string;
+            mappingId: string;
+            method: string;
+            threshold: number;
+          } => Boolean(step),
+        ),
+    [fields, methods, reviewThreshold, verificationOrder, verificationThresholds],
+  );
+
+  useEffect(() => {
+    setMethods((current) => {
+      const next: typeof current = {};
+      fields.forEach((field) => {
+        const existing = current[field.id];
+        const allowed = algorithmsForField(existing?.family ?? field.family, field.type);
+        next[field.id] =
+          existing && allowed.includes(existing.algorithm)
+            ? existing
+            : {
+                family: field.family,
+                algorithm: algorithmsForField(field.family, field.type).includes(field.algorithm)
+                  ? field.algorithm
+                  : algorithmsForField(field.family, field.type)[0],
+                normalization: field.normalization,
+              };
+      });
+      return next;
+    });
+    setWeights((current) => {
+      const usable = Object.fromEntries(
+        similarityFields.map((field) => [field.id, current[field.id]]),
+      );
+      const hasCompleteWeights = similarityFields.every((field) =>
+        Number.isFinite(usable[field.id]),
+      );
+      return hasCompleteWeights ? usable : normalizeIntegerWeights(similarityFields, usable);
+    });
+  }, [fields, similarityFields]);
+
+  useEffect(() => {
+    setVerificationOrder((current) => {
+      const fieldIds = fields.map((field) => field.id);
+      const currentValid = current.filter((id) => fieldIds.includes(id));
+      const missing = fieldIds.filter((id) => !currentValid.includes(id));
+      return [...currentValid, ...missing];
+    });
+  }, [fields]);
+
+  const totalWeight = similarityFields.reduce((sum, field) => sum + (weights[field.id] ?? 0), 0);
+  const methodsValid = similarityFields.every((field) => {
+    const method = methods[field.id];
+    return Boolean(
+      method && algorithmsForField(method.family, field.type).includes(method.algorithm),
+    );
+  });
+  const configValid =
+    fields.length > 0 &&
+    methodsValid &&
+    (similarityFields.length === 0 || totalWeight === 100) &&
+    (mode === "default" ||
+      (autoMatchThreshold > reviewThreshold &&
+        autoMatchThreshold <= 100 &&
+        reviewThreshold >= 0)) &&
+    (!verificationEnabled || verificationSteps.length > 0);
+
+  const configurationSnapshot = useMemo<MatchingConfiguration>(
+    () => ({
+      preset: mode === "default" ? "Balanced" : "Custom",
+      mode,
+      strategy: "Hybrid",
+      isValid: configValid,
+      fields: fields.map((field) => {
+        const method = methods[field.id] ?? field;
+        return {
+          mappingId: field.id,
+          referenceColumnId: field.referenceColumnId,
+          inputColumnId: field.inputColumnId,
+          referenceColumnName: field.reference,
+          inputColumnName: field.input,
+          dataType: field.type,
+          algorithm: field.strict ? "Exact" : method.algorithm,
+          strict: field.strict,
+          comparisonFamily: field.strict ? "Exact" : method.family,
+          normalization: field.strict ? "Basic" : method.normalization,
+        };
+      }),
+      thresholds:
+        mode === "default"
+          ? { autoMatch: 90, review: 75, noMatch: 75 }
+          : {
+              autoMatch: autoMatchThreshold,
+              review: reviewThreshold,
+              noMatch: reviewThreshold,
+            },
+      candidateGeneration: { topN: 3 },
+      searchOptimization: {
+        enabled: true,
+        mode: "auto",
+        fields: [],
+        recommendedFields: [],
+      },
+      normalization: { mode: "auto", preset: "Automatic by field type" },
+      weighting: {
+        mode: "manual",
+        fields: fields.map((field) => {
+          const method = methods[field.id] ?? field;
+          return {
+            mappingId: field.id,
+            field: field.label,
+            weight: field.strict ? 0 : (weights[field.id] ?? 0),
+            algorithm: field.strict ? "Exact" : method.algorithm,
+          };
+        }),
+      },
+      rules: {
+        mandatoryRule: verificationEnabled
+          ? verificationSteps
+              .map((step) => `${step.order}. ${step.field}: ${step.method}`)
+              .join("; ")
+          : "",
+        numericTolerance: null,
+        dateTolerance: null,
+        combinedScoring: true,
+        similarityFormula: null,
+        verificationEnabled,
+        verificationOrder: verificationEnabled ? verificationSteps : [],
+      },
+      output: { mode: "standard", items: STANDARD_OUTPUTS },
+    }),
+    [
+      autoMatchThreshold,
+      configValid,
+      fields,
+      methods,
+      mode,
+      reviewThreshold,
+      verificationEnabled,
+      verificationSteps,
+      weights,
+    ],
+  );
+
+  useEffect(() => onValidityChange(configValid), [configValid, onValidityChange]);
+  useEffect(
+    () => onConfigurationChange(configurationSnapshot),
+    [configurationSnapshot, onConfigurationChange],
+  );
+
+  const changeFamily = (field: ConfigFieldV2, family: ComparisonFamily) => {
+    setMethods((current) => ({
+      ...current,
+      [field.id]: {
+        family,
+        algorithm: algorithmsForField(family, field.type)[0],
+        normalization: current[field.id]?.normalization ?? field.normalization,
+      },
+    }));
+  };
+
+  const moveVerificationStep = (mappingId: string, direction: -1 | 1) => {
+    setVerificationOrder((current) => {
+      const index = current.indexOf(mappingId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  };
+
+  const requestAiSuggestion = async () => {
+    if (!jobId || aiLoading) {
+      if (!jobId) setAiError(t("matching.ai.configUnavailableDesc"));
+      return;
+    }
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const next = await fetchAiMatchingConfiguration(jobId);
+      setAiSuggestion(next);
+      if (!next.success) setAiError(next.error.message ?? t("matching.ai.unavailable"));
+    } catch (error) {
+      setAiError(error instanceof ApiError ? error.message : t("matching.ai.configLoadFailed"));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const applyAiSuggestion = () => {
+    const recommendation = aiSuggestion?.data;
+    if (!recommendation) return;
+    const matches = recommendation.recommended_fields
+      .filter((suggestion) => suggestion.use_for_matching)
+      .map((suggestion) => {
+        const field = findMappingForSuggestion(suggestion, fields);
+        return field ? { suggestion, field } : null;
+      })
+      .filter((item): item is { suggestion: AiConfigRecommendedField; field: ConfigFieldV2 } =>
+        Boolean(item),
+      );
+    const active = matches.filter(({ field }) => !field.strict);
+    if (active.length === 0) {
+      setAiError(t("matching.ai.configNoMatchingFields"));
+      return;
+    }
+    setMode("custom");
+    setWeights(
+      normalizeIntegerWeights(
+        similarityFields,
+        Object.fromEntries(
+          active.map(({ field, suggestion }) => [
+            field.id,
+            Number(suggestion.suggested_weight ?? 0),
+          ]),
+        ),
+      ),
+    );
+    setMethods((current) => {
+      const next = { ...current };
+      active.forEach(({ field, suggestion }) => {
+        const requestedAlgorithm = normalizeConfiguredAlgorithm(
+          suggestion.suggested_algorithm ?? field.algorithm,
+        );
+        const family = comparisonFamilyForAlgorithm(requestedAlgorithm, field.type);
+        const allowed = algorithmsForField(family, field.type);
+        const algorithm = allowed.includes(requestedAlgorithm) ? requestedAlgorithm : allowed[0];
+        next[field.id] = { family, algorithm, normalization: field.normalization };
+      });
+      return next;
+    });
+    if (typeof recommendation.suggested_thresholds?.auto_match === "number") {
+      setAutoMatchThreshold(Math.round(recommendation.suggested_thresholds.auto_match));
+    }
+    if (typeof recommendation.suggested_thresholds?.needs_review === "number") {
+      setReviewThreshold(Math.round(recommendation.suggested_thresholds.needs_review));
+    }
+    setAiError(null);
+    toast.success(t("feedback.toast.recommendationApplied"));
+  };
+
+  return (
+    <>
+      <SectionTitle title={t("matching.config.title")} desc={t("matching.configV2.desc")} />
+
+      <div className="inline-flex w-full rounded-md border border-border bg-secondary/30 p-1 sm:w-auto">
+        {(["default", "custom"] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setMode(option)}
+            className={`flex-1 rounded px-4 py-2 text-sm font-semibold transition-colors sm:flex-none ${mode === option ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {option === "default"
+              ? t("matching.configV2.defaultMatch")
+              : t("matching.configV2.customMatch")}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-5 space-y-5">
+        <div className="rounded-lg border border-border bg-secondary/20 px-4 py-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <p className="text-xs font-semibold">{t("matching.configV2.strictFields")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {strictFields.length > 0
+                  ? strictFields.map((field) => field.label).join(", ")
+                  : t("matching.configV2.none")}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold">{t("matching.configV2.similarityFields")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {similarityFields.length > 0
+                  ? t("matching.configV2.fieldCount", { count: similarityFields.length })
+                  : t("matching.configV2.none")}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+            {t("matching.configV2.exactFirst")}
+          </p>
+        </div>
+
+        <section className="border-y border-border py-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold">{t("matching.configV2.variablesWeights")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t(
+                  mode === "default"
+                    ? "matching.configV2.defaultWeightsDesc"
+                    : "matching.configV2.customWeightsDesc",
+                )}
+              </p>
+            </div>
+            <p
+              className={`text-sm font-semibold tabular-nums ${totalWeight === 100 || similarityFields.length === 0 ? "text-success" : "text-destructive"}`}
+            >
+              {t("matching.configV2.totalWeight", { total: totalWeight })}
+            </p>
+          </div>
+
+          <div className="mt-4 divide-y divide-border rounded-md border border-border">
+            {fields.map((field) => (
+              <div
+                key={field.id}
+                className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_160px] md:items-center"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-medium">{field.label}</p>
+                    {field.strict && (
+                      <span className="rounded-full border border-brand/20 bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
+                        {t("matching.mapping.strict")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {field.strict
+                      ? t("matching.configV2.strictWeightHint")
+                      : `${t("matching.configV2.systemRecommendation")}: ${t(`matching.configV2.reason.${field.reason}`)}`}
+                  </p>
+                </div>
+                {field.strict ? (
+                  <p className="text-right text-sm font-semibold tabular-nums">0%</p>
+                ) : (
+                  <label className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                    {t("matching.configV2.weight")}
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={weights[field.id] ?? 0}
+                      onChange={(event) =>
+                        setWeights((current) => ({
+                          ...current,
+                          [field.id]: Math.max(0, Math.min(100, Number(event.target.value) || 0)),
+                        }))
+                      }
+                      className="h-9 w-20 rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums outline-none focus:border-brand"
+                    />
+                    %
+                  </label>
+                )}
+              </div>
+            ))}
+            {fields.length === 0 && (
+              <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                {t("matching.configV2.noFields")}
+              </p>
+            )}
+          </div>
+          {similarityFields.length > 0 && totalWeight !== 100 && (
+            <p className="mt-2 text-xs font-medium text-destructive">
+              {t("matching.configV2.weightError")}
+            </p>
+          )}
+        </section>
+
+        {mode === "default" ? (
+          <section className="border-b border-border pb-5">
+            <button
+              type="button"
+              onClick={() => setShowDetails((current) => !current)}
+              className="flex w-full items-center justify-between gap-3 text-left"
+              aria-expanded={showDetails}
+            >
+              <div>
+                <p className="text-sm font-semibold">{t("matching.configV2.details")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("matching.configV2.detailsDesc")}
+                </p>
+              </div>
+              <ChevronDown
+                className={`size-4 text-muted-foreground transition-transform ${showDetails ? "rotate-180" : ""}`}
+              />
+            </button>
+            {showDetails && (
+              <div className="mt-4 overflow-x-auto rounded-md border border-border">
+                <table className="w-full min-w-[720px] text-left text-xs">
+                  <thead className="bg-secondary/40 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">{t("matching.configV2.field")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("matching.configV2.family")}</th>
+                      <th className="px-3 py-2 font-semibold">
+                        {t("matching.configV2.algorithm")}
+                      </th>
+                      <th className="px-3 py-2 font-semibold">
+                        {t("matching.configV2.normalization")}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {fields.map((field) => {
+                      const method = methods[field.id] ?? field;
+                      return (
+                        <tr key={field.id}>
+                          <td className="px-3 py-2 font-medium">{field.label}</td>
+                          <td className="px-3 py-2">
+                            {field.strict
+                              ? t("matching.configV2.strictExact")
+                              : comparisonFamilyLabel(method.family, t)}
+                          </td>
+                          <td className="px-3 py-2">
+                            {field.strict || method.algorithm === "Exact"
+                              ? "Raw Exact"
+                              : method.algorithm}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {field.strict
+                              ? t("matching.configV2.none")
+                              : normalizationV2Label(method.normalization, t)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                  {t("matching.configV2.thresholdSummary")}
+                </p>
+              </div>
+            )}
+          </section>
+        ) : (
+          <div className="space-y-6">
+            <section className="border-b border-border pb-5">
+              <p className="text-sm font-semibold">{t("matching.configV2.comparisonMethod")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("matching.configV2.comparisonMethodDesc")}
+              </p>
+              <div className="mt-4 divide-y divide-border rounded-md border border-border">
+                {similarityFields.map((field) => {
+                  const method = methods[field.id] ?? field;
+                  return (
+                    <div
+                      key={field.id}
+                      className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_220px] lg:items-center"
+                    >
+                      <p className="text-sm font-medium">{field.label}</p>
+                      <select
+                        value={method.family}
+                        onChange={(event) =>
+                          changeFamily(field, event.target.value as ComparisonFamily)
+                        }
+                        className="h-9 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand"
+                      >
+                        {(Object.keys(COMPARISON_FAMILY_ALGORITHMS) as ComparisonFamily[])
+                          .filter(
+                            (family) =>
+                              family !== "Numeric / Date" ||
+                              field.type === "number" ||
+                              field.type === "date",
+                          )
+                          .map((family) => (
+                            <option key={family} value={family}>
+                              {comparisonFamilyLabel(family, t)}
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        value={method.algorithm}
+                        onChange={(event) =>
+                          setMethods((current) => ({
+                            ...current,
+                            [field.id]: {
+                              ...method,
+                              algorithm: event.target.value as ConfigureAlgorithm,
+                            },
+                          }))
+                        }
+                        className="h-9 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand"
+                      >
+                        {algorithmsForField(method.family, field.type).map((algorithm) => (
+                          <option key={algorithm} value={algorithm}>
+                            {algorithm === "Exact" ? "Raw Exact" : algorithm}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+              <details className="mt-3 rounded-md bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
+                <summary className="cursor-pointer font-semibold text-foreground">
+                  {t("matching.configV2.standardizationInfo")}
+                </summary>
+                <p className="mt-2 leading-relaxed">{t("matching.configV2.standardizationDesc")}</p>
+              </details>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <div className="rounded-md border border-border px-3 py-3">
+                  <p className="text-xs font-semibold">{t("matching.configV2.composite")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("matching.configV2.compositeDesc")}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border px-3 py-3">
+                  <p className="text-xs font-semibold">{t("matching.configV2.ruleBased")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("matching.configV2.ruleBasedDesc")}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section className="border-b border-border pb-5">
+              <p className="text-sm font-semibold">{t("matching.configV2.resultRules")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("matching.configV2.resultRulesDesc")}
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <label className="text-xs text-muted-foreground">
+                  {t("matching.configV2.autoMatch")}
+                  <div className="mt-1 flex items-center gap-2">
+                    <span>≥</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={autoMatchThreshold}
+                      onChange={(event) => setAutoMatchThreshold(Number(event.target.value))}
+                      className="h-9 w-full rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums"
+                    />
+                    <span>%</span>
+                  </div>
+                </label>
+                <label className="text-xs text-muted-foreground">
+                  {t("matching.configV2.needReview")}
+                  <div className="mt-1 flex items-center gap-2">
+                    <span>≥</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={reviewThreshold}
+                      onChange={(event) => setReviewThreshold(Number(event.target.value))}
+                      className="h-9 w-full rounded-md border border-border bg-background px-2 text-right text-sm tabular-nums"
+                    />
+                    <span>%</span>
+                  </div>
+                </label>
+                <RunConfigItem
+                  label={t("matching.configV2.unmatched")}
+                  value={`< ${reviewThreshold}%`}
+                />
+              </div>
+              {!(
+                autoMatchThreshold > reviewThreshold &&
+                autoMatchThreshold <= 100 &&
+                reviewThreshold >= 0
+              ) && (
+                <p className="mt-2 text-xs font-medium text-destructive">
+                  {t("matching.configV2.thresholdError")}
+                </p>
+              )}
+              <label className="mt-4 flex items-start gap-3 rounded-md bg-secondary/30 px-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={verificationEnabled}
+                  onChange={(event) => setVerificationEnabled(event.target.checked)}
+                  className="mt-0.5 size-4 accent-brand"
+                />
+                <span>
+                  <span className="block text-xs font-semibold">
+                    {t("matching.configV2.verification")}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {t("matching.configV2.verificationDesc")}
+                  </span>
+                </span>
+              </label>
+              {verificationEnabled && (
+                <div className="mt-4 overflow-x-auto rounded-md border border-border">
+                  <table className="w-full min-w-[760px] text-left text-xs">
+                    <thead className="bg-secondary/40 text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold">{t("matching.configV2.order")}</th>
+                        <th className="px-3 py-2 font-semibold">{t("matching.configV2.field")}</th>
+                        <th className="px-3 py-2 font-semibold">{t("matching.configV2.method")}</th>
+                        <th className="px-3 py-2 text-right font-semibold">
+                          {t("matching.configV2.threshold")}
+                        </th>
+                        <th className="px-3 py-2 text-right font-semibold">{t("common.action")}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {verificationSteps.map((step) => {
+                        const field = fields.find((item) => item.id === step.mappingId);
+                        return (
+                          <tr key={step.mappingId}>
+                            <td className="px-3 py-2 tabular-nums">{step.order}</td>
+                            <td className="px-3 py-2 font-medium">{step.field}</td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              {field?.strict ? t("matching.mapping.strict") : step.method}
+                            </td>
+                            <td className="px-3 py-2">
+                              {field?.strict ? (
+                                <p className="text-right font-semibold tabular-nums">100%</p>
+                              ) : (
+                                <label className="flex items-center justify-end gap-2">
+                                  <span>≥</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={step.threshold}
+                                    onChange={(event) =>
+                                      setVerificationThresholds((current) => ({
+                                        ...current,
+                                        [step.mappingId]: Math.max(
+                                          0,
+                                          Math.min(100, Number(event.target.value) || 0),
+                                        ),
+                                      }))
+                                    }
+                                    className="h-8 w-16 rounded-md border border-border bg-background px-2 text-right tabular-nums"
+                                  />
+                                  <span>%</span>
+                                </label>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => moveVerificationStep(step.mappingId, -1)}
+                                  disabled={step.order === 1}
+                                  className="rounded border border-border px-2 py-1 font-semibold disabled:opacity-40"
+                                >
+                                  {t("matching.configV2.moveUp")}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveVerificationStep(step.mappingId, 1)}
+                                  disabled={step.order === verificationSteps.length}
+                                  className="rounded border border-border px-2 py-1 font-semibold disabled:opacity-40"
+                                >
+                                  {t("matching.configV2.moveDown")}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        <section className="rounded-lg border border-accent/25 bg-accent/5 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex gap-3">
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
+              <div>
+                <p className="text-sm font-semibold">{t("matching.ai.configTitle")}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {jobId ? t("matching.ai.configDesc") : t("matching.ai.configUnavailableDesc")}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={requestAiSuggestion}
+                disabled={!jobId || aiLoading}
+                className="rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground disabled:opacity-50"
+              >
+                {aiLoading ? t("matching.ai.loading") : t("matching.ai.loadConfig")}
+              </button>
+              <button
+                type="button"
+                onClick={applyAiSuggestion}
+                disabled={!aiSuggestion?.success || !aiSuggestion.data}
+                className="rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold disabled:opacity-50"
+              >
+                {t("matching.ai.applySuggestion")}
+              </button>
+            </div>
+          </div>
+          {aiError && <p className="mt-3 text-xs text-destructive">{aiError}</p>}
+          {aiSuggestion?.data && (
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-3 md:grid-cols-3">
+                <SyncMetric
+                  label={t("matching.ai.thresholdAuto")}
+                  value={formatAiValue(aiSuggestion.data.suggested_thresholds?.auto_match, "%")}
+                />
+                <SyncMetric
+                  label={t("matching.ai.thresholdReview")}
+                  value={formatAiValue(aiSuggestion.data.suggested_thresholds?.needs_review, "%")}
+                />
+                <SyncMetric
+                  label={t("matching.ai.weightTotal")}
+                  value={formatAiValue(
+                    aiSuggestion.data.recommended_fields
+                      .filter((field) => field.use_for_matching)
+                      .reduce((sum, field) => sum + Number(field.suggested_weight ?? 0), 0),
+                    "%",
+                  )}
+                  strong
+                />
+              </div>
+              <div className="overflow-x-auto rounded-md border border-border bg-background/70">
+                <table className="w-full min-w-[760px] text-left text-xs">
+                  <thead className="bg-secondary/40 text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">
+                        {t("matching.ai.recommendedField")}
+                      </th>
+                      <th className="px-3 py-2 font-semibold">{t("matching.ai.priority")}</th>
+                      <th className="px-3 py-2 text-right font-semibold">
+                        {t("matching.ai.weight")}
+                      </th>
+                      <th className="px-3 py-2 font-semibold">{t("matching.ai.algorithm")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("matching.ai.reason")}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {aiSuggestion.data.recommended_fields.map((field, index) => (
+                      <tr key={`${field.field ?? field.mapping ?? "field"}-${index}`}>
+                        <td className="px-3 py-2 font-medium">
+                          {field.field ?? field.mapping ?? "-"}
+                        </td>
+                        <td className="px-3 py-2 text-muted-foreground">{field.priority ?? "-"}</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                          {field.use_for_matching ? Number(field.suggested_weight ?? 0) : 0}%
+                        </td>
+                        <td className="px-3 py-2">{field.suggested_algorithm ?? "-"}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{field.reason ?? "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <CompactListCard
+                  title={t("matching.ai.hardConflictRules")}
+                  items={aiSuggestion.data.hard_conflict_rules}
+                  emptyLabel={t("matching.ai.none")}
+                />
+                <CompactListCard
+                  title={t("matching.ai.warnings")}
+                  items={aiSuggestion.data.warnings}
+                  emptyLabel={t("matching.ai.none")}
+                />
+              </div>
+              <div className="rounded-md border border-border bg-background/70 px-3 py-3">
+                <p className="text-xs font-semibold">{t("matching.ai.rationale")}</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {aiSuggestion.data.rationale}
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {!configValid && (
+          <p className="text-xs font-medium text-destructive">
+            {fields.length === 0 ? t("matching.configV2.noFields") : t("matching.configV2.invalid")}
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
+function comparisonFamilyForAlgorithm(
+  algorithm: ConfigureAlgorithm,
+  type: FieldType,
+): ComparisonFamily {
+  if (["Exact", "Normalized Exact", "Case-Insensitive Exact"].includes(algorithm)) return "Exact";
+  if (["Numeric Exact", "Date Exact"].includes(algorithm) || type === "number" || type === "date")
+    return "Numeric / Date";
+  if (
+    [
+      "Token Sort Ratio",
+      "Token Set Ratio",
+      "Partial Ratio",
+      "Partial Token Sort",
+      "Partial Token Set",
+    ].includes(algorithm)
+  )
+    return "Token Similarity";
+  if (algorithm === "Cosine Similarity") return "Vector / Statistical";
+  return "Character Similarity";
+}
+
+function comparisonFamilyLabel(
+  family: ComparisonFamily,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  const labels: Record<ComparisonFamily, Parameters<typeof t>[0]> = {
+    Exact: "matching.configV2.familyExact",
+    "Character Similarity": "matching.configV2.familyCharacter",
+    "Token Similarity": "matching.configV2.familyToken",
+    "Vector / Statistical": "matching.configV2.familyVector",
+    "Numeric / Date": "matching.configV2.familyTyped",
+  };
+  return t(labels[family]);
+}
+
+function normalizationV2Label(value: string, t: ReturnType<typeof usePreferences>["t"]) {
+  const labels: Record<string, Parameters<typeof t>[0]> = {
+    "Automatic by field type": "matching.configV2.normalizationAuto",
+    Basic: "matching.configV2.normalizationBasic",
+    "Text Standardization": "matching.configV2.normalizationText",
+    "Identifier Strict": "matching.configV2.normalizationIdentifier",
+  };
+  return labels[value] ? t(labels[value]) : value;
+}
+
+function StepConfig({
+  jobId,
+  mappings,
+  configuration,
+  onConfigurationChange,
+  onValidityChange,
+}: {
+  jobId: string | null;
   mappings: ColumnMappingDraft[];
   configuration: MatchingConfiguration | null;
   onConfigurationChange: (configuration: MatchingConfiguration) => void;
@@ -2111,6 +3113,10 @@ function StepConfig({
   const [showMoreAlgorithms, setShowMoreAlgorithms] = useState(false);
   const [outputs, setOutputs] = useState<string[]>(configuration?.output.items ?? STANDARD_OUTPUTS);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [aiSuggestion, setAiSuggestion] =
+    useState<AiEnvelope<AiMatchingConfigurationSuggestion> | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [weights, setWeights] = useState<{ field: string; weight: number; method: string }[]>(
     configuration?.weighting.fields.map((field) => ({
       field: field.field,
@@ -2329,6 +3335,11 @@ function StepConfig({
     ],
   ];
 
+  const aiSuggestedFields = aiSuggestion?.data?.recommended_fields ?? [];
+  const aiWeightTotal = aiSuggestedFields
+    .filter((field) => field.use_for_matching)
+    .reduce((sum, field) => sum + Number(field.suggested_weight ?? 0), 0);
+
   const applyPreset = (p: Preset) => {
     setPreset(p);
     const d = PRESET_DEFAULTS[p];
@@ -2403,10 +3414,95 @@ function StepConfig({
     onConfigurationChange(configurationSnapshot);
   }, [configurationSnapshot, onConfigurationChange]);
 
-  const applyRecommendation = () => {
-    applyPreset("Balanced");
-    setSearchMode("auto");
-    setNormalizationPreset("Entity Name");
+  const requestAiSuggestion = async () => {
+    if (!jobId || aiLoading) {
+      if (!jobId) {
+        setAiError(t("matching.ai.configUnavailableDesc"));
+      }
+      return;
+    }
+
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const next = await fetchAiMatchingConfiguration(jobId);
+      setAiSuggestion(next);
+      if (!next.success) {
+        setAiError(next.error.message ?? t("matching.ai.unavailable"));
+      }
+    } catch (err) {
+      setAiError(err instanceof ApiError ? err.message : t("matching.ai.configLoadFailed"));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const applyAiSuggestion = () => {
+    const recommendation = aiSuggestion?.data;
+    if (!recommendation) return;
+
+    const matchedRecommendations = recommendation.recommended_fields
+      .map((field) => {
+        const mapping = findMappingForSuggestion(field, mappedFields);
+        if (!mapping) return null;
+        return { field, mapping };
+      })
+      .filter(
+        (
+          entry,
+        ): entry is {
+          field: AiConfigRecommendedField;
+          mapping: (typeof mappedFields)[number];
+        } => Boolean(entry),
+      );
+
+    if (matchedRecommendations.length === 0) {
+      setAiError(t("matching.ai.configNoMatchingFields"));
+      return;
+    }
+
+    setPreset("Custom");
+    setAdvancedOpen(true);
+    setSelectedFields(
+      matchedRecommendations
+        .filter((entry) => entry.field.use_for_matching)
+        .map((entry) => entry.mapping.id),
+    );
+
+    setFieldAlgorithms((current) => {
+      const next = { ...current };
+      matchedRecommendations.forEach(({ field, mapping }) => {
+        if (field.suggested_algorithm) {
+          next[mapping.id] = normalizeConfiguredAlgorithm(field.suggested_algorithm);
+        }
+      });
+      return next;
+    });
+
+    setWeights(
+      matchedRecommendations.map(({ field, mapping }) => ({
+        field: mapping.label,
+        weight: field.use_for_matching ? Number(field.suggested_weight ?? 0) : 0,
+        method: normalizeConfiguredAlgorithm(field.suggested_algorithm ?? mapping.algorithm),
+      })),
+    );
+
+    const thresholdAuto = recommendation.suggested_thresholds?.auto_match;
+    const thresholdReview = recommendation.suggested_thresholds?.needs_review;
+    if (typeof thresholdAuto === "number") {
+      setAutoMatch(Math.round(thresholdAuto));
+    }
+    if (typeof thresholdReview === "number") {
+      setReview(Math.round(thresholdReview));
+      setNoMatch(Math.max(0, Math.round(thresholdReview) - 15));
+    }
+
+    const algorithms = matchedRecommendations
+      .filter((entry) => entry.field.use_for_matching)
+      .map((entry) => entry.field.suggested_algorithm ?? "");
+    setStrategy(resolveStrategyFromAlgorithms(algorithms));
+    setManualWeights(true);
+    setAiError(null);
     toast.success(t("feedback.toast.recommendationApplied"));
   };
 
@@ -2456,20 +3552,112 @@ function StepConfig({
                   <Sparkles className="size-4" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold">{t("matching.config.recommended")}</p>
+                  <p className="text-sm font-semibold">{t("matching.ai.configTitle")}</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    {t("matching.config.recommendedDesc")}
+                    {jobId ? t("matching.ai.configDesc") : t("matching.ai.configUnavailableDesc")}
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={applyRecommendation}
-                className="shrink-0 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90"
-              >
-                {t("matching.config.applyRecommendation")}
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={requestAiSuggestion}
+                  disabled={!jobId || aiLoading}
+                  className="rounded-md bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50"
+                >
+                  {aiLoading ? t("matching.ai.loading") : t("matching.ai.loadConfig")}
+                </button>
+                <button
+                  type="button"
+                  onClick={applyAiSuggestion}
+                  disabled={!aiSuggestion?.success || !aiSuggestion.data}
+                  className="rounded-md border border-border bg-background px-3 py-2 text-xs font-semibold hover:bg-secondary disabled:opacity-50"
+                >
+                  {t("matching.ai.applySuggestion")}
+                </button>
+              </div>
             </div>
+
+            {aiError && (
+              <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+                {aiError}
+              </div>
+            )}
+
+            {aiSuggestion?.data && (
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <SyncMetric
+                    label={t("matching.ai.thresholdAuto")}
+                    value={formatAiValue(aiSuggestion.data.suggested_thresholds?.auto_match, "%")}
+                  />
+                  <SyncMetric
+                    label={t("matching.ai.thresholdReview")}
+                    value={formatAiValue(aiSuggestion.data.suggested_thresholds?.needs_review, "%")}
+                  />
+                  <SyncMetric
+                    label={t("matching.ai.weightTotal")}
+                    value={formatAiValue(aiWeightTotal, "%")}
+                    strong
+                  />
+                </div>
+
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="grid grid-cols-[minmax(0,1.4fr)_90px_80px_140px_minmax(0,1.2fr)] gap-0 bg-secondary/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <span>{t("matching.ai.recommendedField")}</span>
+                    <span>{t("matching.ai.priority")}</span>
+                    <span className="text-right">{t("matching.ai.weight")}</span>
+                    <span>{t("matching.ai.algorithm")}</span>
+                    <span>{t("matching.ai.reason")}</span>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {aiSuggestion.data.recommended_fields.map((field, index) => (
+                      <div
+                        key={`${field.field ?? field.mapping ?? "field"}-${index}`}
+                        className="grid grid-cols-[minmax(0,1.4fr)_90px_80px_140px_minmax(0,1.2fr)] gap-0 px-3 py-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">
+                            {field.field ?? field.mapping ?? t("common.notAvailable")}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {field.use_for_matching
+                              ? t("matching.ai.useForMatching")
+                              : t("matching.ai.notUsedForMatching")}
+                          </p>
+                        </div>
+                        <span className="pr-2 text-muted-foreground">{field.priority ?? "-"}</span>
+                        <span className="text-right tabular-nums font-semibold">
+                          {field.use_for_matching ? Number(field.suggested_weight ?? 0) : 0}
+                        </span>
+                        <span className="truncate pr-2">{field.suggested_algorithm ?? "-"}</span>
+                        <span className="text-muted-foreground">{field.reason ?? "-"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <CompactListCard
+                    title={t("matching.ai.hardConflictRules")}
+                    items={aiSuggestion.data.hard_conflict_rules}
+                    emptyLabel={t("matching.ai.none")}
+                  />
+                  <CompactListCard
+                    title={t("matching.ai.warnings")}
+                    items={aiSuggestion.data.warnings}
+                    emptyLabel={t("matching.ai.none")}
+                  />
+                </div>
+
+                <div className="rounded-md border border-border bg-background/70 px-3 py-3">
+                  <p className="text-xs font-semibold">{t("matching.ai.rationale")}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {aiSuggestion.data.rationale}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -3212,6 +4400,66 @@ function normalizeConfiguredAlgorithm(value: string): ConfigureAlgorithm {
     : "Jaro-Winkler";
 }
 
+function findMappingForSuggestion(
+  suggestion: AiConfigRecommendedField,
+  mappedFields: Array<{
+    id: string;
+    label: string;
+    reference: string;
+    input: string;
+    type: FieldType;
+    algorithm: ConfigureAlgorithm;
+    referenceColumnId: string;
+    inputColumnId: string;
+  }>,
+) {
+  const fieldName = (suggestion.field ?? suggestion.mapping ?? "").trim().toLowerCase();
+  if (!fieldName) return null;
+
+  return (
+    mappedFields.find((field) => field.id === fieldName) ??
+    mappedFields.find((field) => field.label.toLowerCase() === fieldName) ??
+    mappedFields.find((field) => field.reference.toLowerCase() === fieldName) ??
+    mappedFields.find((field) => field.input.toLowerCase() === fieldName) ??
+    mappedFields.find(
+      (field) =>
+        `${field.reference} ↔ ${field.input}`.toLowerCase() === fieldName ||
+        `${field.reference} <-> ${field.input}`.toLowerCase() === fieldName,
+    )
+  );
+}
+
+function resolveStrategyFromAlgorithms(algorithms: string[]): Strategy {
+  const active = algorithms.filter(Boolean);
+  if (active.length === 0) return "Hybrid";
+  const exactOnly = active.every((algorithm) =>
+    ["Exact", "Normalized Exact", "Case-Insensitive Exact", "Numeric Exact", "Date Exact"].includes(
+      algorithm,
+    ),
+  );
+  if (exactOnly) return "Exact";
+  const fuzzyOnly = active.every((algorithm) =>
+    [
+      "Jaro-Winkler",
+      "Levenshtein",
+      "Damerau-Levenshtein",
+      "Jaccard Similarity",
+      "Cosine Similarity",
+      "Sørensen-Dice",
+      "Ratcliff-Obershelp",
+      "Monge-Elkan",
+      "Smith-Waterman",
+      "Token Sort Ratio",
+      "Token Set Ratio",
+      "Partial Ratio",
+      "Partial Token Sort",
+      "Partial Token Set",
+    ].includes(algorithm),
+  );
+  if (fuzzyOnly) return "Fuzzy";
+  return "Hybrid";
+}
+
 function fieldSelectionDescription(strategy: Strategy, t: ReturnType<typeof usePreferences>["t"]) {
   if (strategy === "Hybrid" || strategy === "Composite")
     return t("matching.config.fieldSelectionHybridDesc");
@@ -3255,6 +4503,85 @@ function ConfigSection({
   );
 }
 
+function CompactListCard({
+  title,
+  items,
+  emptyLabel,
+}: {
+  title: string;
+  items: string[];
+  emptyLabel: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-background/70 px-3 py-3">
+      <p className="text-xs font-semibold">{title}</p>
+      {items.length === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">{emptyLabel}</p>
+      ) : (
+        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+          {items.map((item, index) => (
+            <li key={`${title}-${index}`}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function CompactInlineList({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div className="rounded-md bg-secondary/30 px-2.5 py-2">
+      <p className="text-[11px] font-semibold">{label}</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        {items.length > 0 ? items.join(", ") : "-"}
+      </p>
+    </div>
+  );
+}
+
+function AiPanelSection({
+  title,
+  loading,
+  error,
+  hasData,
+  onLoad,
+  actionLabel,
+  children,
+}: {
+  title: string;
+  loading: boolean;
+  error: string | null;
+  hasData: boolean;
+  onLoad: () => void;
+  actionLabel: string;
+  children: React.ReactNode;
+}) {
+  const { t } = usePreferences();
+
+  return (
+    <section className="rounded-md border border-border bg-background/70 px-3 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold">{title}</p>
+        <button
+          type="button"
+          onClick={onLoad}
+          disabled={loading}
+          className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold hover:bg-secondary disabled:opacity-50"
+        >
+          {loading ? t("matching.ai.loading") : hasData ? t("matching.ai.reload") : actionLabel}
+        </button>
+      </div>
+      {error ? (
+        <p className="mt-2 text-xs text-muted-foreground">{error}</p>
+      ) : hasData ? (
+        <div className="mt-3">{children}</div>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">{t("matching.ai.notLoaded")}</p>
+      )}
+    </section>
+  );
+}
+
 function outputLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
   const labels: Record<string, Parameters<typeof t>[0]> = {
     Matched: "matching.output.matched",
@@ -3267,6 +4594,13 @@ function outputLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
     "Summary Report": "matching.output.summary",
   };
   return labels[value] ? t(labels[value]) : value;
+}
+
+function formatAiValue(value: string | number | null | undefined, suffix = "") {
+  if (value === null || value === undefined || value === "") return "-";
+  if (typeof value === "number") return `${value}${suffix}`;
+
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function ThresholdInput({
@@ -3335,6 +4669,11 @@ function StepRun({
   canRun: boolean;
 }) {
   const { t } = usePreferences();
+  const strictFields = configuration?.fields.filter((field) => field.strict) ?? [];
+  const similarityFields = configuration?.fields.filter((field) => !field.strict) ?? [];
+  const configuredWeights = new Map(
+    configuration?.weighting.fields.map((field) => [field.mappingId, field.weight]) ?? [],
+  );
   return (
     <>
       <SectionTitle title={t("matching.run.title")} desc={t("matching.run.desc")} />
@@ -3361,31 +4700,37 @@ function StepRun({
           </div>
           {configuration && (
             <div
-              className="mt-5 grid gap-3 rounded-lg border border-border bg-secondary/20 p-4 md:grid-cols-4"
+              className="mt-5 space-y-3 rounded-lg border border-border bg-secondary/20 p-4"
               data-testid="run-configuration-summary"
             >
-              <RunConfigItem
-                label={t("matching.run.configPreset")}
-                value={presetLabel(configuration.preset, t)}
-              />
-              <RunConfigItem
-                label={t("matching.run.configStrategy")}
-                value={strategyLabel(configuration.strategy, t)}
-              />
-              <RunConfigItem
-                label={t("matching.run.configFields")}
-                value={String(configuration.fields.length)}
-              />
-              <RunConfigItem
-                label={t("matching.run.configCandidates")}
-                value={
-                  configuration.candidateGeneration
-                    ? t("matching.config.topN", {
-                        count: configuration.candidateGeneration.topN,
-                      })
-                    : t("matching.config.notRequired")
-                }
-              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <RunConfigItem
+                  label={t("matching.run.strictFields")}
+                  value={
+                    strictFields.length > 0
+                      ? strictFields
+                          .map((field) => `${field.inputColumnName} ↔ ${field.referenceColumnName}`)
+                          .join(", ")
+                      : t("matching.configV2.none")
+                  }
+                />
+                <RunConfigItem
+                  label={t("matching.run.similarityFields")}
+                  value={
+                    similarityFields.length > 0
+                      ? similarityFields
+                          .map(
+                            (field) =>
+                              `${field.inputColumnName} ↔ ${field.referenceColumnName} (${configuredWeights.get(field.mappingId) ?? 0}%)`,
+                          )
+                          .join(", ")
+                      : t("matching.configV2.none")
+                  }
+                />
+              </div>
+              <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+                {t("matching.run.exactFirst")}
+              </p>
             </div>
           )}
         </div>
@@ -3494,6 +4839,17 @@ function StepReview({
   const [pendingRecords, setPendingRecords] = useState<Record<string, string>>({});
   const [pendingGroups, setPendingGroups] = useState<Record<string, string>>({});
   const [pendingUndos, setPendingUndos] = useState<Record<string, boolean>>({});
+  const [aiAnalysisByResult, setAiAnalysisByResult] = useState<
+    Record<string, AiEnvelope<AiReviewAnalysis>>
+  >({});
+  const [aiRecommendationByResult, setAiRecommendationByResult] = useState<
+    Record<string, AiEnvelope<AiReviewRecommendation>>
+  >({});
+  const [reviewKnowledgeByResult, setReviewKnowledgeByResult] = useState<
+    Record<string, ReviewKnowledgeResponse>
+  >({});
+  const [aiLoadingByKey, setAiLoadingByKey] = useState<Record<string, boolean>>({});
+  const [aiErrorByKey, setAiErrorByKey] = useState<Record<string, string | null>>({});
   const [page, setPage] = useState(1);
   const perPage = 8;
   const identityMappings = useMemo(
@@ -3578,12 +4934,54 @@ function StepReview({
   const selectedSummary = selected
     ? buildIdentitySummary(selected, selectedCandidate, identityMappings)
     : null;
+  const selectedResultId = selectedCandidate?.id ?? null;
+
+  const loadAiPanel = useCallback(
+    async (kind: "analysis" | "recommendation" | "knowledge", resultId: string) => {
+      const stateKey = `${kind}:${resultId}`;
+      if (aiLoadingByKey[stateKey]) return;
+
+      setAiLoadingByKey((current) => ({ ...current, [stateKey]: true }));
+      setAiErrorByKey((current) => ({ ...current, [stateKey]: null }));
+
+      try {
+        if (kind === "analysis") {
+          const next = await fetchAiReviewAnalysis(resultId);
+          setAiAnalysisByResult((current) => ({ ...current, [resultId]: next }));
+          if (!next.success) {
+            setAiErrorByKey((current) => ({
+              ...current,
+              [stateKey]: next.error.message ?? t("matching.ai.unavailable"),
+            }));
+          }
+        } else if (kind === "recommendation") {
+          const next = await fetchAiReviewRecommendation(resultId);
+          setAiRecommendationByResult((current) => ({ ...current, [resultId]: next }));
+          if (!next.success) {
+            setAiErrorByKey((current) => ({
+              ...current,
+              [stateKey]: next.error.message ?? t("matching.ai.unavailable"),
+            }));
+          }
+        } else {
+          const next = await fetchReviewKnowledge(resultId);
+          setReviewKnowledgeByResult((current) => ({ ...current, [resultId]: next }));
+        }
+      } catch (err) {
+        setAiErrorByKey((current) => ({
+          ...current,
+          [stateKey]: err instanceof ApiError ? err.message : t("matching.ai.loadFailed"),
+        }));
+      } finally {
+        setAiLoadingByKey((current) => ({ ...current, [stateKey]: false }));
+      }
+    },
+    [aiLoadingByKey, t],
+  );
 
   const openRecord = useCallback((item: ReviewItem, candidateId?: string | null) => {
     const candidate =
-      item.candidates.find((entry) => entry.id === candidateId) ??
-      item.candidates[0] ??
-      null;
+      item.candidates.find((entry) => entry.id === candidateId) ?? item.candidates[0] ?? null;
     setSelected(item);
     setSelectedCandidateId(candidate?.id ?? null);
   }, []);
@@ -3623,9 +5021,16 @@ function StepReview({
         decision,
       });
       setReview((current) =>
-        mergeReviewSnapshot(current, next.review, [item.input_record_key], next.decision.caseGroupId ?? null),
+        mergeReviewSnapshot(
+          current,
+          next.review,
+          [item.input_record_key],
+          next.decision.caseGroupId ?? null,
+        ),
       );
-      const updated = next.review.items.find((nextItem) => nextItem.input_record_key === item.input_record_key);
+      const updated = next.review.items.find(
+        (nextItem) => nextItem.input_record_key === item.input_record_key,
+      );
       if (updated) {
         setSelected(updated);
         if (candidate?.id) {
@@ -3683,7 +5088,10 @@ function StepReview({
       setSelectedGroupKeys((current) => ({ ...current, [group.id]: [] }));
       setSelected((current) => {
         if (!current || !keys.includes(current.input_record_key)) return current;
-        return next.review.items.find((item) => item.input_record_key === current.input_record_key) ?? current;
+        return (
+          next.review.items.find((item) => item.input_record_key === current.input_record_key) ??
+          current
+        );
       });
       toast.success(
         t("matching.review.groupDecisionSaved", {
@@ -3826,8 +5234,8 @@ function StepReview({
         </div>
       </div>
 
-      {viewMode === "case_groups" && (
-        selectedCaseGroup ? (
+      {viewMode === "case_groups" &&
+        (selectedCaseGroup ? (
           <GroupReviewSubview
             group={selectedCaseGroup}
             items={items}
@@ -3857,8 +5265,7 @@ function StepReview({
             onDecide={decideCaseGroup}
             canDecide={canDecide}
           />
-        )
-      )}
+        ))}
 
       {viewMode === "all_records" && (
         <>
@@ -3951,9 +5358,7 @@ function StepReview({
                           className="cursor-pointer hover:bg-secondary/40"
                         >
                           <td className="px-4 py-3 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {inputIdentity.headline}
-                            </p>
+                            <p className="text-sm font-medium truncate">{inputIdentity.headline}</p>
                             <p className="text-xs text-muted-foreground truncate">
                               {inputIdentity.meta}
                             </p>
@@ -3961,12 +5366,12 @@ function StepReview({
                           <td className="px-4 py-3 min-w-0">
                             <p className="text-sm font-medium truncate">
                               {hasReferenceCandidate
-                                ? referenceIdentity?.headline ?? t("matching.review.noCandidate")
+                                ? (referenceIdentity?.headline ?? t("matching.review.noCandidate"))
                                 : t("matching.review.noCandidate")}
                             </p>
                             <p className="text-xs text-muted-foreground truncate">
                               {hasReferenceCandidate
-                                ? referenceIdentity?.meta ?? "-"
+                                ? (referenceIdentity?.meta ?? "-")
                                 : t("matching.review.noCandidateDesc")}
                             </p>
                           </td>
@@ -4152,7 +5557,10 @@ function StepReview({
                               candidate,
                               identityMappings,
                             );
-                            const candidateIdentity = buildSideIdentity(candidateSummary, "reference");
+                            const candidateIdentity = buildSideIdentity(
+                              candidateSummary,
+                              "reference",
+                            );
 
                             return (
                               <>
@@ -4192,6 +5600,197 @@ function StepReview({
                   ))}
                 </div>
               </details>
+
+              {selectedResultId && (
+                <div className="mt-5 rounded-lg border border-border p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent">
+                      <Sparkles className="size-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{t("matching.ai.reviewTitle")}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("matching.ai.reviewDesc")}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    <AiPanelSection
+                      title={t("matching.ai.analysisTitle")}
+                      loading={Boolean(aiLoadingByKey[`analysis:${selectedResultId}`])}
+                      error={aiErrorByKey[`analysis:${selectedResultId}`] ?? null}
+                      hasData={Boolean(aiAnalysisByResult[selectedResultId]?.data)}
+                      onLoad={() => loadAiPanel("analysis", selectedResultId)}
+                      actionLabel={t("matching.ai.loadAnalysis")}
+                    >
+                      {aiAnalysisByResult[selectedResultId]?.data && (
+                        <div className="space-y-3 text-xs">
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <SyncMetric
+                              label={t("matching.ai.assessment")}
+                              value={formatAiValue(
+                                aiAnalysisByResult[selectedResultId]?.data?.assessment,
+                              )}
+                            />
+                            <SyncMetric
+                              label={t("matching.ai.confidence")}
+                              value={formatAiValue(
+                                aiAnalysisByResult[selectedResultId]?.data?.confidence,
+                                "%",
+                              )}
+                            />
+                          </div>
+                          <p className="text-muted-foreground">
+                            {aiAnalysisByResult[selectedResultId]?.data?.summary}
+                          </p>
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <CompactListCard
+                              title={t("matching.ai.supportingEvidence")}
+                              items={
+                                aiAnalysisByResult[selectedResultId]?.data?.supporting_evidence ??
+                                []
+                              }
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                            <CompactListCard
+                              title={t("matching.ai.conflicts")}
+                              items={aiAnalysisByResult[selectedResultId]?.data?.conflicts ?? []}
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                            <CompactListCard
+                              title={t("matching.ai.missingInformation")}
+                              items={
+                                aiAnalysisByResult[selectedResultId]?.data?.missing_information ??
+                                []
+                              }
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                            <CompactListCard
+                              title={t("matching.ai.attentionPoints")}
+                              items={
+                                aiAnalysisByResult[selectedResultId]?.data?.attention_points ?? []
+                              }
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </AiPanelSection>
+
+                    <AiPanelSection
+                      title={t("matching.ai.recommendationTitle")}
+                      loading={Boolean(aiLoadingByKey[`recommendation:${selectedResultId}`])}
+                      error={aiErrorByKey[`recommendation:${selectedResultId}`] ?? null}
+                      hasData={Boolean(aiRecommendationByResult[selectedResultId]?.data)}
+                      onLoad={() => loadAiPanel("recommendation", selectedResultId)}
+                      actionLabel={t("matching.ai.loadRecommendation")}
+                    >
+                      {aiRecommendationByResult[selectedResultId]?.data && (
+                        <div className="space-y-3 text-xs">
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <SyncMetric
+                              label={t("matching.ai.recommendation")}
+                              value={formatAiValue(
+                                aiRecommendationByResult[selectedResultId]?.data?.recommendation,
+                              )}
+                            />
+                            <SyncMetric
+                              label={t("matching.ai.confidence")}
+                              value={formatAiValue(
+                                aiRecommendationByResult[selectedResultId]?.data?.confidence,
+                                "%",
+                              )}
+                            />
+                          </div>
+                          <p className="text-muted-foreground">
+                            {aiRecommendationByResult[selectedResultId]?.data?.rationale}
+                          </p>
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <CompactListCard
+                              title={t("matching.ai.keyEvidence")}
+                              items={
+                                aiRecommendationByResult[selectedResultId]?.data?.key_evidence ?? []
+                              }
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                            <CompactListCard
+                              title={t("matching.ai.risks")}
+                              items={aiRecommendationByResult[selectedResultId]?.data?.risks ?? []}
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                            <CompactListCard
+                              title={t("matching.ai.suggestedChecks")}
+                              items={
+                                aiRecommendationByResult[selectedResultId]?.data
+                                  ?.suggested_checks ?? []
+                              }
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                            <CompactListCard
+                              title={t("matching.ai.historicalContext")}
+                              items={
+                                aiRecommendationByResult[selectedResultId]?.data
+                                  ?.historical_context ?? []
+                              }
+                              emptyLabel={t("matching.ai.none")}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </AiPanelSection>
+
+                    <AiPanelSection
+                      title={t("matching.ai.historyTitle")}
+                      loading={Boolean(aiLoadingByKey[`knowledge:${selectedResultId}`])}
+                      error={aiErrorByKey[`knowledge:${selectedResultId}`] ?? null}
+                      hasData={Boolean(reviewKnowledgeByResult[selectedResultId])}
+                      onLoad={() => loadAiPanel("knowledge", selectedResultId)}
+                      actionLabel={t("matching.ai.loadHistory")}
+                    >
+                      {reviewKnowledgeByResult[selectedResultId] && (
+                        <div className="space-y-3 text-xs">
+                          <SyncMetric
+                            label={t("matching.ai.totalCasesFound")}
+                            value={formatAiValue(
+                              reviewKnowledgeByResult[selectedResultId]?.total_cases_found ?? 0,
+                            )}
+                          />
+                          <div className="space-y-2">
+                            {(reviewKnowledgeByResult[selectedResultId]?.similar_cases ?? []).map(
+                              (item) => (
+                                <div
+                                  key={`${item.matching_result_id}-${item.input_record_key}`}
+                                  className="rounded-md border border-border bg-background/70 px-3 py-3"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="font-semibold">{item.previous_human_decision}</p>
+                                    <span className="tabular-nums text-muted-foreground">
+                                      {t("matching.ai.relevanceScore")}:{" "}
+                                      {formatAiValue(item.relevance_score, "%")}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-muted-foreground">{item.pattern}</p>
+                                  <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                                    <CompactInlineList
+                                      label={t("matching.ai.importantAgreements")}
+                                      items={item.important_agreements}
+                                    />
+                                    <CompactInlineList
+                                      label={t("matching.ai.importantConflicts")}
+                                      items={item.important_conflicts}
+                                    />
+                                  </div>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </AiPanelSection>
+                  </div>
+                </div>
+              )}
 
               <DecisionHistory history={selected.decision_history ?? []} />
 
@@ -4438,7 +6037,9 @@ function CaseGroupsReview({
                           <button
                             type="button"
                             onClick={() => onDecide(group, "accept_match", "group")}
-                            disabled={!group.eligible_for_bulk || !canAccept || Boolean(groupPending)}
+                            disabled={
+                              !group.eligible_for_bulk || !canAccept || Boolean(groupPending)
+                            }
                             className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {groupPending === "accept_match" ? (
@@ -4453,7 +6054,9 @@ function CaseGroupsReview({
                           <button
                             type="button"
                             onClick={() => onDecide(group, "reject_match", "group")}
-                            disabled={!group.eligible_for_bulk || !canAccept || Boolean(groupPending)}
+                            disabled={
+                              !group.eligible_for_bulk || !canAccept || Boolean(groupPending)
+                            }
                             className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {groupPending === "reject_match" ? (
@@ -4620,7 +6223,9 @@ function GroupReviewSubview({
               disabled={!group.eligible_for_bulk || !canAcceptGroup || Boolean(groupPending)}
               className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {groupPending === "accept_match" ? t("common.loading") : t("matching.review.applyGroupAccept")}
+              {groupPending === "accept_match"
+                ? t("common.loading")
+                : t("matching.review.applyGroupAccept")}
             </button>
             <button
               type="button"
@@ -4628,7 +6233,9 @@ function GroupReviewSubview({
               disabled={!group.eligible_for_bulk || !canAcceptGroup || Boolean(groupPending)}
               className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {groupPending === "reject_match" ? t("common.loading") : t("matching.review.applyGroupReject")}
+              {groupPending === "reject_match"
+                ? t("common.loading")
+                : t("matching.review.applyGroupReject")}
             </button>
             <button
               type="button"
@@ -4722,10 +6329,18 @@ function GroupReviewSubview({
                   />
                 </th>
                 <th className="px-3 py-2 text-left font-medium">{t("matching.review.input")}</th>
-                <th className="px-3 py-2 text-left font-medium">{t("matching.review.reference")}</th>
-                <th className="w-28 px-3 py-2 text-right font-medium">{t("matching.review.similarity")}</th>
-                <th className="px-3 py-2 text-left font-medium">{t("matching.review.differenceSummary")}</th>
-                <th className="w-44 px-3 py-2 text-left font-medium">{t("matching.review.decisionStatus")}</th>
+                <th className="px-3 py-2 text-left font-medium">
+                  {t("matching.review.reference")}
+                </th>
+                <th className="w-28 px-3 py-2 text-right font-medium">
+                  {t("matching.review.similarity")}
+                </th>
+                <th className="px-3 py-2 text-left font-medium">
+                  {t("matching.review.differenceSummary")}
+                </th>
+                <th className="w-44 px-3 py-2 text-left font-medium">
+                  {t("matching.review.decisionStatus")}
+                </th>
                 <th className="w-[320px] px-3 py-2 text-right font-medium">{t("common.action")}</th>
               </tr>
             </thead>
@@ -4765,7 +6380,9 @@ function GroupReviewSubview({
                         {referenceIdentity?.meta ?? t("matching.review.noCandidateDesc")}
                       </p>
                     </td>
-                    <td className={`px-3 py-3 text-right font-semibold tabular-nums ${scoreTone(candidate?.score ?? 0)}`}>
+                    <td
+                      className={`px-3 py-3 text-right font-semibold tabular-nums ${scoreTone(candidate?.score ?? 0)}`}
+                    >
                       {candidate ? `${candidate.score}%` : "-"}
                     </td>
                     <td className="px-3 py-3">
@@ -4774,8 +6391,15 @@ function GroupReviewSubview({
                       </p>
                     </td>
                     <td className="px-3 py-3">
-                      <span className={statusBadgeClass(item.status_code ?? item.display_status ?? item.status)}>
-                        {reviewStatusLabel(item.status_code ?? item.display_status ?? item.status, t)}
+                      <span
+                        className={statusBadgeClass(
+                          item.status_code ?? item.display_status ?? item.status,
+                        )}
+                      >
+                        {reviewStatusLabel(
+                          item.status_code ?? item.display_status ?? item.status,
+                          t,
+                        )}
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -4786,7 +6410,9 @@ function GroupReviewSubview({
                           disabled={!rowCanAccept || Boolean(rowPending)}
                           className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {rowPending === "accept_match" ? t("common.loading") : t("matching.review.accept")}
+                          {rowPending === "accept_match"
+                            ? t("common.loading")
+                            : t("matching.review.accept")}
                         </button>
                         <button
                           type="button"
@@ -4794,7 +6420,9 @@ function GroupReviewSubview({
                           disabled={!rowCanAccept || Boolean(rowPending)}
                           className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          {rowPending === "reject_match" ? t("common.loading") : t("matching.review.reject")}
+                          {rowPending === "reject_match"
+                            ? t("common.loading")
+                            : t("matching.review.reject")}
                         </button>
                         <button
                           type="button"
@@ -4885,7 +6513,8 @@ function mergeReviewSnapshot(
     job: next.job,
     items: current.items.map((item) =>
       affectedKeySet.has(item.input_record_key)
-        ? next.items.find((nextItem) => nextItem.input_record_key === item.input_record_key) ?? item
+        ? (next.items.find((nextItem) => nextItem.input_record_key === item.input_record_key) ??
+          item)
         : item,
     ),
     case_groups: current.case_groups.map((group) => {

@@ -391,6 +391,82 @@ export type ReviewResults = {
   case_groups: ReviewCaseGroup[];
 };
 
+export type AiEnvelope<T> = {
+  success: boolean;
+  provider: string;
+  model: string | null;
+  data: T | null;
+  usage: Record<string, unknown> | null;
+  latency_ms: number | null;
+  error: {
+    code: string | null;
+    message: string | null;
+  };
+};
+
+export type AiReviewAnalysis = {
+  assessment: "likely_match" | "uncertain" | "likely_not_match" | string;
+  confidence: number;
+  summary: string;
+  supporting_evidence: string[];
+  conflicts: string[];
+  missing_information: string[];
+  attention_points: string[];
+};
+
+export type ReviewKnowledgeCase = {
+  matching_result_id: string;
+  matching_job_id: string;
+  input_record_key: string;
+  relevance_score: number;
+  previous_human_decision: string;
+  decision_recorded_at: string | null;
+  pattern: string;
+  important_agreements: string[];
+  important_conflicts: string[];
+  field_scores: Array<{
+    field: string;
+    score: number | null;
+    comparison: string | null;
+  }>;
+};
+
+export type ReviewKnowledgeResponse = {
+  similar_cases: ReviewKnowledgeCase[];
+  total_cases_found: number;
+};
+
+export type AiReviewRecommendation = {
+  recommendation: "accept_match" | "reject_match" | "mark_unmatched" | "needs_review" | string;
+  confidence: number;
+  rationale: string;
+  key_evidence: string[];
+  historical_context: string[];
+  risks: string[];
+  suggested_checks: string[];
+};
+
+export type AiConfigRecommendedField = {
+  field?: string;
+  mapping?: string;
+  use_for_matching?: boolean;
+  priority?: string;
+  suggested_weight?: number;
+  suggested_algorithm?: string;
+  reason?: string;
+};
+
+export type AiMatchingConfigurationSuggestion = {
+  recommended_fields: AiConfigRecommendedField[];
+  suggested_thresholds?: {
+    auto_match?: number;
+    needs_review?: number;
+  };
+  hard_conflict_rules: string[];
+  warnings: string[];
+  rationale: string;
+};
+
 type ReviewDecisionInput = {
   inputRecordKey: string;
   inputRecordKeys?: string[];
@@ -655,6 +731,90 @@ export async function fetchReviewResults(jobId: string): Promise<ReviewResults> 
   if (!response.ok || !payload || payload.success === false) {
     throw new ApiError(
       payload?.message ?? "Review results could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function fetchAiReviewAnalysis(resultId: string): Promise<AiEnvelope<AiReviewAnalysis>> {
+  const response = await apiFetch(`/matching-results/${resultId}/ai-review-analysis`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<AiEnvelope<AiReviewAnalysis>>
+    | ApiFailure
+    | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "AI analysis could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function fetchAiReviewRecommendation(
+  resultId: string,
+): Promise<AiEnvelope<AiReviewRecommendation>> {
+  const response = await apiFetch(`/matching-results/${resultId}/ai-review-recommendation`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<AiEnvelope<AiReviewRecommendation>>
+    | ApiFailure
+    | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "AI recommendation could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function fetchReviewKnowledge(resultId: string): Promise<ReviewKnowledgeResponse> {
+  const response = await apiFetch(`/matching-results/${resultId}/review-knowledge`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<ReviewKnowledgeResponse>
+    | ApiFailure
+    | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Review knowledge could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
+export async function fetchAiMatchingConfiguration(
+  jobId: string,
+): Promise<AiEnvelope<AiMatchingConfigurationSuggestion>> {
+  const response = await apiFetch(`/matching-jobs/${jobId}/ai-matching-configuration`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<AiEnvelope<AiMatchingConfigurationSuggestion>>
+    | ApiFailure
+    | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "AI configuration suggestion could not be loaded.",
       response.status,
       payload?.success === false ? payload.errors : undefined,
     );

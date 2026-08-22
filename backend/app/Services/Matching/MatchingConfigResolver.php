@@ -10,18 +10,21 @@ class MatchingConfigResolver
      */
     public function resolve(array $configuration): array
     {
-        $preset = (string) ($configuration['preset'] ?? 'Balanced');
+        $preset = (string) ($configuration['preset'] ?? 'Default');
         $strategy = (string) ($configuration['strategy'] ?? $this->strategyForPreset($preset));
         $thresholds = $configuration['thresholds'] ?? $this->thresholdsForPreset($preset);
         $candidateGeneration = $configuration['candidateGeneration'] ?? ['topN' => 3];
+        $fields = is_array($configuration['fields'] ?? null) ? $configuration['fields'] : [];
 
         return [
             'preset' => $preset,
+            'mode' => (string) ($configuration['mode'] ?? 'default'),
             'strategy' => $this->normalizeStrategy($strategy),
+            'fields' => $fields,
             'thresholds' => [
                 'autoMatch' => (float) ($thresholds['autoMatch'] ?? 90),
                 'review' => (float) ($thresholds['review'] ?? 75),
-                'noMatch' => (float) ($thresholds['noMatch'] ?? 60),
+                'noMatch' => (float) ($thresholds['noMatch'] ?? 75),
             ],
             'candidateGeneration' => [
                 'topN' => max(1, min(25, (int) ($candidateGeneration['topN'] ?? 3))),
@@ -36,10 +39,7 @@ class MatchingConfigResolver
                 'mode' => 'auto',
                 'preset' => 'Entity Name',
             ],
-            'weighting' => $configuration['weighting'] ?? [
-                'mode' => 'auto',
-                'fields' => [],
-            ],
+            'weighting' => $this->normalizeWeighting($configuration['weighting'] ?? [], $fields),
             'rules' => $configuration['rules'] ?? null,
             'output' => $configuration['output'] ?? [
                 'mode' => 'standard',
@@ -77,7 +77,90 @@ class MatchingConfigResolver
         return match ($preset) {
             'Strict' => ['autoMatch' => 95, 'review' => 85, 'noMatch' => 70],
             'Exploratory' => ['autoMatch' => 85, 'review' => 65, 'noMatch' => 50],
-            default => ['autoMatch' => 90, 'review' => 75, 'noMatch' => 60],
+            default => ['autoMatch' => 90, 'review' => 75, 'noMatch' => 75],
         };
+    }
+
+    /**
+     * Strict fields are constraints, not contributors to the weighted similarity score.
+     *
+     * @param array<string, mixed> $weighting
+     * @param array<int, mixed> $fields
+     * @return array<string, mixed>
+     */
+    private function normalizeWeighting(array $weighting, array $fields): array
+    {
+        $strictMappingIds = [];
+        foreach ($fields as $field) {
+            if (is_array($field) && (bool) ($field['strict'] ?? false)) {
+                $strictMappingIds[(string) ($field['mappingId'] ?? '')] = true;
+            }
+        }
+
+        $weightFields = is_array($weighting['fields'] ?? null) ? array_values($weighting['fields']) : [];
+        $activeIndexes = [];
+        $rawTotal = 0.0;
+
+        foreach ($weightFields as $index => &$field) {
+            if (! is_array($field)) {
+                $field = [];
+            }
+            $mappingId = (string) ($field['mappingId'] ?? '');
+            if (isset($strictMappingIds[$mappingId])) {
+                $field['weight'] = 0;
+                continue;
+            }
+
+            $raw = max(0.0, (float) ($field['weight'] ?? 0));
+            $field['weight'] = $raw;
+            $activeIndexes[] = $index;
+            $rawTotal += $raw;
+        }
+        unset($field);
+
+        if ($activeIndexes === []) {
+            return ['mode' => 'manual', 'fields' => $weightFields];
+        }
+
+        if ($rawTotal <= 0) {
+            $rawTotal = count($activeIndexes);
+            foreach ($activeIndexes as $index) {
+                $weightFields[$index]['weight'] = 1;
+            }
+        }
+
+        $allocated = 0;
+        $remainders = [];
+        foreach ($activeIndexes as $index) {
+            $exact = ((float) $weightFields[$index]['weight'] / $rawTotal) * 100;
+            $normalized = (int) floor($exact);
+            $weightFields[$index]['weight'] = $normalized;
+            $allocated += $normalized;
+            $remainders[] = [
+                'index' => $index,
+                'fraction' => $exact - $normalized,
+                'raw' => $exact,
+            ];
+        }
+
+        usort($remainders, static fn (array $left, array $right): int =>
+            ($right['fraction'] <=> $left['fraction'])
+            ?: ($right['raw'] <=> $left['raw'])
+            ?: ($left['index'] <=> $right['index'])
+        );
+
+        $remaining = 100 - $allocated;
+        foreach ($remainders as $remainder) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $weightFields[$remainder['index']]['weight']++;
+            $remaining--;
+        }
+
+        return [
+            'mode' => (string) ($weighting['mode'] ?? 'manual'),
+            'fields' => $weightFields,
+        ];
     }
 }
