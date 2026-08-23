@@ -2,6 +2,7 @@
 
 namespace App\Services\Matching;
 
+use App\Jobs\RunMatchingJob;
 use App\Models\ColumnMapping;
 use App\Models\Dataset;
 use App\Models\MatchingConfiguration;
@@ -29,14 +30,26 @@ class MatchingEngineService
     }
 
     /**
-     * @param array<string, mixed> $payload
-     * @return array<string, mixed>
-     */
-    /**
+     * Prepare a new MatchingJob, save mappings/config, and dispatch RunMatchingJob.
+     *
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
     public function run(User $user, array $payload): array
+    {
+        $job = $this->prepareJob($user, $payload);
+
+        RunMatchingJob::dispatch($job->id);
+
+        return $this->responseFor($job->refresh());
+    }
+
+    /**
+     * Persist MatchingJob, mappings, configuration, and link to workspace.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function prepareJob(User $user, array $payload): MatchingJob
     {
         $reference = $this->ownership->scopeDatasets(Dataset::with('columns'), $user)
             ->findOrFail($payload['reference_dataset_id']);
@@ -105,33 +118,15 @@ class MatchingEngineService
                 'config_hash' => hash('sha256', json_encode($configuration, JSON_THROW_ON_ERROR)),
             ]);
 
-            try {
-                $summary = $this->executePipeline($job, $reference, $input, $mappings, $configuration);
-                $job->update([
-                    'status' => 'completed',
-                    'processed_count' => count($input->preview_rows),
-                    'record_counts' => $summary,
-                    'finished_at' => Carbon::now(),
-                ]);
-            } catch (Throwable $exception) {
-                $job->update([
-                    'status' => 'failed',
-                    'error_message' => $exception->getMessage(),
-                    'finished_at' => Carbon::now(),
-                ]);
-
-                throw $exception;
-            }
-
             if ($workspace !== null) {
                 $workspace->update([
                     'matching_job_id' => $job->id,
-                    'status' => $job->status === 'completed' ? 'reviewing' : 'failed',
-                    'current_step' => $job->status === 'completed' ? 6 : 5,
+                    'status' => 'processing',
+                    'current_step' => 5,
                 ]);
             }
 
-            return $this->responseFor($job->refresh());
+            return $job;
         });
     }
 
@@ -142,7 +137,7 @@ class MatchingEngineService
      */
     public function runJob(MatchingJob $job): array
     {
-        $job->loadMissing(['referenceDataset.columns', 'inputDataset.columns', 'mappings', 'configuration']);
+        $job->loadMissing(['referenceDataset.columns', 'inputDataset.columns', 'mappings', 'configuration', 'workspace']);
 
         $reference = $job->referenceDataset;
         $input = $job->inputDataset;
@@ -194,12 +189,26 @@ class MatchingEngineService
                 'record_counts' => $summary,
                 'finished_at' => Carbon::now(),
             ]);
+
+            if ($job->workspace !== null) {
+                $job->workspace->update([
+                    'matching_job_id' => $job->id,
+                    'status' => 'reviewing',
+                    'current_step' => 6,
+                ]);
+            }
         } catch (Throwable $exception) {
             $job->update([
                 'status' => 'failed',
                 'error_message' => $exception->getMessage(),
                 'finished_at' => Carbon::now(),
             ]);
+
+            if ($job->workspace !== null) {
+                $job->workspace->update([
+                    'status' => 'failed',
+                ]);
+            }
 
             throw $exception;
         }
@@ -616,12 +625,18 @@ class MatchingEngineService
                 }
             }
 
-            MatchingResult::insert($batchResults);
+            DB::transaction(function () use ($batchResults, $job, $processed, $chunk, $summary) {
+                if (! empty($batchResults)) {
+                    MatchingResult::insert($batchResults);
+                }
+
+                $job->update([
+                    'processed_count' => $processed + count($chunk),
+                    'record_counts' => $summary,
+                ]);
+            });
+
             $processed += count($chunk);
-            $job->update([
-                'processed_count' => $processed,
-                'record_counts' => $summary,
-            ]);
         }
 
         return $summary;
