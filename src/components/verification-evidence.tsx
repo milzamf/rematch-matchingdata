@@ -801,9 +801,9 @@ export function ExploratoryDiagnosticsPanel({
               <tr>
                 <th className="px-5 py-3 font-medium">{t("results.evidence.rule")}</th>
                 <th className="px-5 py-3 font-medium">{t("results.evidence.method")}</th>
-                <th className="px-5 py-3 text-right font-medium">Evaluations</th>
-                <th className="px-5 py-3 text-right font-medium text-success">Passed</th>
-                <th className="px-5 py-3 text-right font-medium text-destructive">Failed</th>
+                <th className="px-5 py-3 text-right font-medium">{t("results.evidence.evaluations")}</th>
+                <th className="px-5 py-3 text-right font-medium text-success">{t("results.evidence.passed")}</th>
+                <th className="px-5 py-3 text-right font-medium text-destructive">{t("results.evidence.failed")}</th>
                 <th className="px-5 py-3 text-right font-medium">{t("results.exploratory.passRate")}</th>
               </tr>
             </thead>

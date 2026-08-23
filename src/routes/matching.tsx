@@ -30,6 +30,7 @@ import {
 } from "@/components/verification-evidence";
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { DataPreviewTable } from "@/components/data-preview-table";
+import { TablePagination } from "@/components/ui/table-pagination";
 import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
 import {
   fetchAiMatchingConfiguration,
@@ -4279,7 +4280,7 @@ function StepReview({
   const [aiLoadingByKey, setAiLoadingByKey] = useState<Record<string, boolean>>({});
   const [aiErrorByKey, setAiErrorByKey] = useState<Record<string, string | null>>({});
   const [page, setPage] = useState(1);
-  const perPage = 8;
+  const [pageSize, setPageSize] = useState(25);
   const identityMappings = useMemo(
     () => extractIdentityMappings({ columnMappings }),
     [columnMappings],
@@ -4353,8 +4354,7 @@ function StepReview({
       if (priorityDiff !== 0) return priorityDiff;
       return candidateScore(b) - candidateScore(a);
     });
-  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
-  const paged = filtered.slice((page - 1) * perPage, page * perPage);
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
   const selectedCandidate =
     selected?.candidates.find((candidate) => candidate.id === selectedCandidateId) ??
     selected?.candidates[0] ??
@@ -4867,28 +4867,17 @@ function StepReview({
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center justify-between px-4 py-2.5 border-t border-border text-xs text-muted-foreground">
-                <span>
-                  {t("matching.review.count", { filtered: filtered.length, total: items.length })} ·{" "}
-                  {t("matching.review.page", { page, total: totalPages })}
-                </span>
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
-                  >
-                    {t("common.prev")}
-                  </button>
-                  <button
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="px-2 py-1 rounded-md border border-border disabled:opacity-40 hover:bg-secondary"
-                  >
-                    {t("common.next")}
-                  </button>
-                </div>
-              </div>
+              <TablePagination
+                currentPage={page}
+                pageSize={pageSize}
+                totalItems={filtered.length}
+                onPageChange={setPage}
+                onPageSizeChange={(newPageSize) => {
+                  setPageSize(newPageSize);
+                  setPage(1);
+                }}
+                pageSizeOptions={[10, 25, 50]}
+              />
             </div>
           )}
         </>
@@ -5585,6 +5574,12 @@ function GroupReviewSubview({
         .filter((item): item is ReviewItem => Boolean(item)),
     [group.item_keys, items],
   );
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const pagedGroupItems = useMemo(
+    () => groupItems.slice((page - 1) * pageSize, page * pageSize),
+    [groupItems, page, pageSize],
+  );
   const allSelectableKeys = groupItems.map((item) => item.input_record_key);
   const selectedSet = new Set(selectedKeys);
   const allSelected =
@@ -5780,7 +5775,7 @@ function GroupReviewSubview({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {groupItems.map((item) => {
+              {pagedGroupItems.map((item) => {
                 const candidate = item.candidates[0] ?? null;
                 const summary = buildIdentitySummary(item, candidate, identityMappings);
                 const inputIdentity = candidate
@@ -5884,6 +5879,17 @@ function GroupReviewSubview({
             </tbody>
           </table>
         </div>
+        <TablePagination
+          currentPage={page}
+          pageSize={pageSize}
+          totalItems={groupItems.length}
+          onPageChange={setPage}
+          onPageSizeChange={(newPageSize) => {
+            setPageSize(newPageSize);
+            setPage(1);
+          }}
+          pageSizeOptions={[10, 25, 50]}
+        />
       </div>
 
       <DecisionHistory history={group.decision_history ?? []} />

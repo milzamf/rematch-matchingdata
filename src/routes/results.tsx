@@ -636,7 +636,7 @@ function OverviewTab({
           <p className="mt-2 text-2xl font-bold tabular-nums text-foreground">
             {formatNumber(activeStatuses.total)}
           </p>
-          <span className="text-[11px] text-muted-foreground">Total records processed</span>
+          <span className="text-[11px] text-muted-foreground">{t("results.summary.processedDesc")}</span>
         </div>
 
         <div className="rounded-lg border border-border border-l-4 border-l-success bg-card p-4">
@@ -647,7 +647,9 @@ function OverviewTab({
           <p className="mt-2 text-2xl font-bold tabular-nums text-success">
             {formatNumber(activeStatuses.exactMatched)}
           </p>
-          <span className="text-[11px] text-muted-foreground">{exactPercent}% of total</span>
+          <span className="text-[11px] text-muted-foreground">
+            {t("results.summary.percentOfTotal", { percent: exactPercent })}
+          </span>
         </div>
 
         <div className="rounded-lg border border-border border-l-4 border-l-brand bg-card p-4">
@@ -658,7 +660,9 @@ function OverviewTab({
           <p className="mt-2 text-2xl font-bold tabular-nums text-brand">
             {formatNumber(activeStatuses.fuzzyMatched)}
           </p>
-          <span className="text-[11px] text-muted-foreground">{fuzzyPercent}% of total</span>
+          <span className="text-[11px] text-muted-foreground">
+            {t("results.summary.percentOfTotal", { percent: fuzzyPercent })}
+          </span>
         </div>
 
         <div className="rounded-lg border border-border border-l-4 border-l-warning bg-card p-4">
@@ -671,8 +675,8 @@ function OverviewTab({
           </p>
           <span className="text-[11px] text-muted-foreground">
             {activeStatuses.downgraded > 0
-              ? `${activeStatuses.downgraded} downgraded`
-              : `${reviewPercent}% of total`}
+              ? t("results.summary.downgradedCount", { count: activeStatuses.downgraded })
+              : t("results.summary.percentOfTotal", { percent: reviewPercent })}
           </span>
         </div>
 
@@ -684,7 +688,9 @@ function OverviewTab({
           <p className="mt-2 text-2xl font-bold tabular-nums text-destructive">
             {formatNumber(activeStatuses.unmatched)}
           </p>
-          <span className="text-[11px] text-muted-foreground">{unmatchedPercent}% of total</span>
+          <span className="text-[11px] text-muted-foreground">
+            {t("results.summary.percentOfTotal", { percent: unmatchedPercent })}
+          </span>
         </div>
       </div>
 
@@ -700,8 +706,10 @@ function OverviewTab({
       {/* Visual Proportional Distribution Bar */}
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between text-xs font-semibold mb-2">
-          <span>Matching Outcome Distribution</span>
-          <span className="text-muted-foreground font-normal">{activeStatuses.total} records</span>
+          <span>{t("results.summary.distributionTitle")}</span>
+          <span className="text-muted-foreground font-normal">
+            {t("results.summary.recordsCount", { count: activeStatuses.total })}
+          </span>
         </div>
         <div className="h-4 w-full overflow-hidden rounded-full bg-secondary flex">
           {activeStatuses.exactMatched > 0 && (
