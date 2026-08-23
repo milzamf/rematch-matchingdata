@@ -291,13 +291,23 @@ function WorkspaceSummaryCards({ summary }: { summary: DashboardSummary }) {
 
 function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
   const { t } = usePreferences();
+  const displayedWorkspaces = workspaces.slice(0, 5);
 
   return (
     <Card className="overflow-hidden">
-      <SectionHeader
-        title={t("dashboard.real.recentTitle")}
-        description={t("dashboard.real.recentDesc")}
-      />
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border/70">
+        <div>
+          <h3 className="text-base font-semibold text-foreground">{t("dashboard.real.recentTitle")}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">{t("dashboard.real.recentDesc")}</p>
+        </div>
+        <Link
+          to="/matching"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline cursor-pointer"
+        >
+          <span>Lihat Semua</span>
+          <ArrowRight className="size-3.5" />
+        </Link>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full table-fixed text-sm">
           <colgroup>
@@ -319,7 +329,7 @@ function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {workspaces.map((workspace) => (
+            {displayedWorkspaces.map((workspace) => (
               <tr key={workspace.id} className="h-[64px] hover:bg-secondary/30">
                 <td className="min-w-0 px-6 py-3 align-middle">
                   <p className="truncate font-semibold">{workspace.name}</p>
@@ -339,8 +349,8 @@ function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
                 <td className="px-6 py-3 text-right align-middle">
                   <Link
                     to="/matching"
-                    search={buildMatchingSearch(workspace.id)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+                    search={buildMatchingSearch(workspace.id, workspace.current_step)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary cursor-pointer"
                   >
                     {t("dashboard.real.open")}
                   </Link>

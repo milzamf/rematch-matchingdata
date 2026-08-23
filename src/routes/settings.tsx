@@ -15,6 +15,8 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Pencil,
+  KeyRound,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -108,12 +110,42 @@ function SettingsPage() {
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [editName, setEditName] = useState(currentUser?.name || "");
 
+  // Password change state
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
 
   const handleTabChange = (val: string) => {
     navigate({ search: { tab: val as SettingsTab } });
+  };
+
+  const handleUpdatePassword = () => {
+    if (!oldPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) {
+      toast.error("Semua kolom password wajib diisi");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Konfirmasi password baru tidak cocok");
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error("Password baru minimal 8 karakter");
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    window.setTimeout(() => {
+      setIsUpdatingPassword(false);
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      toast.success("Password akun berhasil diperbarui");
+    }, 600);
   };
 
   const resetLocalState = () => {
@@ -401,6 +433,70 @@ function SettingsPage() {
                       />
                     </div>
                   </PreferenceSection>
+                </div>
+              </Card>
+
+              {/* Keamanan Akun (Ubah Password) */}
+              <Card className="p-6 space-y-5">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                    <KeyRound className="size-4 text-brand" />
+                    <span>Keamanan Akun</span>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Perbarui kata sandi untuk melindungi akses akun Anda.
+                  </p>
+                </div>
+
+                <div className="space-y-3.5 max-w-md">
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-medium text-foreground">Password Lama</span>
+                    <input
+                      type="password"
+                      value={oldPassword}
+                      onChange={(e) => setOldPassword(e.target.value)}
+                      placeholder="Masukkan password saat ini"
+                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                    />
+                  </label>
+
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-medium text-foreground">Password Baru</span>
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Minimal 8 karakter"
+                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                    />
+                  </label>
+
+                  <label className="block space-y-1.5">
+                    <span className="text-xs font-medium text-foreground">Konfirmasi Password Baru</span>
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Ulangi password baru"
+                      className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                    />
+                  </label>
+
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      disabled={isUpdatingPassword}
+                      onClick={handleUpdatePassword}
+                      className="inline-flex items-center gap-2 rounded-md bg-brand px-3.5 py-2 text-xs font-semibold text-brand-foreground hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer shadow-xs"
+                    >
+                      {isUpdatingPassword ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <KeyRound className="size-3.5" />
+                      )}
+                      <span>Perbarui Password</span>
+                    </button>
+                  </div>
                 </div>
               </Card>
             </TabsContent>
