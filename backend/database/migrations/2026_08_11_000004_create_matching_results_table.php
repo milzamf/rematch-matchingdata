@@ -24,6 +24,7 @@ return new class extends Migration
             $table->index(['matching_job_id', 'result_type']);
             $table->index(['matching_job_id', 'input_record_key']);
             $table->index(['matching_job_id', 'overall_score']);
+            $table->index(['matching_job_id', 'result_type', 'overall_score'], 'idx_results_job_type_score');
         });
     }
 
