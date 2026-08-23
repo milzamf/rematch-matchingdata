@@ -14,12 +14,23 @@ import {
   Save,
   RotateCcw,
   SlidersHorizontal,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { ConfirmationDialog, ErrorPanel, LoadingPanel } from "@/components/feedback-states";
 import { getInitials, useAuth } from "@/lib/auth";
 import { usePreferences } from "@/lib/preferences";
@@ -55,14 +66,12 @@ function SettingsPage() {
   const { language, resolvedTheme, setLanguage, setTheme, t, theme } = usePreferences();
   const { currentUser } = useAuth();
 
+  // Engine defaults (purged column-specific normalisasi, optimasi, and preset)
   const defaultMatchingDefaults = {
-    preset: "Default",
-    normalization: "Text Standardization",
     autoThreshold: "90",
     reviewThreshold: "70",
-    searchOptimization: "Otomatis",
-    candidateCount: "5",
-    customStopwords: "pt, cv, tbk, persero, perseroda, perum, ud, yayasan, jalan, jl, no, nomor, gd, gedung, lt, lantai",
+    customStopwords:
+      "pt, cv, tbk, persero, perseroda, perum, ud, yayasan, jalan, jl, no, nomor, gd, gedung, lt, lantai",
   };
 
   const defaultAiPreferences = {
@@ -84,7 +93,7 @@ function SettingsPage() {
 
   const defaultExportPreferences = {
     exportFormat: "Excel (.xlsx)",
-    csvDelimiter: "Titik Koma (;) - Standar Excel Indonesia",
+    csvDelimiter: "Titik Koma (;)",
     includeReferenceKey: true,
     includeAuditTrail: true,
     includeScore: true,
@@ -94,6 +103,10 @@ function SettingsPage() {
   const [aiPreferences, setAiPreferences] = useState(defaultAiPreferences);
   const [privacy, setPrivacy] = useState(defaultPrivacy);
   const [exportPreferences, setExportPreferences] = useState(defaultExportPreferences);
+
+  // Edit profile modal state
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [editName, setEditName] = useState(currentUser?.name || "");
 
   const [saving, setSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -116,7 +129,10 @@ function SettingsPage() {
     const auto = Number(matchingDefaults.autoThreshold);
     const review = Number(matchingDefaults.reviewThreshold);
     if (!Number.isFinite(auto) || !Number.isFinite(review) || auto <= review) {
-      setSettingsError(t("feedback.error.desc") ?? "Ambang batas auto-match harus lebih tinggi dari ambang batas review.");
+      setSettingsError(
+        t("feedback.error.desc") ??
+          "Ambang batas auto-match harus lebih tinggi dari ambang batas review.",
+      );
       toast.error(t("feedback.error.title") ?? "Konfigurasi tidak valid");
       return;
     }
@@ -133,10 +149,14 @@ function SettingsPage() {
       <div className="px-6 lg:px-10 py-8 max-w-[1100px] mx-auto space-y-6">
         <PageHeader
           title={t("settings.title") ?? "Pengaturan"}
-          description={t("settings.description") ?? "Kelola preferensi akun, algoritma engine pencocokan, privasi data, dan format ekspor."}
+          description={
+            t("settings.description") ??
+            "Kelola preferensi akun, algoritma engine pencocokan, privasi data, dan format ekspor."
+          }
         />
 
         <Tabs
+          orientation="vertical"
           value={activeTab}
           onValueChange={handleTabChange}
           className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-8 items-start"
@@ -150,7 +170,7 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <User className="size-4 shrink-0" />
-                  <span>{t("settings.tabAccount") ?? "Profil & Tampilan"}</span>
+                  <span>Akun & Tampilan</span>
                 </TabsTrigger>
 
                 <TabsTrigger
@@ -158,7 +178,7 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <Cpu className="size-4 shrink-0" />
-                  <span>{t("settings.tabEngine") ?? "Konfigurasi Mesin"}</span>
+                  <span>Mesin Matching</span>
                 </TabsTrigger>
 
                 <TabsTrigger
@@ -166,7 +186,7 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <ShieldCheck className="size-4 shrink-0" />
-                  <span>{t("settings.tabSecurity") ?? "Privasi & AI"}</span>
+                  <span>Keamanan & AI</span>
                 </TabsTrigger>
 
                 <TabsTrigger
@@ -174,12 +194,12 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <FileSpreadsheet className="size-4 shrink-0" />
-                  <span>{t("settings.tabExport") ?? "Format Ekspor"}</span>
+                  <span>Ekspor Data</span>
                 </TabsTrigger>
               </TabsList>
             </div>
 
-            {/* Quick Summary Pill */}
+            {/* Quick Enterprise Pill */}
             <div className="rounded-xl border border-border/80 bg-secondary/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground flex items-center gap-1.5">
                 <Sparkles className="size-3.5 text-brand" />
@@ -193,15 +213,85 @@ function SettingsPage() {
 
           {/* RIGHT ACTIVE CONTENT */}
           <div className="space-y-6 min-w-0">
-            {/* TAB 1: AKUN & PROFIL & TAMPILAN */}
+            {/* TAB 1: AKUN & TAMPILAN */}
             <TabsContent value="akun" className="mt-0 space-y-6">
               {/* Profil Pengguna */}
               <Card className="p-6 space-y-5">
-                <div>
-                  <h3 className="text-base font-semibold text-foreground">Profil Pengguna</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Informasi identitas akun yang digunakan untuk jejak audit dan log reviu.
-                  </p>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground">Identitas Pengguna</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Informasi identitas akun yang digunakan untuk jejak audit dan log reviu.
+                    </p>
+                  </div>
+
+                  {/* UBAH PROFIL BUTTON (OUTLINE VARIANT WITH PENCIL ICON) */}
+                  <Dialog open={isEditProfileOpen} onOpenChange={setIsEditProfileOpen}>
+                    <DialogTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary transition-colors cursor-pointer shrink-0 shadow-xs"
+                      >
+                        <Pencil className="size-3.5 text-muted-foreground" />
+                        <span>Ubah Profil</span>
+                      </button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Ubah Profil Pengguna</DialogTitle>
+                        <DialogDescription>
+                          Perbarui nama tampilan dan data profil akun Anda.
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      <div className="space-y-4 py-2">
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-medium text-foreground">Nama Lengkap</span>
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            placeholder="Nama Lengkap"
+                            className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+                          />
+                        </label>
+
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-medium text-foreground">Email (Akun SSO)</span>
+                          <input
+                            type="email"
+                            disabled
+                            value={currentUser?.email || "admin@rematch.go.id"}
+                            className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-xs text-muted-foreground cursor-not-allowed"
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            Alamat email dikelola melalui sistem Single Sign-On (SSO) institusi.
+                          </span>
+                        </label>
+                      </div>
+
+                      <DialogFooter className="gap-2 sm:gap-0">
+                        <DialogClose asChild>
+                          <button
+                            type="button"
+                            className="px-3 py-1.5 rounded-md border border-border text-xs font-medium text-foreground hover:bg-secondary"
+                          >
+                            Batal
+                          </button>
+                        </DialogClose>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditProfileOpen(false);
+                            toast.success("Profil pengguna berhasil diperbarui.");
+                          }}
+                          className="px-3 py-1.5 rounded-md bg-brand text-brand-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+                        >
+                          Simpan
+                        </button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 rounded-xl border border-border/70 bg-secondary/20">
@@ -219,7 +309,10 @@ function SettingsPage() {
                       </h4>
                       <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-[11px] font-semibold text-brand capitalize">
                         <Shield className="size-3" />
-                        {currentUser ? t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0]) || currentUser.role : "Admin"}
+                        {currentUser
+                          ? t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0]) ||
+                            currentUser.role
+                          : "Admin"}
                       </span>
                     </div>
 
@@ -230,24 +323,30 @@ function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-                  <div className="rounded-lg border border-border bg-card p-3.5 space-y-1">
-                    <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                      <Building2 className="size-3.5 text-muted-foreground" />
-                      {t("settings.organization") ?? "Organisasi"}
-                    </span>
-                    <p className="text-xs font-semibold text-foreground">
-                      {t("brand.organization") ?? "Kementerian / Lembaga"}
-                    </p>
+                {/* PERFECT HORIZONTAL ALIGNMENT FOR ORGANISASI & UNIT KERJA */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                  <div className="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-4">
+                    <Building2 className="size-4 shrink-0 text-muted-foreground mt-0.5" />
+                    <div className="min-w-0 space-y-0.5">
+                      <span className="text-[11px] font-medium text-muted-foreground block">
+                        {t("settings.organization") ?? "Organisasi"}
+                      </span>
+                      <p className="text-xs font-semibold text-foreground truncate">
+                        {t("brand.organization") ?? "Kementerian / Lembaga"}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="rounded-lg border border-border bg-card p-3.5 space-y-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">
-                      {t("settings.organizationUnit") ?? "Unit Kerja"}
-                    </span>
-                    <p className="text-xs font-semibold text-foreground">
-                      {t("brand.organizationUnit") ?? "Pusat Data dan Informasi"}
-                    </p>
+                  <div className="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-4">
+                    <Building2 className="size-4 shrink-0 text-muted-foreground mt-0.5" />
+                    <div className="min-w-0 space-y-0.5">
+                      <span className="text-[11px] font-medium text-muted-foreground block">
+                        {t("settings.organizationUnit") ?? "Unit Kerja"}
+                      </span>
+                      <p className="text-xs font-semibold text-foreground truncate">
+                        {t("brand.organizationUnit") ?? "Pusat Data dan Informasi"}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </Card>
@@ -259,7 +358,8 @@ function SettingsPage() {
                     {t("settings.preferencesTitle") ?? "Preferensi Tampilan"}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {t("settings.preferencesDescription") ?? "Sesuaikan tema visual dan bahasa tampilan aplikasi."}
+                    {t("settings.preferencesDescription") ??
+                      "Sesuaikan tema visual dan bahasa tampilan aplikasi."}
                   </p>
                 </div>
 
@@ -305,41 +405,19 @@ function SettingsPage() {
               </Card>
             </TabsContent>
 
-            {/* TAB 2: KONFIGURASI ENGINE */}
+            {/* TAB 2: MESIN MATCHING (PURGED COLUMN-SPECIFIC CONFIGS) */}
             <TabsContent value="engine" className="mt-0 space-y-6">
               <Card className="p-6 space-y-5">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
-                    {t("settings.matchingDefaults") ?? "Ambang Batas & Algoritma Default"}
+                    Ambang Batas Matching Default
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {t("settings.matchingDefaultsDesc") ?? "Job pencocokan baru akan secara otomatis menggunakan nilai default ini."}
+                    Nilai ambang batas global yang digunakan sebagai standar awal saat membuat workspace matching baru.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Select
-                    label={t("settings.defaultPreset") ?? "Preset Default"}
-                    value={matchingDefaults.preset}
-                    onChange={(value) =>
-                      setMatchingDefaults((current) => ({ ...current, preset: value }))
-                    }
-                    options={["Default", "Custom"]}
-                  />
-                  <Select
-                    label={t("settings.defaultNormalization") ?? "Metode Normalisasi Default"}
-                    value={matchingDefaults.normalization}
-                    onChange={(value) =>
-                      setMatchingDefaults((current) => ({ ...current, normalization: value }))
-                    }
-                    options={[
-                      "Text Standardization",
-                      "Basic",
-                      "Entity Name",
-                      "Address",
-                      "Identifier Strict",
-                    ]}
-                  />
                   <Field
                     label={t("settings.defaultAutoThreshold") ?? "Ambang Batas Auto-Match (%)"}
                     value={matchingDefaults.autoThreshold}
@@ -356,35 +434,18 @@ function SettingsPage() {
                     }
                     type="number"
                   />
-                  <Select
-                    label={t("settings.searchOptimization") ?? "Strategi Optimasi Pencarian"}
-                    value={matchingDefaults.searchOptimization}
-                    onChange={(value) =>
-                      setMatchingDefaults((current) => ({ ...current, searchOptimization: value }))
-                    }
-                    options={["Otomatis", "Identifier lebih dulu", "Wilayah + Nama", "Nama Entitas"]}
-                  />
-                  <Select
-                    label={t("settings.candidateCount") ?? "Maksimal Kandidat per Record"}
-                    value={matchingDefaults.candidateCount}
-                    onChange={(value) =>
-                      setMatchingDefaults((current) => ({ ...current, candidateCount: value }))
-                    }
-                    options={["1", "3", "5", "10"]}
-                  />
                 </div>
               </Card>
 
-              {/* NEW FEATURE: CUSTOM STOPWORDS */}
+              {/* NEW FEATURE: DAFTAR KATA ABAIKAN (STOPWORDS) */}
               <Card className="p-6 space-y-4">
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <SlidersHorizontal className="size-4 text-brand" />
-                    <span>{t("settings.customStopwords") ?? "Stopwords Khusus (Kata yang Diabaikan)"}</span>
+                    <span>Daftar Kata Abaikan (Stopwords)</span>
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {t("settings.customStopwordsDesc") ??
-                      "Daftar kata yang akan otomatis diabaikan atau dibersihkan saat engine melakukan perbandingan teks (pisahkan dengan koma)."}
+                    Kata yang otomatis dihapus sebelum algoritma menghitung skor kemiripan (pisahkan dengan koma).
                   </p>
                 </div>
 
@@ -398,7 +459,7 @@ function SettingsPage() {
                         customStopwords: e.target.value,
                       }))
                     }
-                    placeholder="pt, cv, tbk, persero, jalan, no, nomor, gedung, lantai..."
+                    placeholder="pt, cv, tbk, persero, perseroda, jalan, no, nomor, gedung, lantai..."
                     className="w-full rounded-md border border-border bg-background p-3 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand leading-relaxed"
                   />
                   <p className="text-[11px] text-muted-foreground italic">
@@ -408,7 +469,7 @@ function SettingsPage() {
               </Card>
             </TabsContent>
 
-            {/* TAB 3: PRIVASI & AI */}
+            {/* TAB 3: KEAMANAN & AI */}
             <TabsContent value="keamanan" className="mt-0 space-y-6">
               <SettingsSection
                 title={t("settings.aiPreferences") ?? "Fitur Kecerdasan Buatan (AI)"}
@@ -490,42 +551,35 @@ function SettingsPage() {
                 />
               </SettingsSection>
 
-              {/* NEW FEATURE: AUTOMATED DATA RETENTION */}
+              {/* NEW FEATURE: RETENSI WORKSPACE (AUTO-CLEANUP) */}
               <Card className="p-6 space-y-4">
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <Lock className="size-4 text-brand" />
-                    <span>{t("settings.autoCleanup") ?? "Pembersihan Data Otomatis (Data Retention)"}</span>
+                    <span>Retensi Workspace (Auto-Cleanup)</span>
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {t("settings.autoCleanupDesc") ??
-                      "Otomatis membersihkan dataset sementara dan workspace yang tidak aktif setelah jangka waktu tertentu untuk tata kelola data."}
+                    Jadwal penghapusan otomatis data sensitif dari server.
                   </p>
                 </div>
 
                 <div className="max-w-md">
                   <Select
-                    label="Periode Retensi Dataset Sementara"
+                    label="Jadwal Retensi Data"
                     value={privacy.autoCleanup}
                     onChange={(val) => setPrivacy((current) => ({ ...current, autoCleanup: val }))}
-                    options={[
-                      "Tidak Pernah (Manual)",
-                      "7 Hari",
-                      "14 Hari",
-                      "30 Hari",
-                      "90 Hari",
-                    ]}
+                    options={["7 Hari", "14 Hari", "30 Hari", "Jangan Hapus"]}
                   />
                 </div>
               </Card>
             </TabsContent>
 
-            {/* TAB 4: FORMAT EKSPOR */}
+            {/* TAB 4: EKSPOR DATA */}
             <TabsContent value="ekspor" className="mt-0 space-y-6">
               <Card className="p-6 space-y-5">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
-                    {t("settings.tabExport") ?? "Pengaturan Format Ekspor"}
+                    Format Export Default
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Konfigurasi default struktur dan pembatas file saat mengunduh hasil pencocokan.
@@ -542,24 +596,19 @@ function SettingsPage() {
                     options={["Excel (.xlsx)", "CSV (.csv)", "JSON (.json)", "Parquet (.parquet)"]}
                   />
 
-                  {/* NEW FEATURE: CSV DELIMITER */}
+                  {/* NEW FEATURE: DELIMITER CSV */}
                   <Select
-                    label={t("settings.csvDelimiter") ?? "Pemisah Kolom CSV (Delimiter)"}
+                    label="Delimiter CSV"
                     value={exportPreferences.csvDelimiter}
                     onChange={(val) =>
                       setExportPreferences((current) => ({ ...current, csvDelimiter: val }))
                     }
-                    options={[
-                      "Koma (,) - Standar Internasional",
-                      "Titik Koma (;) - Standar Excel Indonesia",
-                      "Tab (\\t) - TSV",
-                    ]}
+                    options={["Koma (,)", "Titik Koma (;)"]}
                   />
                 </div>
 
                 <p className="text-[11px] text-muted-foreground">
-                  {t("settings.csvDelimiterDesc") ??
-                    "Pemisah titik koma (;) direkomendasikan agar file CSV langsung rapi saat dibuka di Microsoft Excel dengan konfigurasi regional Indonesia."}
+                  Pemisah kolom default untuk file CSV. Titik koma (;) direkomendasikan untuk Microsoft Excel regional Indonesia.
                 </p>
               </Card>
 
