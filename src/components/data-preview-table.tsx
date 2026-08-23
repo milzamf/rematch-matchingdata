@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { usePreferences } from "@/lib/preferences";
 
 export interface DataPreviewColumn {
   key: string;
@@ -50,15 +51,19 @@ export function DataPreviewTable({
   previewLimit = 5,
   badgeColor = "brand",
   badgeText,
-  searchPlaceholder = "Cari data...",
-  emptyMessage = "Tidak ada baris data untuk ditampilkan.",
+  searchPlaceholder,
+  emptyMessage,
   className = "",
   headerAction,
 }: DataPreviewTableProps) {
+  const { t } = usePreferences();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  const effectivePlaceholder = searchPlaceholder ?? t("preview.searchPlaceholder");
+  const effectiveEmptyMessage = emptyMessage ?? t("preview.emptyMessage");
 
   // Normalize column definitions
   const columns: DataPreviewColumn[] = useMemo(() => {
@@ -223,7 +228,7 @@ export function DataPreviewTable({
 
           <div className="flex items-center gap-2">
             <span className="rounded bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground hidden sm:inline-block">
-              {rows.length} dari {totalRows.toLocaleString()} baris
+              {t("preview.row_count", { count: rows.length, total: totalRows.toLocaleString() })}
             </span>
 
             {headerAction}
@@ -237,10 +242,10 @@ export function DataPreviewTable({
                   setIsModalOpen(true);
                 }}
                 className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary hover:text-brand transition-colors cursor-pointer"
-                title="Buka tampilan tabel penuh dengan pencarian dan navigasi halaman"
+                title={t("preview.expandTooltip")}
               >
                 <Maximize2 className="size-3.5" />
-                <span>Perluas / Lihat Semua</span>
+                <span>{t("preview.expand_all")}</span>
               </button>
             )}
           </div>
@@ -249,7 +254,7 @@ export function DataPreviewTable({
         {previewRows.length === 0 ? (
           <div className="py-6 text-center text-xs text-muted-foreground">
             <FileSpreadsheet className="mx-auto size-7 text-muted-foreground/40 mb-1.5" />
-            {emptyMessage}
+            {effectiveEmptyMessage}
           </div>
         ) : (
           <div className="overflow-x-auto rounded-md border border-border">
@@ -322,12 +327,11 @@ export function DataPreviewTable({
                     </span>
                   )}
                   <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-                    {filteredRows.length.toLocaleString()} Baris
+                    {t("preview.filteredRowsBadge", { count: filteredRows.length.toLocaleString() })}
                   </span>
                 </DialogTitle>
                 <DialogDescription className="text-xs mt-0.5">
-                  {subtitle ??
-                    "Tampilan tabel lengkap dengan kontrol navigasi halaman dan pencarian instan."}
+                  {subtitle ?? t("preview.modalSubtitle")}
                 </DialogDescription>
               </div>
 
@@ -342,7 +346,7 @@ export function DataPreviewTable({
                       setSearchQuery(e.target.value);
                       setCurrentPage(1);
                     }}
-                    placeholder={searchPlaceholder}
+                    placeholder={effectivePlaceholder}
                     className="h-8 w-52 sm:w-64 rounded-md border border-border bg-background pl-8 pr-7 text-xs placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-brand"
                   />
                   {searchQuery && (
@@ -357,7 +361,7 @@ export function DataPreviewTable({
                 </div>
 
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span className="hidden sm:inline">Per hal:</span>
+                  <span className="hidden sm:inline">{t("preview.perPage")}</span>
                   <select
                     value={pageSize}
                     onChange={(e) => handlePageSizeChange(Number(e.target.value))}
@@ -378,7 +382,7 @@ export function DataPreviewTable({
             {paginatedRows.length === 0 ? (
               <div className="py-16 text-center text-xs text-muted-foreground">
                 <Search className="mx-auto size-8 text-muted-foreground/40 mb-2" />
-                Tidak ada data yang cocok dengan kata kunci "{searchQuery}".
+                {t("preview.noMatchQuery", { query: searchQuery })}
               </div>
             ) : (
               <table className="w-full text-xs">
@@ -441,19 +445,12 @@ export function DataPreviewTable({
           {/* MODAL FOOTER WITH PAGINATION */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/70 text-xs">
             <div className="text-muted-foreground">
-              Menampilkan{" "}
-              <span className="font-semibold text-foreground">
-                {filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
-              </span>{" "}
-              -{" "}
-              <span className="font-semibold text-foreground">
-                {Math.min(currentPage * pageSize, filteredRows.length)}
-              </span>{" "}
-              dari{" "}
-              <span className="font-semibold text-foreground">
-                {filteredRows.length.toLocaleString()}
-              </span>{" "}
-              baris {searchQuery && `(difilter dari ${rows.length.toLocaleString()})`}
+              {t("preview.paginationShowing", {
+                from: filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1,
+                to: Math.min(currentPage * pageSize, filteredRows.length),
+                total: filteredRows.length.toLocaleString(),
+                filteredInfo: searchQuery ? t("preview.filteredSuffix", { total: rows.length.toLocaleString() }) : "",
+              })}
             </div>
 
             <div className="flex items-center gap-1">
@@ -462,7 +459,7 @@ export function DataPreviewTable({
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage(1)}
                 className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                title="Halaman Pertama"
+                title={t("preview.firstPage")}
               >
                 <ChevronsLeft className="size-3.5" />
               </button>
@@ -472,7 +469,7 @@ export function DataPreviewTable({
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                title="Halaman Sebelumnya"
+                title={t("preview.prevPage")}
               >
                 <ChevronLeft className="size-3.5" />
               </button>
@@ -505,7 +502,7 @@ export function DataPreviewTable({
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                title="Halaman Selanjutnya"
+                title={t("preview.nextPage")}
               >
                 <ChevronRight className="size-3.5" />
               </button>
@@ -515,7 +512,7 @@ export function DataPreviewTable({
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage(totalPages)}
                 className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                title="Halaman Terakhir"
+                title={t("preview.lastPage")}
               >
                 <ChevronsRight className="size-3.5" />
               </button>

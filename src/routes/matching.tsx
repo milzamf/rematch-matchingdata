@@ -1231,14 +1231,14 @@ function MatchingPage() {
         <ConfirmationDialog
           open={runConfirmOpen}
           setOpen={setRunConfirmOpen}
-          title={hasPreviousRun ? "Jalankan Ulang Matching?" : (t("feedback.confirm.runTitle") ?? "Jalankan Matching?")}
+          title={hasPreviousRun ? t("matching.run.rerunDialogTitle") : t("feedback.confirm.runTitle")}
           description={
             hasPreviousRun
-              ? "Menjalankan ulang akan menghapus hasil matching sebelumnya dan memproses ulang data sesuai konfigurasi terbaru."
-              : (t("feedback.confirm.runDesc") ?? "Proses matching akan dijalankan sesuai dengan konfigurasi yang telah ditentukan.")
+              ? t("matching.run.rerunDialogDesc")
+              : t("feedback.confirm.runDesc")
           }
-          cancelLabel={t("common.cancel") ?? "Batal"}
-          actionLabel={hasPreviousRun ? "Jalankan Ulang (Timpa Hasil)" : (t("matching.run.start") ?? "Jalankan Matching")}
+          cancelLabel={t("common.cancel")}
+          actionLabel={hasPreviousRun ? t("matching.run.rerunOverwrite") : t("matching.run.start")}
           onConfirm={startRun}
         />
         <PromptDialog
@@ -1704,37 +1704,34 @@ function StepDataPreview({
   return (
     <div className="space-y-4">
       <SectionTitle
-        title={t("matching.preview.title") ?? "Pratinjau Data (Head Preview)"}
-        desc={
-          t("matching.preview.desc") ??
-          "Pratinjau 5 baris pertama data mentah untuk memvalidasi isi dataset sebelum pemetaan kolom"
-        }
+        title={t("matching.preview.title")}
+        desc={t("matching.preview.desc")}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
         {reference && (
           <DataPreviewTable
-            title={t("matching.upload.reference") ?? "Data Referensi"}
-            subtitle="Dataset acuan yang menjadi target pencocokan"
+            title={t("matching.upload.reference")}
+            subtitle={t("matching.preview.referenceSubtitle")}
             filename={reference.dataset.original_filename}
             columns={reference.columns.map((c) => c.name)}
             rows={reference.preview_rows}
             totalRows={reference.dataset.row_count}
             badgeColor="brand"
-            badgeText="Acuan"
+            badgeText={t("matching.preview.referenceBadge")}
           />
         )}
 
         {input && (
           <DataPreviewTable
-            title={t("matching.upload.input") ?? "Data Input"}
-            subtitle="Dataset input yang akan dicocokkan terhadap acuan"
+            title={t("matching.upload.input")}
+            subtitle={t("matching.preview.inputSubtitle")}
             filename={input.dataset.original_filename}
             columns={input.columns.map((c) => c.name)}
             rows={input.preview_rows}
             totalRows={input.dataset.row_count}
             badgeColor="secondary"
-            badgeText="Input"
+            badgeText={t("matching.preview.inputBadge")}
           />
         )}
       </div>
@@ -1751,6 +1748,7 @@ function StepStandardizedPreview({
   input?: DatasetInspectResult;
   mappings: ColumnMappingDraft[];
 }) {
+  const { t } = usePreferences();
   const [activeTab, setActiveTab] = useState<"input" | "reference">("input");
 
   // Build standardized input rows
@@ -1767,10 +1765,10 @@ function StepStandardizedPreview({
     const columnsToUse = mappedInputCols.length > 0 ? mappedInputCols : input.columns;
 
     columnsToUse.forEach((col) => {
-      cols.push({ key: `raw_${col.name}`, label: `${col.name} (Mentah)` });
+      cols.push({ key: `raw_${col.name}`, label: t("preview.rawColumn", { name: col.name }) });
       cols.push({
         key: `std_${col.name}`,
-        label: `${col.name} (Terstandardisasi)`,
+        label: t("preview.stdColumn", { name: col.name }),
         isStandardized: true,
       });
 
@@ -1783,12 +1781,12 @@ function StepStandardizedPreview({
       if (isEntity) {
         cols.push({
           key: `gen_core_${col.name}`,
-          label: `[Generated] ${col.name} - Nama Inti`,
+          label: t("preview.coreNameColumn", { name: col.name }),
           isVirtual: true,
         });
         cols.push({
           key: `gen_legal_${col.name}`,
-          label: `[Generated] ${col.name} - Badan Usaha`,
+          label: t("preview.legalFormColumn", { name: col.name }),
           isVirtual: true,
         });
       }
@@ -1819,7 +1817,7 @@ function StepStandardizedPreview({
     });
 
     return { columns: cols, rows };
-  }, [input, mappings]);
+  }, [input, mappings, t]);
 
   // Build standardized reference rows
   const referenceStdData = useMemo(() => {
@@ -1835,10 +1833,10 @@ function StepStandardizedPreview({
     const columnsToUse = mappedRefCols.length > 0 ? mappedRefCols : reference.columns;
 
     columnsToUse.forEach((col) => {
-      cols.push({ key: `raw_${col.name}`, label: `${col.name} (Mentah)` });
+      cols.push({ key: `raw_${col.name}`, label: t("preview.rawColumn", { name: col.name }) });
       cols.push({
         key: `std_${col.name}`,
-        label: `${col.name} (Terstandardisasi)`,
+        label: t("preview.stdColumn", { name: col.name }),
         isStandardized: true,
       });
 
@@ -1851,12 +1849,12 @@ function StepStandardizedPreview({
       if (isEntity) {
         cols.push({
           key: `gen_core_${col.name}`,
-          label: `[Generated] ${col.name} - Nama Inti`,
+          label: t("preview.coreNameColumn", { name: col.name }),
           isVirtual: true,
         });
         cols.push({
           key: `gen_legal_${col.name}`,
-          label: `[Generated] ${col.name} - Badan Usaha`,
+          label: t("preview.legalFormColumn", { name: col.name }),
           isVirtual: true,
         });
       }
@@ -1887,7 +1885,7 @@ function StepStandardizedPreview({
     });
 
     return { columns: cols, rows };
-  }, [reference, mappings]);
+  }, [reference, mappings, t]);
 
   if (!reference && !input) return null;
 
@@ -1895,8 +1893,8 @@ function StepStandardizedPreview({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SectionTitle
-          title="Pratinjau Data Terstandardisasi (Standardized Preview)"
-          desc="Lihat bagaimana teks dibersihkan, singkatan alamat diperluas, dan token badan usaha diekstrak sebelum pembobotan pencocokan."
+          title={t("preview.title")}
+          desc={t("preview.description")}
         />
 
         <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
@@ -1909,7 +1907,7 @@ function StepStandardizedPreview({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Dataset Input
+            {t("preview.tabInput")}
           </button>
           <button
             type="button"
@@ -1920,36 +1918,36 @@ function StepStandardizedPreview({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Dataset Referensi
+            {t("preview.tabReference")}
           </button>
         </div>
       </div>
 
       {activeTab === "input" && input && (
         <DataPreviewTable
-          title="Hasil Standardisasi: Dataset Input"
-          subtitle="Nilai mentah disandingkan dengan nilai terstandardisasi dan kolom entitas yang di-generate"
+          title={t("preview.input_result")}
+          subtitle={t("preview.standardizedSubtitle")}
           filename={input.dataset.original_filename}
           columns={inputStdData.columns}
           rows={inputStdData.rows}
           totalRows={input.dataset.row_count}
           previewLimit={5}
           badgeColor="secondary"
-          badgeText="Input Normalized"
+          badgeText={t("preview.tabInput")}
         />
       )}
 
       {activeTab === "reference" && reference && (
         <DataPreviewTable
-          title="Hasil Standardisasi: Dataset Referensi"
-          subtitle="Nilai mentah disandingkan dengan nilai terstandardisasi dan kolom entitas yang di-generate"
+          title={t("preview.reference_result")}
+          subtitle={t("preview.standardizedSubtitle")}
           filename={reference.dataset.original_filename}
           columns={referenceStdData.columns}
           rows={referenceStdData.rows}
           totalRows={reference.dataset.row_count}
           previewLimit={5}
           badgeColor="brand"
-          badgeText="Reference Normalized"
+          badgeText={t("preview.tabReference")}
         />
       )}
     </div>
@@ -3880,13 +3878,13 @@ function StepRunCard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
-            {hasPreviousRun ? "Jalankan Ulang Matching" : t("matching.run.title")}
+            {hasPreviousRun ? t("matching.run.rerunTitle") : t("matching.run.title")}
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {state === "idle"
               ? hasPreviousRun
-                ? "Konfigurasi aturan telah disesuaikan. Klik untuk menjalankan ulang pipeline dan menimpa hasil sebelumnya."
-                : "Konfigurasi aturan sudah lengkap. Klik jalankan untuk mengeksekusi pipeline pencocokan."
+                ? t("matching.run.rerunIdleDesc")
+                : t("matching.run.idleDesc")
               : state === "running"
                 ? t("matching.run.progressTitle")
                 : state === "success"
@@ -3904,14 +3902,14 @@ function StepRunCard({
               className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground shadow hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {hasPreviousRun ? <RefreshCw className="size-4" /> : <Play className="size-4" />}
-              <span>{hasPreviousRun ? "Jalankan Ulang (Timpa Hasil)" : t("matching.run.start")}</span>
+              <span>{hasPreviousRun ? t("matching.run.rerunOverwrite") : t("matching.run.start")}</span>
             </button>
           )}
 
           {state === "running" && (
             <div className="flex items-center gap-2 text-xs font-semibold text-brand">
               <Loader2 className="size-4 animate-spin" />
-              <span>Memproses {progress}%...</span>
+              <span>{t("matching.run.processingPercent", { progress })}</span>
             </div>
           )}
 
@@ -3934,7 +3932,7 @@ function StepRunCard({
                 className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary cursor-pointer"
               >
                 <RefreshCw className="size-3.5" />
-                <span>Ubah & Jalankan Ulang</span>
+                <span>{t("matching.run.rerunButton")}</span>
               </button>
 
               <button
