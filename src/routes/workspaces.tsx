@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { ArrowRight, Edit3, Inbox, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -8,6 +9,7 @@ import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog, ErrorPanel } from "@/components/feedback-states";
 import { PromptDialog } from "@/components/prompt-dialog";
+import { TablePagination } from "@/components/ui/table-pagination";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import {
@@ -36,28 +38,34 @@ export const Route = createFileRoute("/workspaces")({
 function WorkspacesPage() {
   const { t } = usePreferences();
   const { can } = useAuth();
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [workspaceToRename, setWorkspaceToRename] = useState<WorkspaceSummary | null>(null);
-  const [workspaceToDelete, setWorkspaceToDelete] = useState<WorkspaceSummary | null>(null);
+  const queryClient = useQueryClient();
   const canViewWorkspaces = can(PERMISSIONS.WORKSPACE_VIEW);
 
-  const load = useCallback(() => {
-    if (!canViewWorkspaces) return;
-    setLoading(true);
-    setError(null);
-    listWorkspaces()
-      .then(setWorkspaces)
-      .catch((err) => {
-        setError(err instanceof ApiError ? err.message : t("workspace.loadFailed"));
-      })
-      .finally(() => setLoading(false));
-  }, [canViewWorkspaces, t]);
+  const [workspaceToRename, setWorkspaceToRename] = useState<WorkspaceSummary | null>(null);
+  const [workspaceToDelete, setWorkspaceToDelete] = useState<WorkspaceSummary | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const workspacesQuery = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => listWorkspaces(),
+    enabled: canViewWorkspaces,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const workspaces = workspacesQuery.data ?? [];
+  const loading = workspacesQuery.isLoading && !workspacesQuery.data;
+  const error =
+    workspacesQuery.error instanceof ApiError
+      ? workspacesQuery.error.message
+      : workspacesQuery.error instanceof Error
+        ? workspacesQuery.error.message
+        : null;
+
+  const paginatedWorkspaces = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    return workspaces.slice(from, from + pageSize);
+  }, [workspaces, page, pageSize]);
 
   if (!canViewWorkspaces) {
     return (
@@ -74,8 +82,8 @@ function WorkspacesPage() {
 
     try {
       const updated = await updateWorkspace(workspaceToRename.id, { name: nextName });
-      setWorkspaces((current) =>
-        current.map((item) => (item.id === workspaceToRename.id ? updated : item)),
+      queryClient.setQueryData<WorkspaceSummary[]>(["workspaces"], (prev) =>
+        prev ? prev.map((item) => (item.id === workspaceToRename.id ? updated : item)) : [updated],
       );
       toast.success(t("workspace.renamed"));
     } catch (err) {
@@ -90,7 +98,9 @@ function WorkspacesPage() {
 
     try {
       await deleteWorkspace(workspaceToDelete.id);
-      setWorkspaces((current) => current.filter((item) => item.id !== workspaceToDelete.id));
+      queryClient.setQueryData<WorkspaceSummary[]>(["workspaces"], (prev) =>
+        prev ? prev.filter((item) => item.id !== workspaceToDelete.id) : [],
+      );
       toast.success(t("workspace.deleted"));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("workspace.deleteFailed"));
@@ -125,8 +135,8 @@ function WorkspacesPage() {
               description={error}
               action={
                 <button
-                  onClick={load}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                  onClick={() => workspacesQuery.refetch()}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary cursor-pointer"
                 >
                   {t("common.retry")}
                 </button>
@@ -148,86 +158,96 @@ function WorkspacesPage() {
               description={t("workspace.emptyDesc")}
             />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full table-fixed text-sm">
-                <colgroup>
-                  <col />
-                  <col style={{ width: "150px" }} />
-                  <col style={{ width: "130px" }} />
-                  <col style={{ width: "120px" }} />
-                  <col style={{ width: "180px" }} />
-                  <col style={{ width: "220px" }} />
-                </colgroup>
-                <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <th className="px-6 py-3 text-left font-medium">{t("workspace.name")}</th>
-                    <th className="px-6 py-3 text-left font-medium">{t("common.status")}</th>
-                    <th className="px-6 py-3 text-right font-medium">
-                      {t("workspace.records")}
-                    </th>
-                    <th className="px-6 py-3 text-left font-medium">{t("workspace.step")}</th>
-                    <th className="px-6 py-3 text-left font-medium">
-                      {t("workspace.updated")}
-                    </th>
-                    <th className="px-6 py-3 text-right font-medium">{t("common.action")}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {workspaces.map((workspace) => (
-                    <tr key={workspace.id} className="h-[68px] hover:bg-secondary/30">
-                      <td className="min-w-0 px-6 py-3 align-middle">
-                        <p className="truncate font-semibold">{workspace.name}</p>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground">
-                          {workspace.id}
-                        </p>
-                      </td>
-                      <td className="px-6 py-3 align-middle">
-                        <span className="inline-flex rounded-full bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                          {statusLabel(workspace.status, t)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 text-right align-middle tabular-nums">
-                        {workspace.record_count ?? "-"}
-                      </td>
-                      <td className="px-6 py-3 align-middle">
-                        {stepLabel(workspace.current_step, t)}
-                      </td>
-                      <td className="px-6 py-3 align-middle text-muted-foreground">
-                        {formatDate(workspace.updated_at)}
-                      </td>
-                      <td className="px-6 py-3 align-middle">
-                        <div className="flex justify-end gap-2">
-                          <Link
-                            to="/matching"
-                            search={buildMatchingSearch(workspace.id)}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90"
-                          >
-                            {t("workspace.continue")}
-                          </Link>
-                          {can(PERMISSIONS.WORKSPACE_UPDATE) && (
-                            <button
-                              onClick={() => setWorkspaceToRename(workspace)}
-                              className="grid size-8 place-items-center rounded-md border border-border hover:bg-secondary"
-                              aria-label={t("workspace.rename")}
-                            >
-                              <Edit3 className="size-3.5" />
-                            </button>
-                          )}
-                          {can(PERMISSIONS.WORKSPACE_DELETE) && (
-                            <button
-                              onClick={() => setWorkspaceToDelete(workspace)}
-                              className="grid size-8 place-items-center rounded-md border border-border text-destructive hover:bg-destructive/10"
-                              aria-label={t("workspace.delete")}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
+            <div>
+              <div className="overflow-x-auto">
+                <table className="w-full table-fixed text-sm">
+                  <colgroup>
+                    <col />
+                    <col style={{ width: "150px" }} />
+                    <col style={{ width: "130px" }} />
+                    <col style={{ width: "120px" }} />
+                    <col style={{ width: "180px" }} />
+                    <col style={{ width: "220px" }} />
+                  </colgroup>
+                  <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <tr>
+                      <th className="px-6 py-3 text-left font-medium">{t("workspace.name")}</th>
+                      <th className="px-6 py-3 text-left font-medium">{t("common.status")}</th>
+                      <th className="px-6 py-3 text-right font-medium">
+                        {t("workspace.records")}
+                      </th>
+                      <th className="px-6 py-3 text-left font-medium">{t("workspace.step")}</th>
+                      <th className="px-6 py-3 text-left font-medium">
+                        {t("workspace.updated")}
+                      </th>
+                      <th className="px-6 py-3 text-right font-medium">{t("common.action")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {paginatedWorkspaces.map((workspace) => (
+                      <tr key={workspace.id} className="h-[68px] hover:bg-secondary/30 transition-colors">
+                        <td className="min-w-0 px-6 py-3 align-middle">
+                          <p className="truncate font-semibold">{workspace.name}</p>
+                          <p className="truncate font-mono text-[10px] text-muted-foreground">
+                            {workspace.id}
+                          </p>
+                        </td>
+                        <td className="px-6 py-3 align-middle">
+                          <span className="inline-flex rounded-full bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                            {statusLabel(workspace.status, t)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-right align-middle tabular-nums">
+                          {workspace.record_count ?? "-"}
+                        </td>
+                        <td className="px-6 py-3 align-middle">
+                          {stepLabel(workspace.current_step, t)}
+                        </td>
+                        <td className="px-6 py-3 align-middle text-muted-foreground">
+                          {formatDate(workspace.updated_at)}
+                        </td>
+                        <td className="px-6 py-3 align-middle">
+                          <div className="flex justify-end gap-2">
+                            <Link
+                              to="/matching"
+                              search={buildMatchingSearch(workspace.id)}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90 cursor-pointer"
+                            >
+                              {t("workspace.continue")}
+                            </Link>
+                            {can(PERMISSIONS.WORKSPACE_UPDATE) && (
+                              <button
+                                onClick={() => setWorkspaceToRename(workspace)}
+                                className="grid size-8 place-items-center rounded-md border border-border hover:bg-secondary cursor-pointer"
+                                aria-label={t("workspace.rename")}
+                              >
+                                <Edit3 className="size-3.5" />
+                              </button>
+                            )}
+                            {can(PERMISSIONS.WORKSPACE_DELETE) && (
+                              <button
+                                onClick={() => setWorkspaceToDelete(workspace)}
+                                className="grid size-8 place-items-center rounded-md border border-border text-destructive hover:bg-destructive/10 cursor-pointer"
+                                aria-label={t("workspace.delete")}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <TablePagination
+                currentPage={page}
+                pageSize={pageSize}
+                totalItems={workspaces.length}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
             </div>
           )}
         </Card>

@@ -240,7 +240,7 @@ function SettingsPage() {
           {/* RIGHT ACTIVE CONTENT */}
           <div className="space-y-6 min-w-0">
             {/* TAB 1: AKUN & TAMPILAN */}
-            <TabsContent value="akun" className="mt-0 space-y-6">
+            <TabsContent value="akun" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
               {/* Profil Pengguna */}
               <Card className="p-6 space-y-5">
                 <div className="flex items-center justify-between gap-4">
@@ -559,7 +559,7 @@ function SettingsPage() {
             </TabsContent>
 
             {/* TAB 3: KEAMANAN & AI */}
-            <TabsContent value="keamanan" className="mt-0 space-y-6">
+            <TabsContent value="keamanan" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
               <SettingsSection
                 title={t("settings.aiPreferences")}
                 description={t("settings.aiPreferencesDesc")}
@@ -663,7 +663,7 @@ function SettingsPage() {
             </TabsContent>
 
             {/* TAB 4: EKSPOR DATA */}
-            <TabsContent value="ekspor" className="mt-0 space-y-6">
+            <TabsContent value="ekspor" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
               <Card className="p-6 space-y-5">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">

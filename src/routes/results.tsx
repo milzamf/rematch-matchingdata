@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -33,6 +34,7 @@ import {
   VerificationRuleChecklist,
 } from "@/components/verification-evidence";
 import { IntentExportPanel } from "@/components/intent-export-panel";
+import { TablePagination } from "@/components/ui/table-pagination";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import {
@@ -98,114 +100,87 @@ function ResultsPage() {
   const { can } = useAuth();
   const navigate = useNavigate();
   const search = Route.useSearch();
+  const queryClient = useQueryClient();
   const requestedWorkspaceId = search.workspace ?? null;
 
   const [tab, setTab] = useState<TabKey>("overview");
   const [selectedRuleFilter, setSelectedRuleFilter] = useState<string | null>(null);
   const [historyView, setHistoryView] = useState<ReviewHistoryView>("groups");
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     requestedWorkspaceId,
   );
-  const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
-  const [review, setReview] = useState<ReviewResults | null>(null);
-  const [loadingWorkspaces, setLoadingWorkspaces] = useState(true);
-  const [loadingWorkspace, setLoadingWorkspace] = useState(false);
-  const [loadingReview, setLoadingReview] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [refreshNonce, setRefreshNonce] = useState(0);
 
   const canViewResults = can(PERMISSIONS.EXPORT_VIEW);
   const canReview = can(PERMISSIONS.REVIEW_DECIDE);
   const canSync = can(PERMISSIONS.SYNC_EXECUTE);
   const canOpenExport = can(PERMISSIONS.EXPORT_EXECUTE);
 
+  // 1. Workspaces Query (cached for 5 minutes, retention in memory)
+  const workspacesQuery = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => listWorkspaces(),
+    enabled: canViewResults,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const workspaces = workspacesQuery.data ?? [];
+
+  // Initialize selectedWorkspaceId when workspaces load
   useEffect(() => {
-    setSelectedWorkspaceId((current) =>
-      requestedWorkspaceId && requestedWorkspaceId !== current ? requestedWorkspaceId : current,
-    );
-  }, [requestedWorkspaceId]);
-
-  useEffect(() => {
-    if (!canViewResults) return;
-
-    setLoadingWorkspaces(true);
-    setError(null);
-
-    listWorkspaces()
-      .then((items) => {
-        setWorkspaces(items);
-        const withResults = items.filter(
-          (item) => Boolean(item.matching_job_id ?? item.matching_job?.id),
-        );
-        const fallbackWorkspaceId =
-          requestedWorkspaceId ??
-          withResults[0]?.id ??
-          items[0]?.id ??
-          null;
-        setSelectedWorkspaceId((current) => current ?? fallbackWorkspaceId);
-      })
-      .catch((err) => {
-        setError(err instanceof ApiError ? err.message : t("results.loadFailed"));
-      })
-      .finally(() => setLoadingWorkspaces(false));
-  }, [canViewResults, refreshNonce, requestedWorkspaceId, t]);
-
-  useEffect(() => {
-    if (!canViewResults || !selectedWorkspaceId) {
-      setWorkspace(null);
-      setReview(null);
+    if (requestedWorkspaceId) {
+      setSelectedWorkspaceId(requestedWorkspaceId);
       return;
     }
-
-    setLoadingWorkspace(true);
-    setError(null);
-
-    fetchWorkspace(selectedWorkspaceId)
-      .then((data) => {
-        setWorkspace(data);
-        setTab("overview");
-        void navigate({ to: "/results", search: { workspace: data.id }, replace: true });
-      })
-      .catch((err) => {
-        setWorkspace(null);
-        setReview(null);
-        setError(err instanceof ApiError ? err.message : t("results.loadFailed"));
-      })
-      .finally(() => setLoadingWorkspace(false));
-  }, [canViewResults, navigate, refreshNonce, selectedWorkspaceId, t]);
-
-  useEffect(() => {
-    const jobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
-
-    if (!canViewResults || !jobId) {
-      setReview(null);
-      return;
+    if (!selectedWorkspaceId && workspaces.length > 0) {
+      const withResults = workspaces.filter(
+        (item) => Boolean(item.matching_job_id ?? item.matching_job?.id),
+      );
+      const fallbackId = withResults[0]?.id ?? workspaces[0]?.id ?? null;
+      if (fallbackId) {
+        setSelectedWorkspaceId(fallbackId);
+      }
     }
+  }, [requestedWorkspaceId, selectedWorkspaceId, workspaces]);
 
-    setLoadingReview(true);
-    setError(null);
+  // 2. Active Workspace Query (cached per workspace ID)
+  const workspaceQuery = useQuery({
+    queryKey: ["workspace", selectedWorkspaceId],
+    queryFn: () => fetchWorkspace(selectedWorkspaceId!),
+    enabled: Boolean(canViewResults && selectedWorkspaceId),
+    staleTime: 5 * 60 * 1000,
+  });
 
-    fetchReviewResults(jobId)
-      .then(setReview)
-      .catch((err) => {
-        setReview(null);
-        setError(err instanceof ApiError ? err.message : t("results.loadFailed"));
-      })
-      .finally(() => setLoadingReview(false));
-  }, [canViewResults, refreshNonce, workspace, t]);
+  const workspace = workspaceQuery.data ?? null;
 
-  const items = review?.items ?? [];
+  // Keep URL query param synced with selected workspace
+  useEffect(() => {
+    if (workspace?.id && workspace.id !== requestedWorkspaceId) {
+      void navigate({ to: "/results", search: { workspace: workspace.id }, replace: true });
+    }
+  }, [navigate, requestedWorkspaceId, workspace?.id]);
+
+  // 3. Review Results Query (cached per matching job ID)
+  const jobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
+  const reviewQuery = useQuery({
+    queryKey: ["review-results", jobId],
+    queryFn: () => fetchReviewResults(jobId!),
+    enabled: Boolean(canViewResults && jobId),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const review = reviewQuery.data ?? null;
+
+  const items = useMemo(() => review?.items ?? [], [review?.items]);
   const matchedItems = useMemo(() => items.filter(isFinalMatched), [items]);
   const needReviewItems = useMemo(() => items.filter(isPendingReview), [items]);
   const unmatchedItems = useMemo(() => items.filter(isFinalUnmatched), [items]);
-  const caseGroups = review?.case_groups ?? [];
+  const caseGroups = useMemo(() => review?.case_groups ?? [], [review?.case_groups]);
   const [localExportHistory, setLocalExportHistory] = useState<StoredExportHistoryEntry[]>([]);
   const exportHistory = useMemo(() => {
     const fromWorkspace = normalizeStoredExportHistory(workspace?.export_history).filter((item) => {
-      const jobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
-      return !jobId || !item.sourceJobId || item.sourceJobId === jobId;
+      const jId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
+      return !jId || !item.sourceJobId || item.sourceJobId === jId;
     });
     const combined = [...localExportHistory, ...fromWorkspace];
     const seen = new Set<string>();
@@ -215,14 +190,17 @@ function ResultsPage() {
       return true;
     });
   }, [workspace, localExportHistory]);
-  const syncSummary = normalizeSyncSummary(workspace?.sync_state);
+  const syncSummary = useMemo(() => normalizeSyncSummary(workspace?.sync_state), [workspace?.sync_state]);
   const inputRecordCount =
     workspace?.input_dataset?.dataset.row_count ??
     workspace?.record_count ??
     items.length;
-  const reviewCaseCount = caseGroups.filter((group) => group.status === "open").length;
-  const workflowConfig = readRecord(workspace?.workflow_state);
-  const matchingConfig = readRecord(workflowConfig.matchingConfiguration);
+  const reviewCaseCount = useMemo(
+    () => caseGroups.filter((group) => group.status === "open").length,
+    [caseGroups],
+  );
+  const workflowConfig = useMemo(() => readRecord(workspace?.workflow_state), [workspace?.workflow_state]);
+  const matchingConfig = useMemo(() => readRecord(workflowConfig.matchingConfiguration), [workflowConfig.matchingConfiguration]);
   const matchingPreset = readString(matchingConfig.preset);
   const matchingStrategy = readString(matchingConfig.strategy);
   const identityMappings = useMemo(
@@ -230,18 +208,44 @@ function ResultsPage() {
     [workspace?.workflow_state],
   );
   const hasResults = Boolean(workspace && (workspace.matching_job_id ?? workspace.matching_job?.id) && items.length > 0);
-  const activeStatuses = countFinalStatuses(items);
-  const nextAction = buildNextAction({
-    canOpenExport,
-    canReview,
-    canSync,
-    exportHistoryCount: exportHistory.length,
-    needReviewCount: needReviewItems.length,
-    reviewCaseCount,
-    syncConfirmed: Boolean(syncSummary?.confirmed),
-    t,
-    workspaceId: workspace?.id ?? null,
-  });
+  const activeStatuses = useMemo(() => countFinalStatuses(items), [items]);
+  const nextAction = useMemo(
+    () =>
+      buildNextAction({
+        canOpenExport,
+        canReview,
+        canSync,
+        exportHistoryCount: exportHistory.length,
+        needReviewCount: needReviewItems.length,
+        reviewCaseCount,
+        syncConfirmed: Boolean(syncSummary?.confirmed),
+        t,
+        workspaceId: workspace?.id ?? null,
+      }),
+    [canOpenExport, canReview, canSync, exportHistory.length, needReviewItems.length, reviewCaseCount, syncSummary?.confirmed, t, workspace?.id],
+  );
+
+  // Errors from any query
+  const queryError = workspacesQuery.error ?? workspaceQuery.error ?? reviewQuery.error;
+  const error = queryError instanceof ApiError ? queryError.message : queryError instanceof Error ? queryError.message : null;
+
+  // Background refresh state
+  const isRefreshing =
+    workspacesQuery.isFetching || workspaceQuery.isFetching || reviewQuery.isFetching;
+
+  // Initial full-screen loading: ONLY on first load when no cache is available
+  const isInitialLoading =
+    (workspacesQuery.isLoading && !workspacesQuery.data) ||
+    (Boolean(selectedWorkspaceId) && workspaceQuery.isLoading && !workspaceQuery.data) ||
+    (Boolean(jobId) && reviewQuery.isLoading && !reviewQuery.data);
+
+  const handleRefresh = async () => {
+    await Promise.all([
+      workspacesQuery.refetch(),
+      selectedWorkspaceId ? workspaceQuery.refetch() : Promise.resolve(),
+      jobId ? reviewQuery.refetch() : Promise.resolve(),
+    ]);
+  };
 
   if (!canViewResults) {
     return (
@@ -253,8 +257,6 @@ function ResultsPage() {
     );
   }
 
-  const loading = loadingWorkspaces || loadingWorkspace || loadingReview;
-
   return (
     <AppLayout>
       <div className="mx-auto max-w-[1400px] px-8 py-8">
@@ -265,10 +267,11 @@ function ResultsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setRefreshNonce((value) => value + 1)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
+                disabled={isRefreshing}
+                onClick={handleRefresh}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary transition-colors cursor-pointer disabled:opacity-60"
               >
-                <RefreshCw className="size-4" />
+                <RefreshCw className={`size-4 ${isRefreshing ? "animate-spin text-brand" : ""}`} />
                 {t("common.refresh")}
               </button>
               {workspaces.length > 0 && (
@@ -276,8 +279,14 @@ function ResultsPage() {
                   <span className="text-muted-foreground">{t("results.workspace")}</span>
                   <select
                     value={selectedWorkspaceId ?? ""}
-                    onChange={(event) => setSelectedWorkspaceId(event.target.value || null)}
-                    className="min-w-[220px] bg-transparent text-sm outline-none"
+                    onChange={(event) => {
+                      const nextId = event.target.value || null;
+                      setSelectedWorkspaceId(nextId);
+                      if (nextId) {
+                        void navigate({ to: "/results", search: { workspace: nextId }, replace: true });
+                      }
+                    }}
+                    className="min-w-[220px] bg-transparent text-sm outline-none cursor-pointer"
                   >
                     {workspaces.map((item) => (
                       <option key={item.id} value={item.id}>
@@ -299,11 +308,8 @@ function ResultsPage() {
               action={
                 <button
                   type="button"
-                  onClick={() => {
-                    setError(null);
-                    setRefreshNonce((value) => value + 1);
-                  }}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                  onClick={handleRefresh}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary cursor-pointer"
                 >
                   {t("common.retry")}
                 </button>
@@ -312,7 +318,7 @@ function ResultsPage() {
           </div>
         )}
 
-        {loading ? (
+        {isInitialLoading ? (
           <LoadingPanel
             title={t("results.loadingTitle")}
             description={t("results.loadingDesc")}
@@ -426,7 +432,7 @@ function ResultsPage() {
                     type="button"
                     onClick={() => setTab(item)}
                     className={[
-                      "whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors",
+                      "whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors cursor-pointer",
                       tab === item
                         ? "border-brand text-foreground"
                         : "border-transparent text-muted-foreground hover:text-foreground",
@@ -437,7 +443,8 @@ function ResultsPage() {
                 ))}
               </div>
 
-              {tab === "overview" && (
+              {/* TABS CONTENT WITH PRESERVED STATE (CSS HIDDEN) */}
+              <div className={tab === "overview" ? "block" : "hidden"}>
                 <OverviewTab
                   workspace={workspace}
                   activeStatuses={activeStatuses}
@@ -452,16 +459,18 @@ function ResultsPage() {
                   }}
                   selectedRuleFilter={selectedRuleFilter}
                 />
-              )}
-              {tab === "cases" && (
+              </div>
+
+              <div className={tab === "cases" ? "block" : "hidden"}>
                 <CasesTab
                   items={items}
                   identityMappings={identityMappings}
                   selectedRuleFilter={selectedRuleFilter}
                   onClearRuleFilter={() => setSelectedRuleFilter(null)}
                 />
-              )}
-              {tab === "exploratory" && (
+              </div>
+
+              <div className={tab === "exploratory" ? "block" : "hidden"}>
                 <ExploratoryDiagnosticsPanel
                   items={items}
                   selectedRuleFilter={selectedRuleFilter}
@@ -470,9 +479,13 @@ function ResultsPage() {
                     if (rule) setTab("cases");
                   }}
                 />
-              )}
-              {tab === "matched" && <MatchedTab items={matchedItems} identityMappings={identityMappings} />}
-              {tab === "review" && (
+              </div>
+
+              <div className={tab === "matched" ? "block" : "hidden"}>
+                <MatchedTab items={matchedItems} identityMappings={identityMappings} />
+              </div>
+
+              <div className={tab === "review" ? "block" : "hidden"}>
                 <NeedReviewTab
                   caseGroupCount={reviewCaseCount}
                   identityMappings={identityMappings}
@@ -485,17 +498,22 @@ function ResultsPage() {
                     setSelectedRuleFilter(rule);
                   }}
                 />
-              )}
-              {tab === "unmatched" && (
+              </div>
+
+              <div className={tab === "unmatched" ? "block" : "hidden"}>
                 <UnmatchedTab
                   identityMappings={identityMappings}
                   items={unmatchedItems}
                   workspaceId={workspace.id}
                   canReview={canReview}
                 />
-              )}
-              {tab === "statistics" && <StatisticsTab items={items} />}
-              {tab === "reviewHistory" && (
+              </div>
+
+              <div className={tab === "statistics" ? "block" : "hidden"}>
+                <StatisticsTab items={items} />
+              </div>
+
+              <div className={tab === "reviewHistory" ? "block" : "hidden"}>
                 <ReviewHistoryTab
                   caseGroups={caseGroups}
                   historyView={historyView}
@@ -503,8 +521,9 @@ function ResultsPage() {
                   items={items}
                   onViewChange={setHistoryView}
                 />
-              )}
-              {tab === "export" && (
+              </div>
+
+              <div className={tab === "export" ? "block" : "hidden"}>
                 <ExportTab
                   canOpenExport={canOpenExport}
                   downloadingId={downloadingId}
@@ -538,7 +557,7 @@ function ResultsPage() {
                   }}
                   workspaceId={workspace.id}
                 />
-              )}
+              </div>
             </Card>
           </>
         )}
@@ -832,6 +851,8 @@ function CasesTab({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "possible_match" | "matched" | "unmatched">("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(items[0]?.input_record_key ?? null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -857,13 +878,24 @@ function CasesTab({
     });
   }, [items, statusFilter, selectedRuleFilter, query]);
 
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, selectedRuleFilter, query]);
+
+  const paginatedItems = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    return filteredItems.slice(from, from + pageSize);
+  }, [filteredItems, page, pageSize]);
+
   const selectedItem = useMemo(() => {
     return (
       (selectedKey ? filteredItems.find((i) => i.input_record_key === selectedKey) : null) ??
+      paginatedItems[0] ??
       filteredItems[0] ??
       null
     );
-  }, [filteredItems, selectedKey]);
+  }, [filteredItems, paginatedItems, selectedKey]);
 
   const selectedCandidate = selectDisplayCandidate(selectedItem);
   const selectedIdentity = selectedItem
@@ -898,7 +930,7 @@ function CasesTab({
                 type="button"
                 onClick={() => setStatusFilter(st)}
                 className={[
-                  "rounded px-2.5 py-1 font-medium transition-colors",
+                  "rounded px-2.5 py-1 font-medium transition-colors cursor-pointer",
                   statusFilter === st
                     ? "bg-brand text-brand-foreground"
                     : "text-muted-foreground hover:text-foreground",
@@ -922,7 +954,7 @@ function CasesTab({
             <button
               type="button"
               onClick={onClearRuleFilter}
-              className="rounded p-0.5 hover:bg-warning/20 text-warning"
+              className="rounded p-0.5 hover:bg-warning/20 text-warning cursor-pointer"
             >
               <XCircle className="size-4" />
             </button>
@@ -937,76 +969,88 @@ function CasesTab({
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
           {/* Master List */}
-          <div className="max-h-[720px] overflow-y-auto rounded-lg border border-border divide-y divide-border">
-            {filteredItems.map((item) => {
-              const candidate = selectDisplayCandidate(item);
-              const isSelected = selectedItem?.input_record_key === item.input_record_key;
-              const identity = buildIdentitySummary(item, candidate, identityMappings);
-              const evidence = candidate?.verification_evidence;
-              const isExact = evidence?.is_exact_match || evidence?.bypassed_fuzzy;
+          <div className="flex flex-col rounded-lg border border-border overflow-hidden">
+            <div className="max-h-[640px] overflow-y-auto divide-y divide-border">
+              {paginatedItems.map((item) => {
+                const candidate = selectDisplayCandidate(item);
+                const isSelected = selectedItem?.input_record_key === item.input_record_key;
+                const identity = buildIdentitySummary(item, candidate, identityMappings);
+                const evidence = candidate?.verification_evidence;
+                const isExact = evidence?.is_exact_match || evidence?.bypassed_fuzzy;
 
-              return (
-                <div
-                  key={item.input_record_key}
-                  onClick={() => setSelectedKey(item.input_record_key)}
-                  className={[
-                    "cursor-pointer p-4 transition-colors",
-                    isSelected ? "bg-brand/10 border-l-4 border-l-brand" : "hover:bg-secondary/20",
-                  ].join(" ")}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs text-foreground">
-                        {t("results.context.record") || "Record"} #{item.input_record_key}
-                      </span>
-                      <StatusBadge
-                        label={
-                          item.status === "matched"
-                            ? isExact
-                              ? t("results.evidence.exactMatchLabel")
-                              : t("results.summary.autoMatched")
-                            : item.status === "possible_match"
-                              ? t("results.metric.review")
-                              : t("results.metric.unmatched")
-                        }
-                        tone={
-                          item.status === "matched"
-                            ? "success"
-                            : item.status === "possible_match"
-                              ? "warning"
-                              : "destructive"
-                        }
-                      />
+                return (
+                  <div
+                    key={item.input_record_key}
+                    onClick={() => setSelectedKey(item.input_record_key)}
+                    className={[
+                      "cursor-pointer p-4 transition-colors",
+                      isSelected ? "bg-brand/10 border-l-4 border-l-brand" : "hover:bg-secondary/20",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-xs text-foreground">
+                          {t("results.context.record") || "Record"} #{item.input_record_key}
+                        </span>
+                        <StatusBadge
+                          label={
+                            item.status === "matched"
+                              ? isExact
+                                ? t("results.evidence.exactMatchLabel")
+                                : t("results.summary.autoMatched")
+                              : item.status === "possible_match"
+                                ? t("results.metric.review")
+                                : t("results.metric.unmatched")
+                          }
+                          tone={
+                            item.status === "matched"
+                              ? "success"
+                              : item.status === "possible_match"
+                                ? "warning"
+                                : "destructive"
+                          }
+                        />
+                      </div>
+                      {isExact ? (
+                        <span className="rounded bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">
+                          {t("results.evidence.exactMatchLabel")}
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-xs tabular-nums text-foreground">
+                          {formatScore(candidate?.score)}
+                        </span>
+                      )}
                     </div>
-                    {isExact ? (
-                      <span className="rounded bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">
-                        {t("results.evidence.exactMatchLabel")}
-                      </span>
-                    ) : (
-                      <span className="font-semibold text-xs tabular-nums text-foreground">
-                        {formatScore(candidate?.score)}
-                      </span>
+
+                    <p className="mt-2 font-medium text-xs text-foreground truncate">
+                      {identity.primary?.inputValue || "—"}
+                    </p>
+                    {candidate && (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
+                        ↔ {identity.primary?.referenceValue || "—"}
+                      </p>
+                    )}
+
+                    {evidence?.downgraded && (
+                      <div className="mt-2 inline-flex items-center gap-1 rounded bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">
+                        <AlertTriangle className="size-3" />
+                        <span>{t("results.evidence.downgraded")}</span>
+                      </div>
                     )}
                   </div>
+                );
+              })}
+            </div>
 
-                  <p className="mt-2 font-medium text-xs text-foreground truncate">
-                    {identity.primary?.inputValue || "—"}
-                  </p>
-                  {candidate && (
-                    <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
-                      ↔ {identity.primary?.referenceValue || "—"}
-                    </p>
-                  )}
-
-                  {evidence?.downgraded && (
-                    <div className="mt-2 inline-flex items-center gap-1 rounded bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">
-                      <AlertTriangle className="size-3" />
-                      <span>{t("results.evidence.downgraded")}</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <TablePagination
+              currentPage={page}
+              pageSize={pageSize}
+              totalItems={filteredItems.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[10, 25, 50]}
+              className="px-4 py-2"
+            />
           </div>
 
           {/* Detailed Side-by-Side Comparison & Evidence Breakdown */}
@@ -1109,6 +1153,8 @@ function MatchedTab({
 }) {
   const { t } = usePreferences();
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const toggleRow = (key: string) => {
     setExpandedKeys((prev) => {
@@ -1118,6 +1164,11 @@ function MatchedTab({
       return next;
     });
   };
+
+  const paginatedItems = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    return items.slice(from, from + pageSize);
+  }, [items, page, pageSize]);
 
   if (items.length === 0) {
     return (
@@ -1130,79 +1181,89 @@ function MatchedTab({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-          <tr>
-            <th className="w-8 px-3 py-3"></th>
-            <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
-            <th className="px-6 py-3 text-right font-medium">{t("results.table.score")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.method")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.source")}</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {items.map((item) => {
-            const candidate = selectDisplayCandidate(item);
-            const identity = buildIdentitySummary(item, candidate, identityMappings);
-            const isExact = Boolean(
-              candidate?.verification_evidence?.is_exact_match ||
-                candidate?.verification_evidence?.bypassed_fuzzy,
-            );
-            const isExpanded = expandedKeys.has(item.input_record_key);
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="w-8 px-3 py-3"></th>
+              <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
+              <th className="px-6 py-3 text-right font-medium">{t("results.table.score")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.method")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.source")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {paginatedItems.map((item) => {
+              const candidate = selectDisplayCandidate(item);
+              const identity = buildIdentitySummary(item, candidate, identityMappings);
+              const isExact = Boolean(
+                candidate?.verification_evidence?.is_exact_match ||
+                  candidate?.verification_evidence?.bypassed_fuzzy,
+              );
+              const isExpanded = expandedKeys.has(item.input_record_key);
 
-            return (
-              <Fragment key={item.input_record_key}>
-                <tr className="align-top hover:bg-secondary/20">
-                  <td className="px-3 py-4 text-center">
-                    <button
-                      type="button"
-                      onClick={() => toggleRow(item.input_record_key)}
-                      className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                      title={isExpanded ? "Tutup detail" : "Lihat bukti verifikasi & checklist"}
-                    >
-                      {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4">
-                    <RecordIdentityPreview summary={identity} side="input" />
-                  </td>
-                  <td className="px-6 py-4">
-                    <RecordIdentityPreview summary={identity} side="reference" showDetails />
-                  </td>
-                  <td className="px-6 py-4 text-right font-medium tabular-nums">
-                    {isExact ? (
-                      <span className="inline-flex rounded bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
-                        {t("results.evidence.exactMatchLabel")}
-                      </span>
-                    ) : (
-                      formatScore(candidate?.score)
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    {isExact ? "Mandatory Exact Key" : methodDisplayLabel(candidate)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <StatusBadge label={displayDecisionLabel(item, t)} tone="success" />
-                  </td>
-                  <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
-                </tr>
-                {isExpanded && (
-                  <tr className="bg-secondary/15">
-                    <td colSpan={7} className="px-6 py-4">
-                      <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-                        <VerificationRuleChecklist candidate={candidate} />
-                      </div>
+              return (
+                <Fragment key={item.input_record_key}>
+                  <tr className="align-top hover:bg-secondary/20 transition-colors">
+                    <td className="px-3 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleRow(item.input_record_key)}
+                        className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
+                        title={isExpanded ? "Tutup detail" : "Lihat bukti verifikasi & checklist"}
+                      >
+                        {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                      </button>
                     </td>
+                    <td className="px-6 py-4">
+                      <RecordIdentityPreview summary={identity} side="input" />
+                    </td>
+                    <td className="px-6 py-4">
+                      <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                    </td>
+                    <td className="px-6 py-4 text-right font-medium tabular-nums">
+                      {isExact ? (
+                        <span className="inline-flex rounded bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
+                          {t("results.evidence.exactMatchLabel")}
+                        </span>
+                      ) : (
+                        formatScore(candidate?.score)
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {isExact ? "Mandatory Exact Key" : methodDisplayLabel(candidate)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge label={displayDecisionLabel(item, t)} tone="success" />
+                    </td>
+                    <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
                   </tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+                  {isExpanded && (
+                    <tr className="bg-secondary/15">
+                      <td colSpan={7} className="px-6 py-4">
+                        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                          <VerificationRuleChecklist candidate={candidate} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <TablePagination
+        currentPage={page}
+        pageSize={pageSize}
+        totalItems={items.length}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+      />
     </div>
   );
 }
@@ -1228,6 +1289,8 @@ function NeedReviewTab({
 }) {
   const { t } = usePreferences();
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const toggleRow = (key: string) => {
     setExpandedKeys((prev) => {
@@ -1246,6 +1309,16 @@ function NeedReviewTab({
       return rules.some((r) => r.field_name === selectedRuleFilter && !r.passed);
     });
   }, [items, selectedRuleFilter]);
+
+  // Reset page when rule filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [selectedRuleFilter]);
+
+  const paginatedItems = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    return filteredItems.slice(from, from + pageSize);
+  }, [filteredItems, page, pageSize]);
 
   if (items.length === 0) {
     return (
@@ -1288,75 +1361,85 @@ function NeedReviewTab({
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-            <tr>
-              <th className="w-8 px-3 py-3"></th>
-              <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
-              <th className="px-6 py-3 font-medium">{t("results.table.candidate")}</th>
-              <th className="px-6 py-3 text-right font-medium">{t("results.table.score")}</th>
-              <th className="px-6 py-3 font-medium">{t("results.table.reason")}</th>
-              <th className="px-6 py-3 font-medium">{t("results.table.caseGroup")}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filteredItems.map((item) => {
-              const candidate = selectDisplayCandidate(item);
-              const identity = buildIdentitySummary(item, candidate, identityMappings);
-              const isExpanded = expandedKeys.has(item.input_record_key);
+      <div className="rounded-lg border border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="w-8 px-3 py-3"></th>
+                <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
+                <th className="px-6 py-3 font-medium">{t("results.table.candidate")}</th>
+                <th className="px-6 py-3 text-right font-medium">{t("results.table.score")}</th>
+                <th className="px-6 py-3 font-medium">{t("results.table.reason")}</th>
+                <th className="px-6 py-3 font-medium">{t("results.table.caseGroup")}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {paginatedItems.map((item) => {
+                const candidate = selectDisplayCandidate(item);
+                const identity = buildIdentitySummary(item, candidate, identityMappings);
+                const isExpanded = expandedKeys.has(item.input_record_key);
 
-              return (
-                <Fragment key={item.input_record_key}>
-                  <tr className="align-top hover:bg-secondary/20">
-                    <td className="px-3 py-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => toggleRow(item.input_record_key)}
-                        className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                        title={isExpanded ? "Tutup detail" : "Lihat bukti verifikasi & checklist"}
-                      >
-                        {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                      </button>
-                    </td>
-                    <td className="px-6 py-4">
-                      <RecordIdentityPreview summary={identity} side="input" />
-                    </td>
-                    <td className="px-6 py-4">
-                      <RecordIdentityPreview summary={identity} side="reference" showDetails />
-                    </td>
-                    <td className="px-6 py-4 text-right font-medium tabular-nums">
-                      <div className="flex flex-col items-end gap-1">
-                        <span>{formatScore(candidate?.score)}</span>
-                        <VerificationEvidenceBadge evidence={candidate?.verification_evidence} />
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div>
-                        <p className="font-medium text-foreground">{caseReasonLabel(item, t)}</p>
-                        {candidate?.verification_evidence?.downgraded && (
-                          <p className="mt-1 text-xs text-warning font-medium">
-                            {candidate.verification_evidence.downgrade_reason}
-                          </p>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">{caseGroupLabel(item, t)}</td>
-                  </tr>
-                  {isExpanded && (
-                    <tr className="bg-secondary/15">
-                      <td colSpan={6} className="px-6 py-4">
-                        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-                          <VerificationRuleChecklist candidate={candidate} />
+                return (
+                  <Fragment key={item.input_record_key}>
+                    <tr className="align-top hover:bg-secondary/20 transition-colors">
+                      <td className="px-3 py-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleRow(item.input_record_key)}
+                          className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
+                          title={isExpanded ? "Tutup detail" : "Lihat bukti verifikasi & checklist"}
+                        >
+                          {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4">
+                        <RecordIdentityPreview summary={identity} side="input" />
+                      </td>
+                      <td className="px-6 py-4">
+                        <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                      </td>
+                      <td className="px-6 py-4 text-right font-medium tabular-nums">
+                        <div className="flex flex-col items-end gap-1">
+                          <span>{formatScore(candidate?.score)}</span>
+                          <VerificationEvidenceBadge evidence={candidate?.verification_evidence} />
                         </div>
                       </td>
+                      <td className="px-6 py-4">
+                        <div>
+                          <p className="font-medium text-foreground">{caseReasonLabel(item, t)}</p>
+                          {candidate?.verification_evidence?.downgraded && (
+                            <p className="mt-1 text-xs text-warning font-medium">
+                              {candidate.verification_evidence.downgrade_reason}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">{caseGroupLabel(item, t)}</td>
                     </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+                    {isExpanded && (
+                      <tr className="bg-secondary/15">
+                        <td colSpan={6} className="px-6 py-4">
+                          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                            <VerificationRuleChecklist candidate={candidate} />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <TablePagination
+          currentPage={page}
+          pageSize={pageSize}
+          totalItems={filteredItems.length}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
     </div>
   );
@@ -1375,6 +1458,8 @@ function UnmatchedTab({
 }) {
   const { t } = usePreferences();
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const toggleRow = (key: string) => {
     setExpandedKeys((prev) => {
@@ -1384,6 +1469,11 @@ function UnmatchedTab({
       return next;
     });
   };
+
+  const paginatedItems = useMemo(() => {
+    const from = (page - 1) * pageSize;
+    return items.slice(from, from + pageSize);
+  }, [items, page, pageSize]);
 
   if (items.length === 0) {
     return (
@@ -1396,76 +1486,86 @@ function UnmatchedTab({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-          <tr>
-            <th className="w-8 px-3 py-3"></th>
-            <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.reason")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.source")}</th>
-            <th className="px-6 py-3 font-medium">{t("results.table.action")}</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {items.map((item) => {
-            const candidate = selectDisplayCandidate(item);
-            const identity = buildIdentitySummary(item, candidate, identityMappings);
-            const isExpanded = expandedKeys.has(item.input_record_key);
+    <div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="w-8 px-3 py-3"></th>
+              <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.reason")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.source")}</th>
+              <th className="px-6 py-3 font-medium">{t("results.table.action")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {paginatedItems.map((item) => {
+              const candidate = selectDisplayCandidate(item);
+              const identity = buildIdentitySummary(item, candidate, identityMappings);
+              const isExpanded = expandedKeys.has(item.input_record_key);
 
-            return (
-              <Fragment key={item.input_record_key}>
-                <tr className="align-top hover:bg-secondary/20">
-                  <td className="px-3 py-4 text-center">
-                    <button
-                      type="button"
-                      onClick={() => toggleRow(item.input_record_key)}
-                      className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                      title={isExpanded ? "Tutup detail" : "Lihat detail"}
-                    >
-                      {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4">
-                    <RecordIdentityPreview summary={identity} side="input" />
-                  </td>
-                  <td className="px-6 py-4">{caseReasonLabel(item, t)}</td>
-                  <td className="px-6 py-4">
-                    <StatusBadge
-                      label={displayDecisionLabel(item, t)}
-                      tone={item.display_status === "manual_rejected" ? "destructive" : "muted"}
-                    />
-                  </td>
-                  <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
-                  <td className="px-6 py-4">
-                    {isPendingReview(item) && canReview ? (
-                      <Link
-                        to="/matching"
-                        search={buildMatchingSearch(workspaceId, 6)}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+              return (
+                <Fragment key={item.input_record_key}>
+                  <tr className="align-top hover:bg-secondary/20 transition-colors">
+                    <td className="px-3 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleRow(item.input_record_key)}
+                        className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
+                        title={isExpanded ? "Tutup detail" : "Lihat detail"}
                       >
-                        {t("results.review.open")}
-                      </Link>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">{t("results.readOnly")}</span>
-                    )}
-                  </td>
-                </tr>
-                {isExpanded && (
-                  <tr className="bg-secondary/15">
-                    <td colSpan={6} className="px-6 py-4">
-                      <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-                        <VerificationRuleChecklist candidate={candidate} />
-                      </div>
+                        {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                      </button>
+                    </td>
+                    <td className="px-6 py-4">
+                      <RecordIdentityPreview summary={identity} side="input" />
+                    </td>
+                    <td className="px-6 py-4">{caseReasonLabel(item, t)}</td>
+                    <td className="px-6 py-4">
+                      <StatusBadge
+                        label={displayDecisionLabel(item, t)}
+                        tone={item.display_status === "manual_rejected" ? "destructive" : "muted"}
+                      />
+                    </td>
+                    <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
+                    <td className="px-6 py-4">
+                      {isPendingReview(item) && canReview ? (
+                        <Link
+                          to="/matching"
+                          search={buildMatchingSearch(workspaceId, 6)}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                        >
+                          {t("results.review.open")}
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">{t("results.readOnly")}</span>
+                      )}
                     </td>
                   </tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+                  {isExpanded && (
+                    <tr className="bg-secondary/15">
+                      <td colSpan={6} className="px-6 py-4">
+                        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                          <VerificationRuleChecklist candidate={candidate} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <TablePagination
+        currentPage={page}
+        pageSize={pageSize}
+        totalItems={items.length}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+      />
     </div>
   );
 }
@@ -1527,6 +1627,21 @@ function ReviewHistoryTab({
   onViewChange: (view: ReviewHistoryView) => void;
 }) {
   const { t } = usePreferences();
+  const [groupsPage, setGroupsPage] = useState(1);
+  const [groupsPageSize, setGroupsPageSize] = useState(25);
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsPageSize, setRecordsPageSize] = useState(25);
+
+  const paginatedCaseGroups = useMemo(() => {
+    const from = (groupsPage - 1) * groupsPageSize;
+    return caseGroups.slice(from, from + groupsPageSize);
+  }, [caseGroups, groupsPage, groupsPageSize]);
+
+  const decidedItems = useMemo(() => items.filter((item) => Boolean(item.decision)), [items]);
+  const paginatedDecidedItems = useMemo(() => {
+    const from = (recordsPage - 1) * recordsPageSize;
+    return decidedItems.slice(from, from + recordsPageSize);
+  }, [decidedItems, recordsPage, recordsPageSize]);
 
   return (
     <div className="space-y-4 p-6">
@@ -1537,8 +1652,8 @@ function ReviewHistoryTab({
             type="button"
             onClick={() => onViewChange(item)}
             className={[
-              "rounded-md px-3 py-1.5 text-xs font-semibold",
-              historyView === item ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+              "rounded-md px-3 py-1.5 text-xs font-semibold cursor-pointer transition-colors",
+              historyView === item ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
             ].join(" ")}
           >
             {item === "groups" ? t("results.history.groups") : t("results.history.records")}
@@ -1554,91 +1669,100 @@ function ReviewHistoryTab({
             description={t("results.history.emptyGroupsDesc")}
           />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="px-6 py-3 font-medium">{t("results.table.caseGroup")}</th>
-                  <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
-                  <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
-                  <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
-                  <th className="px-6 py-3 text-right font-medium">{t("results.table.affectedRecords")}</th>
-                  <th className="px-6 py-3 text-right font-medium">{t("results.table.exceptions")}</th>
-                  <th className="px-6 py-3 font-medium">{t("results.table.reviewer")}</th>
-                  <th className="px-6 py-3 font-medium">{t("results.table.decidedAt")}</th>
-                  <th className="px-6 py-3 font-medium">{t("results.table.status")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {caseGroups.map((group) => {
-                  const latest = latestDecision(group.decision_history ?? []);
-                  const exceptions = groupExceptions(group);
-                  const representativeCandidate = selectDisplayCandidate(group.representative);
-                  const identity = buildIdentitySummary(
-                    group.representative,
-                    representativeCandidate,
-                    identityMappings,
-                  );
-                  return (
-                    <tr key={group.id} className="align-top hover:bg-secondary/20">
-                      <td className="px-6 py-4">
-                        <div className="space-y-1">
-                          <p className="font-medium">{caseGroupDisplayLabel(group, t)}</p>
-                          <p className="text-xs text-muted-foreground">{caseGroupReason(group, t)}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <RecordIdentityPreview summary={identity} side="input" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <RecordIdentityPreview summary={identity} side="reference" showDetails />
-                      </td>
-                      <td className="px-6 py-4">{groupDecisionLabel(group, t)}</td>
-                      <td className="px-6 py-4 text-right tabular-nums">{formatNumber(group.item_count)}</td>
-                      <td className="px-6 py-4 text-right tabular-nums">{formatNumber(exceptions)}</td>
-                      <td className="px-6 py-4">{latest?.reviewer ?? t("common.notAvailable")}</td>
-                      <td className="px-6 py-4">{formatDateTime(latest?.decided_at ?? latest?.created_at ?? null)}</td>
-                      <td className="px-6 py-4">
-                        <StatusBadge
-                          label={groupStatusLabel(group.status ?? "open", t)}
-                          tone={group.status === "resolved" ? "success" : "warning"}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">{t("results.table.caseGroup")}</th>
+                    <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
+                    <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
+                    <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
+                    <th className="px-6 py-3 text-right font-medium">{t("results.table.affectedRecords")}</th>
+                    <th className="px-6 py-3 text-right font-medium">{t("results.table.exceptions")}</th>
+                    <th className="px-6 py-3 font-medium">{t("results.table.reviewer")}</th>
+                    <th className="px-6 py-3 font-medium">{t("results.table.decidedAt")}</th>
+                    <th className="px-6 py-3 font-medium">{t("results.table.status")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {paginatedCaseGroups.map((group) => {
+                    const latest = latestDecision(group.decision_history ?? []);
+                    const exceptions = groupExceptions(group);
+                    const representativeCandidate = selectDisplayCandidate(group.representative);
+                    const identity = buildIdentitySummary(
+                      group.representative,
+                      representativeCandidate,
+                      identityMappings,
+                    );
+                    return (
+                      <tr key={group.id} className="align-top hover:bg-secondary/20 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="space-y-1">
+                            <p className="font-medium">{caseGroupDisplayLabel(group, t)}</p>
+                            <p className="text-xs text-muted-foreground">{caseGroupReason(group, t)}</p>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <RecordIdentityPreview summary={identity} side="input" />
+                        </td>
+                        <td className="px-6 py-4">
+                          <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                        </td>
+                        <td className="px-6 py-4">{groupDecisionLabel(group, t)}</td>
+                        <td className="px-6 py-4 text-right tabular-nums">{formatNumber(group.item_count)}</td>
+                        <td className="px-6 py-4 text-right tabular-nums">{formatNumber(exceptions)}</td>
+                        <td className="px-6 py-4">{latest?.reviewer ?? t("common.notAvailable")}</td>
+                        <td className="px-6 py-4">{formatDateTime(latest?.decided_at ?? latest?.created_at ?? null)}</td>
+                        <td className="px-6 py-4">
+                          <StatusBadge
+                            label={groupStatusLabel(group.status ?? "open", t)}
+                            tone={group.status === "resolved" ? "success" : "warning"}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <TablePagination
+              currentPage={groupsPage}
+              pageSize={groupsPageSize}
+              totalItems={caseGroups.length}
+              onPageChange={setGroupsPage}
+              onPageSizeChange={setGroupsPageSize}
+            />
           </div>
         )
-      ) : items.filter((item) => Boolean(item.decision)).length === 0 ? (
+      ) : decidedItems.length === 0 ? (
         <SimpleTabEmpty
           icon={ClipboardCheck}
           title={t("results.history.emptyRecordsTitle")}
           description={t("results.history.emptyRecordsDesc")}
         />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-6 py-3 font-medium">{t("results.table.record")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.table.source")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.table.reviewer")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.table.decidedAt")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {items
-                .filter((item) => Boolean(item.decision))
-                .map((item) => {
+        <div className="rounded-lg border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-6 py-3 font-medium">{t("results.table.record")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.source")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.reviewer")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.decidedAt")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {paginatedDecidedItems.map((item) => {
                   const candidate = selectDisplayCandidate(item);
                   const identity = buildIdentitySummary(item, candidate, identityMappings);
                   return (
-                    <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
+                    <tr key={item.input_record_key} className="align-top hover:bg-secondary/20 transition-colors">
                       <td className="px-6 py-4 font-mono text-xs">{item.input_record_key}</td>
                       <td className="px-6 py-4">
                         <RecordIdentityPreview summary={identity} side="input" />
@@ -1653,8 +1777,17 @@ function ReviewHistoryTab({
                     </tr>
                   );
                 })}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
+
+          <TablePagination
+            currentPage={recordsPage}
+            pageSize={recordsPageSize}
+            totalItems={decidedItems.length}
+            onPageChange={setRecordsPage}
+            onPageSizeChange={setRecordsPageSize}
+          />
         </div>
       )}
     </div>
