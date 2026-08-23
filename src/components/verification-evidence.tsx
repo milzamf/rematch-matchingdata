@@ -78,6 +78,115 @@ export function VerificationEvidenceBadge({
   );
 }
 
+export function VerificationRuleChecklist({
+  evidence,
+  candidate,
+}: {
+  evidence?: VerificationEvidence | null;
+  candidate?: ReviewCandidate | null;
+}) {
+  const { t } = usePreferences();
+  const ev = evidence ?? candidate?.verification_evidence;
+
+  if (!ev) {
+    return (
+      <div className="rounded-lg border border-border bg-secondary/10 p-3 text-xs text-muted-foreground">
+        {candidate?.decision_reason || t("results.evidence.exactMatchLabel")}
+      </div>
+    );
+  }
+
+  const isExact = ev.is_exact_match || ev.bypassed_fuzzy;
+  const rules = ev.rules_evaluated ?? [];
+
+  return (
+    <div className="space-y-3">
+      {/* Downgrade explanation banner */}
+      {ev.downgraded && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="font-semibold">{t("results.evidence.downgraded")}</p>
+            <p className="text-foreground/90 font-medium leading-relaxed">
+              {ev.downgrade_reason || candidate?.decision_reason || t("results.evidence.downgradeExplanation")}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Rules Checklist */}
+      {rules.length > 0 ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-foreground">
+              {t("results.evidence.rulesEvaluated")} ({rules.filter((r) => r.passed).length}/{rules.length} {t("results.evidence.passed")})
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {ev.phase}
+            </span>
+          </div>
+
+          <div className="grid gap-2">
+            {rules.map((rule, idx) => (
+              <div
+                key={`${rule.order}-${rule.field_name}-${idx}`}
+                className={[
+                  "flex flex-wrap items-center justify-between gap-2 rounded-md border p-2.5 text-xs transition-colors",
+                  rule.passed
+                    ? "border-success/30 bg-success/5 text-foreground"
+                    : "border-destructive/40 bg-destructive/5 text-foreground",
+                ].join(" ")}
+              >
+                <div className="flex items-center gap-2">
+                  {rule.passed ? (
+                    <CheckCircle2 className="size-4 shrink-0 text-success" />
+                  ) : (
+                    <XCircle className="size-4 shrink-0 text-destructive" />
+                  )}
+                  <div>
+                    <span className="font-semibold">
+                      {rule.passed ? `[${t("results.evidence.passed")}]` : `[${t("results.evidence.failed")}]`} {rule.field_name}
+                    </span>
+                    {rule.is_mandatory && (
+                      <span className="ml-2 rounded bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                        {t("results.evidence.mandatory")}
+                      </span>
+                    )}
+                    <span className="ml-2 text-[11px] text-muted-foreground">
+                      ({rule.method})
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 tabular-nums text-xs">
+                  <span className="text-muted-foreground">
+                    {t("results.evidence.threshold")}: = {rule.required_threshold}%
+                  </span>
+                  <span
+                    className={[
+                      "font-bold",
+                      rule.passed ? "text-success" : "text-destructive",
+                    ].join(" ")}
+                  >
+                    {t("results.evidence.actual")}: {rule.actual_score}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : isExact ? (
+        <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-3 text-xs text-success">
+          <CheckCircle2 className="size-4 shrink-0" />
+          <p>
+            {ev.summary?.message || t("results.evidence.exactMatchBadge")}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function VerificationEvidenceBreakdown({
   evidence,
   candidate,
@@ -120,12 +229,12 @@ export function VerificationEvidenceBreakdown({
         >
           {expanded ? (
             <>
-              <span>Collapse</span>
+              <span>{t("common.collapse") || "Collapse"}</span>
               <ChevronUp className="size-3.5" />
             </>
           ) : (
             <>
-              <span>Expand</span>
+              <span>{t("common.expand") || "Expand"}</span>
               <ChevronDown className="size-3.5" />
             </>
           )}
@@ -165,94 +274,12 @@ export function VerificationEvidenceBreakdown({
                 {t("results.evidence.rulesEvaluated")}
               </span>
               <p className="mt-1 font-semibold tabular-nums text-foreground">
-                {isExact ? "Bypassed (0 rules)" : `${ev.summary?.passed_rules ?? 0} / ${ev.summary?.total_rules ?? rules.length} passed`}
+                {isExact ? "Bypassed (0 rules)" : `${ev.summary?.passed_rules ?? 0} / ${ev.summary?.total_rules ?? rules.length} ${t("results.evidence.passed")}`}
               </p>
             </div>
           </div>
 
-          {/* Downgrade alert banner */}
-          {ev.downgraded && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-warning">
-              <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-xs">{t("results.evidence.downgraded")}</p>
-                <p className="mt-0.5 text-xs text-foreground/90 font-medium">
-                  {ev.downgrade_reason || candidate?.decision_reason}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Rules Evaluated Table */}
-          {rules.length > 0 && (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">#</th>
-                    <th className="px-3 py-2 font-medium">{t("results.evidence.rule")}</th>
-                    <th className="px-3 py-2 font-medium">{t("results.evidence.method")}</th>
-                    <th className="px-3 py-2 text-right font-medium">{t("results.evidence.threshold")}</th>
-                    <th className="px-3 py-2 text-right font-medium">{t("results.evidence.actual")}</th>
-                    <th className="px-3 py-2 text-center font-medium">{t("common.status")}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {rules.map((rule, idx) => (
-                    <tr
-                      key={`${rule.order}-${rule.field_name}-${idx}`}
-                      className={rule.passed ? "hover:bg-secondary/15" : "bg-destructive/5 hover:bg-destructive/10"}
-                    >
-                      <td className="px-3 py-2 font-medium tabular-nums text-muted-foreground">
-                        {rule.order}
-                      </td>
-                      <td className="px-3 py-2 font-medium text-foreground">
-                        <div className="flex items-center gap-1.5">
-                          <span>{rule.field_name}</span>
-                          {rule.is_mandatory && (
-                            <span className="rounded bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
-                              {t("results.evidence.mandatory")}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">{rule.method}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground font-medium">
-                        = {rule.required_threshold}%
-                      </td>
-                      <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                        <span className={rule.passed ? "text-success" : "text-destructive"}>
-                          {rule.actual_score}%
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {rule.passed ? (
-                          <span className="inline-flex items-center gap-1 rounded bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">
-                            <CheckCircle2 className="size-3" />
-                            {t("results.evidence.passed")}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded bg-destructive/15 px-2 py-0.5 text-[11px] font-semibold text-destructive">
-                            <XCircle className="size-3" />
-                            {t("results.evidence.failed")}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {isExact && (
-            <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/10 p-3 text-success">
-              <CheckCircle2 className="size-4 shrink-0" />
-              <p className="text-xs">
-                {ev.summary?.message || "Exact match on all mandatory fields bypassed fuzzy candidate scoring and guardrail checks."}
-              </p>
-            </div>
-          )}
+          <VerificationRuleChecklist evidence={ev} candidate={candidate} />
         </div>
       )}
     </div>
@@ -269,7 +296,231 @@ export type AggregatedRuleDiagnostic = {
   passPercentage: number;
   downgradeCount: number;
   failedItemKeys: string[];
+  cumulativePercentage?: number;
 };
+
+export function ParetoFailureChart({
+  items,
+  onFilterRule,
+  selectedRuleFilter,
+}: {
+  items: ReviewItem[];
+  onFilterRule?: (fieldName: string | null) => void;
+  selectedRuleFilter?: string | null;
+}) {
+  const { t } = usePreferences();
+
+  const diagnostics = useMemo(() => {
+    const ruleMap = new Map<string, {
+      fieldName: string;
+      method: string;
+      totalEvaluated: number;
+      failCount: number;
+      passCount: number;
+      downgradeCount: number;
+      failedItemKeys: Set<string>;
+    }>();
+
+    let totalExactMatches = 0;
+    let totalAutoMatches = 0;
+    let totalDowngraded = 0;
+    let totalNeedReview = 0;
+    let totalUnmatched = 0;
+
+    for (const item of items) {
+      const candidate = item.candidates?.[0];
+      const evidence = candidate?.verification_evidence;
+
+      if (evidence?.is_exact_match || evidence?.bypassed_fuzzy) {
+        totalExactMatches += 1;
+      } else if (item.status === "matched") {
+        totalAutoMatches += 1;
+      }
+
+      if (evidence?.downgraded) {
+        totalDowngraded += 1;
+      }
+
+      if (item.status === "possible_match") {
+        totalNeedReview += 1;
+      } else if (item.status === "unmatched") {
+        totalUnmatched += 1;
+      }
+
+      if (evidence?.rules_evaluated) {
+        for (const rule of evidence.rules_evaluated) {
+          const key = rule.field_name;
+          let entry = ruleMap.get(key);
+          if (!entry) {
+            entry = {
+              fieldName: rule.field_name,
+              method: rule.method,
+              totalEvaluated: 0,
+              failCount: 0,
+              passCount: 0,
+              downgradeCount: 0,
+              failedItemKeys: new Set<string>(),
+            };
+            ruleMap.set(key, entry);
+          }
+
+          entry.totalEvaluated += 1;
+          if (rule.passed) {
+            entry.passCount += 1;
+          } else {
+            entry.failCount += 1;
+            entry.failedItemKeys.add(item.input_record_key);
+            if (evidence.downgraded) {
+              entry.downgradeCount += 1;
+            }
+          }
+        }
+      }
+    }
+
+    const totalFailuresAcrossRules = Array.from(ruleMap.values()).reduce(
+      (sum, r) => sum + r.failCount,
+      0,
+    );
+
+    const sortedRulesUncalculated: AggregatedRuleDiagnostic[] = Array.from(ruleMap.values())
+      .map((r) => ({
+        fieldName: r.fieldName,
+        method: r.method,
+        totalEvaluated: r.totalEvaluated,
+        failCount: r.failCount,
+        passCount: r.passCount,
+        failPercentage:
+          r.totalEvaluated > 0 ? Math.round((r.failCount / r.totalEvaluated) * 100) : 0,
+        passPercentage:
+          r.totalEvaluated > 0 ? Math.round((r.passCount / r.totalEvaluated) * 100) : 100,
+        downgradeCount: r.downgradeCount,
+        failedItemKeys: Array.from(r.failedItemKeys),
+      }))
+      .sort((a, b) => b.failCount - a.failCount);
+
+    let runningFailureSum = 0;
+    const sortedRules: AggregatedRuleDiagnostic[] = sortedRulesUncalculated.map((r) => {
+      runningFailureSum += r.failCount;
+      const cumulativePercentage =
+        totalFailuresAcrossRules > 0
+          ? Math.round((runningFailureSum / totalFailuresAcrossRules) * 100)
+          : 0;
+      return {
+        ...r,
+        cumulativePercentage,
+      };
+    });
+
+    return {
+      totalExactMatches,
+      totalAutoMatches,
+      totalDowngraded,
+      totalNeedReview,
+      totalUnmatched,
+      totalFailuresAcrossRules,
+      rules: sortedRules,
+    };
+  }, [items]);
+
+  const failedRules = diagnostics.rules.filter((r) => r.failCount > 0);
+  const maxFailCount = Math.max(1, ...failedRules.map((r) => r.failCount));
+
+  return (
+    <Card className="p-5 border-border">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+        <div>
+          <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <BarChart3 className="size-4 text-brand" />
+            <span>{t("results.exploratory.paretoTitle")}</span>
+          </h4>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t("results.exploratory.desc")}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {selectedRuleFilter && (
+            <button
+              type="button"
+              onClick={() => onFilterRule?.(null)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand hover:bg-brand/20 transition-colors"
+            >
+              <Filter className="size-3.5" />
+              <span>{t("results.exploratory.clearFilter")}: {selectedRuleFilter}</span>
+            </button>
+          )}
+          <span className="rounded-md bg-secondary px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+            {failedRules.length} {t("results.evidence.failed") || "Failed"}
+          </span>
+        </div>
+      </div>
+
+      {failedRules.length === 0 ? (
+        <div className="py-6 text-center text-xs text-muted-foreground">
+          <CheckCircle2 className="mx-auto size-7 text-success mb-2" />
+          {t("results.exploratory.noFailures")}
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {failedRules.map((rule) => {
+            const isSelected = selectedRuleFilter === rule.fieldName;
+            const widthPercent = Math.max(10, Math.round((rule.failCount / maxFailCount) * 100));
+            const failureRatio =
+              diagnostics.totalFailuresAcrossRules > 0
+                ? Math.round((rule.failCount / diagnostics.totalFailuresAcrossRules) * 100)
+                : 0;
+
+            return (
+              <div
+                key={rule.fieldName}
+                onClick={() => onFilterRule?.(isSelected ? null : rule.fieldName)}
+                className={[
+                  "group cursor-pointer rounded-lg border p-3 transition-all",
+                  isSelected
+                    ? "border-brand bg-brand/5 ring-1 ring-brand"
+                    : "border-border hover:border-brand/40 hover:bg-secondary/20",
+                ].join(" ")}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground">
+                      {rule.fieldName}
+                    </span>
+                    <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {rule.method}
+                    </span>
+                    {rule.downgradeCount > 0 && (
+                      <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                        {rule.downgradeCount} {t("results.evidence.downgraded") || "Downgraded"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 font-semibold tabular-nums text-foreground">
+                    <span className="text-destructive font-bold">{rule.failCount} {t("results.evidence.failed") || "gagal"}</span>
+                    <span className="text-muted-foreground text-[11px]">
+                      ({failureRatio}% | {t("common.cumulative") || "Kumulatif"}: {rule.cumulativePercentage}%)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Pareto Horizontal Bar */}
+                <div className="mt-2.5 h-3 w-full overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className={[
+                      "h-full rounded-full transition-all",
+                      isSelected ? "bg-brand" : "bg-destructive/80 group-hover:bg-destructive",
+                    ].join(" ")}
+                    style={{ width: `${widthPercent}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export function ExploratoryDiagnosticsPanel({
   items,

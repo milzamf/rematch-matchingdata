@@ -629,9 +629,32 @@ async function apiFetch(
   return response;
 }
 
+function getClientLocale(): string {
+  if (typeof window === "undefined") return "id";
+  try {
+    const raw = window.localStorage.getItem("batchmatch:preferences");
+    if (raw) {
+      const parsed = JSON.parse(raw) as { language?: string };
+      if (parsed.language === "en" || parsed.language === "id") {
+        return parsed.language;
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return "id";
+}
+
 async function sendApiRequest(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
+
+  const currentLocale = getClientLocale();
+  headers.set("X-Locale", currentLocale);
+  headers.set(
+    "Accept-Language",
+    currentLocale === "id" ? "id-ID,id;q=0.9,en;q=0.8" : "en-US,en;q=0.9,id;q=0.8",
+  );
 
   const method = (init.method ?? "GET").toUpperCase();
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {

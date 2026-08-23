@@ -18,9 +18,11 @@ class AiReviewRecommendationController extends Controller
     public function __invoke(Request $request, string $result): JsonResponse
     {
         try {
+            $locale = $request->header('X-Locale') ?: $request->header('Accept-Language');
+            $recommendation = $this->recommendations->recommend($request->user(), $result, $locale);
             return response()->json([
                 'success' => true,
-                'data' => $this->recommendations->recommend($request->user(), $result)->toArray(),
+                'data' => $recommendation->toArray(),
             ]);
         } catch (ModelNotFoundException) {
             return response()->json([

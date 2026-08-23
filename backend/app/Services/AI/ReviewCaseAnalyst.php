@@ -29,7 +29,7 @@ class ReviewCaseAnalyst
     ) {
     }
 
-    public function analyze(User $user, string $matchingResultId): AiResponse
+    public function analyze(User $user, string $matchingResultId, ?string $locale = null): AiResponse
     {
         $result = $this->ownership->scopeMatchingResults(
             MatchingResult::query()->with(['job.mappings']),
@@ -40,10 +40,11 @@ class ReviewCaseAnalyst
             throw (new ModelNotFoundException())->setModel(MatchingResult::class, [$matchingResultId]);
         }
 
+        $targetLanguage = $this->resolveTargetLanguage($locale);
         $evidence = $this->buildEvidence($result);
 
         return $this->providers->generateStructured([
-            'instructions' => $this->instructions(),
+            'instructions' => $this->instructions($targetLanguage),
             'schema_name' => 'rematch_review_case_analysis',
             'schema' => $this->schema(),
             'input' => [[
@@ -99,12 +100,22 @@ class ReviewCaseAnalyst
         ];
     }
 
-    private function instructions(): string
+    private function instructions(string $targetLanguage = 'Indonesian (Bahasa Indonesia)'): string
     {
-        return 'Analyze one RE-MATCH case from compact evidence only. Advisory only. '
-            .'Do not change similarity or make decisions. '
-            .'Return JSON with assessment (likely_match|uncertain|likely_not_match), confidence 0-100, '
-            .'summary, supporting_evidence[], conflicts[], missing_information[], attention_points[].';
+        return "Analyze one RE-MATCH case from compact evidence only. Advisory only. "
+            ."Do not change similarity or make decisions. "
+            ."Output all text fields (summary, supporting_evidence, conflicts, missing_information, attention_points) strictly in {$targetLanguage}. "
+            ."Return JSON with assessment (likely_match|uncertain|likely_not_match), confidence 0-100, "
+            ."summary, supporting_evidence[], conflicts[], missing_information[], attention_points[].";
+    }
+
+    private function resolveTargetLanguage(?string $locale): string
+    {
+        $loc = mb_strtolower(trim((string) ($locale ?? request()?->header('X-Locale') ?? request()?->header('Accept-Language') ?? app()->getLocale())));
+        if (str_starts_with($loc, 'id') || str_contains($loc, 'indonesia')) {
+            return 'Indonesian (Bahasa Indonesia)';
+        }
+        return 'English';
     }
 
     /**

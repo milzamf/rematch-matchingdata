@@ -18,8 +18,9 @@ class ReviewRecommendationService
     ) {
     }
 
-    public function recommend(User $user, string $matchingResultId): AiResponse
+    public function recommend(User $user, string $matchingResultId, ?string $locale = null): AiResponse
     {
+        $resolvedLocale = $this->resolveTargetLanguage($locale);
         $result = $this->ownership->scopeMatchingResults(
             MatchingResult::query()->with(['job.mappings']),
             $user,
@@ -30,7 +31,7 @@ class ReviewRecommendationService
         }
 
         $currentEvidence = $this->analyst->buildEvidence($result);
-        $analysis = $this->analyst->analyze($user, $matchingResultId);
+        $analysis = $this->analyst->analyze($user, $matchingResultId, $resolvedLocale);
         $knowledge = $this->knowledge->retrieve($user, $matchingResultId);
 
         $payload = [
@@ -38,10 +39,11 @@ class ReviewRecommendationService
             'analysis' => $this->compactAnalysis($analysis),
             'historical_knowledge' => $this->compactKnowledge($knowledge),
             'risk_flags' => $this->riskFlags($currentEvidence),
+            'target_language' => $resolvedLocale,
         ];
 
         return $this->providers->generateStructured([
-            'instructions' => $this->instructions(),
+            'instructions' => $this->instructions($resolvedLocale),
             'schema_name' => 'rematch_review_recommendation',
             'schema' => $this->schema(),
             'input' => [[
@@ -154,14 +156,24 @@ class ReviewRecommendationService
         return $flags;
     }
 
-    private function instructions(): string
+    private function instructions(string $targetLanguage = 'Indonesian (Bahasa Indonesia)'): string
     {
         return 'Generate one advisory review recommendation for RE-MATCH. '
             .'Never make or apply a final decision. '
             .'Use current compact evidence first, AI analysis second, historical human cases as supporting context only. '
             .'Strong identifier conflicts must be highlighted as risks. '
+            ."Output all text fields (rationale, key_evidence, historical_context, risks, suggested_checks) strictly in {$targetLanguage}. "
             .'Return one JSON object only with no markdown fences and no extra text. '
             .'Use exactly these fields: recommendation (accept_match|reject_match|mark_unmatched|needs_review), confidence 0-100, rationale, key_evidence[], historical_context[], risks[], suggested_checks[].';
+    }
+
+    private function resolveTargetLanguage(?string $locale): string
+    {
+        $loc = mb_strtolower(trim((string) ($locale ?? request()?->header('X-Locale') ?? request()?->header('Accept-Language') ?? app()->getLocale())));
+        if (str_starts_with($loc, 'id') || str_contains($loc, 'indonesia')) {
+            return 'Indonesian (Bahasa Indonesia)';
+        }
+        return 'English';
     }
 
     /**

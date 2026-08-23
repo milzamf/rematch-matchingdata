@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -12,6 +12,8 @@ import {
   Inbox,
   Layers,
   Loader2,
+  ChevronDown,
+  ChevronUp,
   RefreshCw,
   SearchX,
   ShieldCheck,
@@ -25,8 +27,10 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorPanel, LoadingPanel } from "@/components/feedback-states";
 import {
   ExploratoryDiagnosticsPanel,
+  ParetoFailureChart,
   VerificationEvidenceBadge,
   VerificationEvidenceBreakdown,
+  VerificationRuleChecklist,
 } from "@/components/verification-evidence";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
@@ -434,6 +438,12 @@ function ResultsPage() {
                   matchingPreset={matchingPreset}
                   matchingStrategy={matchingStrategy}
                   syncSummary={syncSummary}
+                  items={items}
+                  onFilterRule={(rule) => {
+                    setSelectedRuleFilter(rule);
+                    if (rule) setTab("cases");
+                  }}
+                  selectedRuleFilter={selectedRuleFilter}
                 />
               )}
               {tab === "cases" && (
@@ -462,6 +472,11 @@ function ResultsPage() {
                   items={needReviewItems}
                   workspaceId={workspace.id}
                   canReview={canReview}
+                  allReviewItems={items}
+                  selectedRuleFilter={selectedRuleFilter}
+                  onFilterRule={(rule) => {
+                    setSelectedRuleFilter(rule);
+                  }}
                 />
               )}
               {tab === "unmatched" && (
@@ -558,6 +573,9 @@ function OverviewTab({
   matchingPreset,
   matchingStrategy,
   syncSummary,
+  items = [],
+  onFilterRule,
+  selectedRuleFilter,
 }: {
   workspace: WorkspaceSummary;
   activeStatuses: FinalStatusCounts;
@@ -565,6 +583,9 @@ function OverviewTab({
   matchingPreset: string | null;
   matchingStrategy: string | null;
   syncSummary: SyncSummary | null;
+  items?: ReviewItem[];
+  onFilterRule?: (fieldName: string | null) => void;
+  selectedRuleFilter?: string | null;
 }) {
   const { t } = usePreferences();
   const job = workspace.matching_job;
@@ -637,6 +658,15 @@ function OverviewTab({
           <span className="text-[11px] text-muted-foreground">{unmatchedPercent}% of total</span>
         </div>
       </div>
+
+      {/* Pareto Failure Chart */}
+      {items.length > 0 && (
+        <ParetoFailureChart
+          items={items}
+          onFilterRule={onFilterRule}
+          selectedRuleFilter={selectedRuleFilter}
+        />
+      )}
 
       {/* Visual Proportional Distribution Bar */}
       <div className="rounded-lg border border-border bg-card p-4">
@@ -892,7 +922,7 @@ function CasesTab({
 
       {filteredItems.length === 0 ? (
         <div className="rounded-lg border border-border p-8 text-center text-xs text-muted-foreground">
-          No records match the current filters.
+          {t("common.noData") || "No records match the current filters."}
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -917,17 +947,17 @@ function CasesTab({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-xs text-foreground">
-                        Record #{item.input_record_key}
+                        {t("results.context.record") || "Record"} #{item.input_record_key}
                       </span>
                       <StatusBadge
                         label={
                           item.status === "matched"
                             ? isExact
-                              ? "Exact Match"
-                              : "Auto-Match"
+                              ? t("results.evidence.exactMatchLabel")
+                              : t("results.summary.autoMatched")
                             : item.status === "possible_match"
-                              ? "Need Review"
-                              : "Unmatched"
+                              ? t("results.metric.review")
+                              : t("results.metric.unmatched")
                         }
                         tone={
                           item.status === "matched"
@@ -940,7 +970,7 @@ function CasesTab({
                     </div>
                     {isExact ? (
                       <span className="rounded bg-success/15 px-2 py-0.5 text-[11px] font-semibold text-success">
-                        Exact Match
+                        {t("results.evidence.exactMatchLabel")}
                       </span>
                     ) : (
                       <span className="font-semibold text-xs tabular-nums text-foreground">
@@ -961,7 +991,7 @@ function CasesTab({
                   {evidence?.downgraded && (
                     <div className="mt-2 inline-flex items-center gap-1 rounded bg-warning/15 px-2 py-0.5 text-[10px] font-semibold text-warning">
                       <AlertTriangle className="size-3" />
-                      <span>Auto-Match Downgraded</span>
+                      <span>{t("results.evidence.downgraded")}</span>
                     </div>
                   )}
                 </div>
@@ -976,14 +1006,14 @@ function CasesTab({
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
                   <div>
                     <h4 className="text-sm font-semibold text-foreground">
-                      Record #{selectedItem.input_record_key} Side-by-Side Comparison
+                      {t("results.context.record") || "Record"} #{selectedItem.input_record_key} {t("results.cases.sideBySide") || "Side-by-Side Comparison"}
                     </h4>
                     <p className="text-xs text-muted-foreground">
                       {selectedItem.status === "matched"
-                        ? "Matched Record"
+                        ? t("results.summary.autoMatched")
                         : selectedItem.status === "possible_match"
-                          ? "Review Candidate"
-                          : "Unmatched Record"}
+                          ? t("results.metric.review")
+                          : t("results.metric.unmatched")}
                     </p>
                   </div>
                   <VerificationEvidenceBadge
@@ -996,7 +1026,7 @@ function CasesTab({
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <div className="rounded-lg border border-border bg-secondary/15 p-3.5">
                     <p className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">
-                      Input Record
+                      {t("results.context.input")}
                     </p>
                     <div className="space-y-2 text-xs">
                       {Object.entries(selectedItem.input_record).map(([key, val]) => (
@@ -1010,7 +1040,7 @@ function CasesTab({
 
                   <div className="rounded-lg border border-border bg-secondary/15 p-3.5">
                     <p className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">
-                      Reference Candidate
+                      {t("results.context.reference")}
                     </p>
                     {selectedCandidate ? (
                       <div className="space-y-2 text-xs">
@@ -1022,7 +1052,7 @@ function CasesTab({
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground italic">No candidate matched</p>
+                      <p className="text-xs text-muted-foreground italic">{t("common.noData") || "No candidate matched"}</p>
                     )}
                   </div>
                 </div>
@@ -1030,7 +1060,7 @@ function CasesTab({
                 {/* Field Similarity Scores */}
                 {selectedCandidate?.field_scores && selectedCandidate.field_scores.length > 0 && (
                   <div className="mt-4">
-                    <p className="text-xs font-semibold text-foreground mb-2">Field Similarities</p>
+                    <p className="text-xs font-semibold text-foreground mb-2">{t("results.evidence.fieldSimilarities") || "Field Similarities"}</p>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {selectedCandidate.field_scores.map((field) => (
                         <div
@@ -1068,6 +1098,16 @@ function MatchedTab({
   identityMappings: ReturnType<typeof extractIdentityMappings>;
 }) {
   const { t } = usePreferences();
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  const toggleRow = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   if (items.length === 0) {
     return (
@@ -1084,6 +1124,7 @@ function MatchedTab({
       <table className="w-full text-sm">
         <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
           <tr>
+            <th className="w-8 px-3 py-3"></th>
             <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
             <th className="px-6 py-3 font-medium">{t("results.table.referenceData")}</th>
             <th className="px-6 py-3 text-right font-medium">{t("results.table.score")}</th>
@@ -1100,32 +1141,54 @@ function MatchedTab({
               candidate?.verification_evidence?.is_exact_match ||
                 candidate?.verification_evidence?.bypassed_fuzzy,
             );
+            const isExpanded = expandedKeys.has(item.input_record_key);
 
             return (
-              <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
-                <td className="px-6 py-4">
-                  <RecordIdentityPreview summary={identity} side="input" />
-                </td>
-                <td className="px-6 py-4">
-                  <RecordIdentityPreview summary={identity} side="reference" showDetails />
-                </td>
-                <td className="px-6 py-4 text-right font-medium tabular-nums">
-                  {isExact ? (
-                    <span className="inline-flex rounded bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
-                      Exact Match
-                    </span>
-                  ) : (
-                    formatScore(candidate?.score)
-                  )}
-                </td>
-                <td className="px-6 py-4">
-                  {isExact ? "Mandatory Exact Key" : methodDisplayLabel(candidate)}
-                </td>
-                <td className="px-6 py-4">
-                  <StatusBadge label={displayDecisionLabel(item, t)} tone="success" />
-                </td>
-                <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
-              </tr>
+              <Fragment key={item.input_record_key}>
+                <tr className="align-top hover:bg-secondary/20">
+                  <td className="px-3 py-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => toggleRow(item.input_record_key)}
+                      className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                      title={isExpanded ? "Tutup detail" : "Lihat bukti verifikasi & checklist"}
+                    >
+                      {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                    </button>
+                  </td>
+                  <td className="px-6 py-4">
+                    <RecordIdentityPreview summary={identity} side="input" />
+                  </td>
+                  <td className="px-6 py-4">
+                    <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                  </td>
+                  <td className="px-6 py-4 text-right font-medium tabular-nums">
+                    {isExact ? (
+                      <span className="inline-flex rounded bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
+                        {t("results.evidence.exactMatchLabel")}
+                      </span>
+                    ) : (
+                      formatScore(candidate?.score)
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    {isExact ? "Mandatory Exact Key" : methodDisplayLabel(candidate)}
+                  </td>
+                  <td className="px-6 py-4">
+                    <StatusBadge label={displayDecisionLabel(item, t)} tone="success" />
+                  </td>
+                  <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
+                </tr>
+                {isExpanded && (
+                  <tr className="bg-secondary/15">
+                    <td colSpan={7} className="px-6 py-4">
+                      <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                        <VerificationRuleChecklist candidate={candidate} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>
@@ -1140,14 +1203,39 @@ function NeedReviewTab({
   items,
   workspaceId,
   canReview,
+  allReviewItems = [],
+  selectedRuleFilter,
+  onFilterRule,
 }: {
   caseGroupCount: number;
   identityMappings: ReturnType<typeof extractIdentityMappings>;
   items: ReviewItem[];
   workspaceId: string;
   canReview: boolean;
+  allReviewItems?: ReviewItem[];
+  selectedRuleFilter?: string | null;
+  onFilterRule?: (rule: string | null) => void;
 }) {
   const { t } = usePreferences();
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  const toggleRow = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const filteredItems = useMemo(() => {
+    if (!selectedRuleFilter) return items;
+    return items.filter((item) => {
+      const candidate = selectDisplayCandidate(item);
+      const rules = candidate?.verification_evidence?.rules_evaluated ?? [];
+      return rules.some((r) => r.field_name === selectedRuleFilter && !r.passed);
+    });
+  }, [items, selectedRuleFilter]);
 
   if (items.length === 0) {
     return (
@@ -1160,13 +1248,20 @@ function NeedReviewTab({
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-6 p-6">
+      {/* Pareto Diagnostic Chart */}
+      <ParetoFailureChart
+        items={allReviewItems.length > 0 ? allReviewItems : items}
+        onFilterRule={onFilterRule}
+        selectedRuleFilter={selectedRuleFilter}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4">
         <div>
           <p className="text-sm font-semibold">{t("results.review.pendingTitle")}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             {t("results.review.pendingDesc", {
-              records: items.length,
+              records: filteredItems.length,
               groups: caseGroupCount,
             })}
           </p>
@@ -1187,6 +1282,7 @@ function NeedReviewTab({
         <table className="w-full text-sm">
           <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr>
+              <th className="w-8 px-3 py-3"></th>
               <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
               <th className="px-6 py-3 font-medium">{t("results.table.candidate")}</th>
               <th className="px-6 py-3 text-right font-medium">{t("results.table.score")}</th>
@@ -1195,35 +1291,58 @@ function NeedReviewTab({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {items.map((item) => {
+            {filteredItems.map((item) => {
               const candidate = selectDisplayCandidate(item);
               const identity = buildIdentitySummary(item, candidate, identityMappings);
+              const isExpanded = expandedKeys.has(item.input_record_key);
+
               return (
-                <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
-                  <td className="px-6 py-4">
-                    <RecordIdentityPreview summary={identity} side="input" />
-                  </td>
-                  <td className="px-6 py-4">
-                    <RecordIdentityPreview summary={identity} side="reference" showDetails />
-                  </td>
-                  <td className="px-6 py-4 text-right font-medium tabular-nums">
-                    <div className="flex flex-col items-end gap-1">
-                      <span>{formatScore(candidate?.score)}</span>
-                      <VerificationEvidenceBadge evidence={candidate?.verification_evidence} />
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div>
-                      <p className="font-medium text-foreground">{caseReasonLabel(item, t)}</p>
-                      {candidate?.verification_evidence?.downgraded && (
-                        <p className="mt-1 text-xs text-warning">
-                          {candidate.verification_evidence.downgrade_reason}
-                        </p>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">{caseGroupLabel(item, t)}</td>
-                </tr>
+                <Fragment key={item.input_record_key}>
+                  <tr className="align-top hover:bg-secondary/20">
+                    <td className="px-3 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => toggleRow(item.input_record_key)}
+                        className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                        title={isExpanded ? "Tutup detail" : "Lihat bukti verifikasi & checklist"}
+                      >
+                        {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                      </button>
+                    </td>
+                    <td className="px-6 py-4">
+                      <RecordIdentityPreview summary={identity} side="input" />
+                    </td>
+                    <td className="px-6 py-4">
+                      <RecordIdentityPreview summary={identity} side="reference" showDetails />
+                    </td>
+                    <td className="px-6 py-4 text-right font-medium tabular-nums">
+                      <div className="flex flex-col items-end gap-1">
+                        <span>{formatScore(candidate?.score)}</span>
+                        <VerificationEvidenceBadge evidence={candidate?.verification_evidence} />
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div>
+                        <p className="font-medium text-foreground">{caseReasonLabel(item, t)}</p>
+                        {candidate?.verification_evidence?.downgraded && (
+                          <p className="mt-1 text-xs text-warning font-medium">
+                            {candidate.verification_evidence.downgrade_reason}
+                          </p>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">{caseGroupLabel(item, t)}</td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="bg-secondary/15">
+                      <td colSpan={6} className="px-6 py-4">
+                        <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                          <VerificationRuleChecklist candidate={candidate} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -1245,6 +1364,16 @@ function UnmatchedTab({
   canReview: boolean;
 }) {
   const { t } = usePreferences();
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  const toggleRow = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   if (items.length === 0) {
     return (
@@ -1261,6 +1390,7 @@ function UnmatchedTab({
       <table className="w-full text-sm">
         <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
           <tr>
+            <th className="w-8 px-3 py-3"></th>
             <th className="px-6 py-3 font-medium">{t("results.table.inputData")}</th>
             <th className="px-6 py-3 font-medium">{t("results.table.reason")}</th>
             <th className="px-6 py-3 font-medium">{t("results.table.decision")}</th>
@@ -1272,33 +1402,56 @@ function UnmatchedTab({
           {items.map((item) => {
             const candidate = selectDisplayCandidate(item);
             const identity = buildIdentitySummary(item, candidate, identityMappings);
+            const isExpanded = expandedKeys.has(item.input_record_key);
+
             return (
-              <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
-                <td className="px-6 py-4">
-                  <RecordIdentityPreview summary={identity} side="input" />
-                </td>
-                <td className="px-6 py-4">{caseReasonLabel(item, t)}</td>
-                <td className="px-6 py-4">
-                  <StatusBadge
-                    label={displayDecisionLabel(item, t)}
-                    tone={item.display_status === "manual_rejected" ? "destructive" : "muted"}
-                  />
-                </td>
-                <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
-                <td className="px-6 py-4">
-                  {isPendingReview(item) && canReview ? (
-                    <Link
-                      to="/matching"
-                      search={buildMatchingSearch(workspaceId, 6)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+              <Fragment key={item.input_record_key}>
+                <tr className="align-top hover:bg-secondary/20">
+                  <td className="px-3 py-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => toggleRow(item.input_record_key)}
+                      className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                      title={isExpanded ? "Tutup detail" : "Lihat detail"}
                     >
-                      {t("results.review.open")}
-                    </Link>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">{t("results.readOnly")}</span>
-                  )}
-                </td>
-              </tr>
+                      {isExpanded ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                    </button>
+                  </td>
+                  <td className="px-6 py-4">
+                    <RecordIdentityPreview summary={identity} side="input" />
+                  </td>
+                  <td className="px-6 py-4">{caseReasonLabel(item, t)}</td>
+                  <td className="px-6 py-4">
+                    <StatusBadge
+                      label={displayDecisionLabel(item, t)}
+                      tone={item.display_status === "manual_rejected" ? "destructive" : "muted"}
+                    />
+                  </td>
+                  <td className="px-6 py-4">{decisionSourceLabel(item, t)}</td>
+                  <td className="px-6 py-4">
+                    {isPendingReview(item) && canReview ? (
+                      <Link
+                        to="/matching"
+                        search={buildMatchingSearch(workspaceId, 6)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                      >
+                        {t("results.review.open")}
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{t("results.readOnly")}</span>
+                    )}
+                  </td>
+                </tr>
+                {isExpanded && (
+                  <tr className="bg-secondary/15">
+                    <td colSpan={6} className="px-6 py-4">
+                      <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                        <VerificationRuleChecklist candidate={candidate} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>

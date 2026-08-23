@@ -18,7 +18,8 @@ class AiReviewCaseController extends Controller
     public function __invoke(Request $request, string $result): JsonResponse
     {
         try {
-            $analysis = $this->analyst->analyze($request->user(), $result);
+            $locale = $request->header('X-Locale') ?: $request->header('Accept-Language');
+            $analysis = $this->analyst->analyze($request->user(), $result, $locale);
 
             return response()->json([
                 'success' => true,
