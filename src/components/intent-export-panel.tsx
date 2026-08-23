@@ -85,7 +85,7 @@ export function IntentExportPanel({
 
   const handleDownload = (format: ExportFormat) => {
     if (items.length === 0) {
-      toast.error(t("results.export.emptyDesc") ?? "Tidak ada data untuk diekspor");
+      toast.error(t("results.export.emptyDesc"));
       return;
     }
 
@@ -132,11 +132,13 @@ export function IntentExportPanel({
       }
 
       toast.success(
-        t("matching.export.success") ??
-          `File ${format.toUpperCase()} berhasil diunduh (${fullExportTable.rows.length} baris)`,
+        t("matching.export.success", {
+          format: format.toUpperCase(),
+          count: fullExportTable.rows.length,
+        }),
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal membuat file ekspor");
+      toast.error(err instanceof Error ? err.message : t("matching.export.error"));
     } finally {
       setIsExporting(false);
     }
@@ -156,8 +158,7 @@ export function IntentExportPanel({
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-foreground">
-                {t("matching.export.autoEnrichLabel") ??
-                  "Lengkapi data referensi yang kosong dengan data input"}
+                {t("matching.export.autoEnrichLabel")}
               </span>
               <span className="inline-flex items-center gap-1 rounded bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
                 <Sparkles className="size-3" />
@@ -165,8 +166,7 @@ export function IntentExportPanel({
               </span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              {t("matching.export.autoEnrichDesc") ??
-                "Jika kolom pada data referensi kosong/null, sistem akan otomatis mengisi nilai dari data input pada pasangan record yang cocok."}
+              {t("matching.export.autoEnrichDesc")}
             </p>
           </div>
         </label>
@@ -176,10 +176,10 @@ export function IntentExportPanel({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="text-sm font-semibold text-foreground">
-            {t("matching.export.presetsTitle") ?? "Pilih Format & Tujuan Ekspor"}
+            {t("matching.export.presetsTitle")}
           </h4>
           <span className="text-xs text-muted-foreground">
-            {metrics.totalCount} Total Record Diproses
+            {t("matching.export.totalProcessed", { count: metrics.totalCount })}
           </span>
         </div>
 
@@ -207,7 +207,7 @@ export function IntentExportPanel({
                     <Database className="size-4" />
                   </div>
                   <h5 className="text-sm font-bold text-foreground">
-                    {t("matching.export.presetMasterUpdate") ?? "Pemutakhiran Master Data"}
+                    {t("matching.export.presetMasterUpdate")}
                   </h5>
                 </div>
                 {preset === "master_update" && (
@@ -216,15 +216,14 @@ export function IntentExportPanel({
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {t("matching.export.presetMasterUpdateDesc") ??
-                  "Hanya mengekspor record yang sudah Cocok (Matched) dan Entitas Baru. Struktur bersih dengan kolom input dan ID referensi."}
+                {t("matching.export.presetMasterUpdateDesc")}
               </p>
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
-              <span className="text-muted-foreground">Cakupan Ekspor:</span>
+              <span className="text-muted-foreground">{t("matching.export.scope")}:</span>
               <span className="font-semibold tabular-nums text-success">
-                {metrics.masterUpdateCount} Record Siap Pakai
+                {t("matching.export.readyRecords", { count: metrics.masterUpdateCount })}
               </span>
             </div>
           </div>
@@ -252,7 +251,7 @@ export function IntentExportPanel({
                     <FileText className="size-4" />
                   </div>
                   <h5 className="text-sm font-bold text-foreground">
-                    {t("matching.export.presetFullAudit") ?? "Laporan Audit Lengkap"}
+                    {t("matching.export.presetFullAudit")}
                   </h5>
                 </div>
                 {preset === "full_audit" && (
@@ -261,15 +260,14 @@ export function IntentExportPanel({
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {t("matching.export.presetFullAuditDesc") ??
-                  "Mengekspor seluruh record dengan struktur perbandingan berdampingan (input.X vs ref.X), skor kemiripan, dan status."}
+                {t("matching.export.presetFullAuditDesc")}
               </p>
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
-              <span className="text-muted-foreground">Cakupan Ekspor:</span>
+              <span className="text-muted-foreground">{t("matching.export.scope")}:</span>
               <span className="font-semibold tabular-nums text-foreground">
-                Semua {metrics.totalCount} Record
+                {t("matching.export.allRecords", { count: metrics.totalCount })}
               </span>
             </div>
           </div>
@@ -297,7 +295,7 @@ export function IntentExportPanel({
                     <AlertCircle className="size-4" />
                   </div>
                   <h5 className="text-sm font-bold text-foreground">
-                    {t("matching.export.presetPendingReview") ?? "Sisa Perlu Reviu"}
+                    {t("matching.export.presetPendingReview")}
                   </h5>
                 </div>
                 {preset === "pending_review" && (
@@ -306,15 +304,14 @@ export function IntentExportPanel({
               </div>
 
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {t("matching.export.presetPendingReviewDesc") ??
-                  "Hanya mengekspor record yang belum diputuskan / berstatus Perlu Review untuk investigasi atau review manual lanjutan."}
+                {t("matching.export.presetPendingReviewDesc")}
               </p>
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
-              <span className="text-muted-foreground">Cakupan Ekspor:</span>
+              <span className="text-muted-foreground">{t("matching.export.scope")}:</span>
               <span className="font-semibold tabular-nums text-warning">
-                {metrics.pendingCount} Record Pending
+                {t("matching.export.pendingRecords", { count: metrics.pendingCount })}
               </span>
             </div>
           </div>
@@ -324,11 +321,8 @@ export function IntentExportPanel({
       {/* SECTION 3: Live Table Preview with Safe Expansion Modal */}
       <div className="space-y-4">
         <DataPreviewTable
-          title={t("matching.export.livePreviewTitle") ?? "Pratinjau Data Ekspor"}
-          subtitle={
-            t("matching.export.livePreviewDesc") ??
-            "Pratinjau struktur kolom dan format data yang akan dihasilkan dalam file Excel / CSV."
-          }
+          title={t("matching.export.livePreviewTitle")}
+          subtitle={t("matching.export.livePreviewDesc")}
           columns={fullExportTable.columns}
           rows={fullExportTable.rows}
           totalRows={fullExportTable.rows.length}
@@ -336,18 +330,20 @@ export function IntentExportPanel({
           badgeColor="brand"
           badgeText={
             preset === "master_update"
-              ? "Pemutakhiran Master"
+              ? t("matching.export.presetMaster")
               : preset === "full_audit"
-                ? "Laporan Audit"
-                : "Sisa Perlu Reviu"
+                ? t("matching.export.presetAudit")
+                : t("matching.export.presetPending")
           }
-          emptyMessage="Tidak ada baris data yang cocok dengan preset ini."
+          emptyMessage={t("matching.export.presetEmptyMessage")}
         />
 
         {/* SECTION 4: Final Download Action Buttons */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-border bg-card">
           <div className="text-xs text-muted-foreground">
-            Klik tombol untuk mengunduh {fullExportTable.rows.length.toLocaleString()} record siap pakai
+            {t("matching.export.downloadHint", {
+              count: fullExportTable.rows.length.toLocaleString(),
+            })}
           </div>
 
           <div className="flex items-center gap-3">
@@ -362,7 +358,7 @@ export function IntentExportPanel({
               ) : (
                 <FileSpreadsheet className="size-4" />
               )}
-              <span>{t("matching.export.downloadXlsx") ?? "Unduh XLSX"}</span>
+              <span>{t("matching.export.downloadXlsx")}</span>
             </button>
 
             <button
@@ -372,7 +368,7 @@ export function IntentExportPanel({
               className="inline-flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition-colors cursor-pointer"
             >
               <Download className="size-4" />
-              <span>{t("matching.export.downloadCsv") ?? "Unduh CSV"}</span>
+              <span>{t("matching.export.downloadCsv")}</span>
             </button>
           </div>
         </div>

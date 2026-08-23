@@ -865,13 +865,13 @@ function MatchingPage() {
   const handleNextStep = async () => {
     if (activeStep === 1) {
       if (validMappings.length === 0) {
-        toast.error("Validasi Gagal", {
-          description: "Pilih minimal satu mapping kolom untuk melanjutkan.",
+        toast.error(t("feedback.error.validationTitle"), {
+          description: t("matching.validation.mappingRequired"),
         });
         return;
       }
       if (hasDuplicateReference(validMappings)) {
-        toast.error("Validasi Gagal", {
+        toast.error(t("feedback.error.validationTitle"), {
           description: t("matching.validation.duplicateReference"),
         });
         return;
@@ -905,11 +905,11 @@ function MatchingPage() {
       } catch (error: any) {
         console.error("Critical Error during Step 1 transition:", error);
         setWorkspaceSaveState("error");
-        toast.error("Gagal Menyimpan Mapping", {
+        toast.error(t("feedback.error.saveFailed"), {
           description:
             error?.response?.data?.message ||
             (error instanceof ApiError ? error.message : error?.message) ||
-            "Terjadi kesalahan pada server.",
+            t("matching.validation.serverError"),
         });
       } finally {
         setIsNavigatingStep(false);
@@ -919,7 +919,7 @@ function MatchingPage() {
 
     if (activeStep === 2) {
       if (!runResult || runState !== "success") {
-        toast.error("Validasi Gagal", {
+        toast.error(t("feedback.error.validationTitle"), {
           description: t("matching.validation.runRequired"),
         });
         return;
@@ -935,8 +935,8 @@ function MatchingPage() {
         });
       } catch (error: any) {
         console.error("Critical Error during Step 2 transition:", error);
-        toast.error("Gagal Berpindah Tahap", {
-          description: error?.message || "Terjadi kesalahan pada navigasi.",
+        toast.error(t("feedback.error.transitionFailed"), {
+          description: error?.message || t("matching.validation.serverError"),
         });
       } finally {
         setIsNavigatingStep(false);
@@ -950,38 +950,38 @@ function MatchingPage() {
 
     if (nextStep === 2) {
       if (!reference?.result || !input?.result) {
-        toast.error("Tidak dapat melanjutkan", {
+        toast.error(t("feedback.error.cannotProceed"), {
           description: t("matching.validation.uploadRequired"),
         });
         return;
       }
       if (validMappings.length === 0) {
-        toast.error("Tidak dapat melanjutkan", {
-          description: "Pastikan semua mapping wajib telah diisi atau tambahkan minimal satu mapping kolom.",
+        toast.error(t("feedback.error.cannotProceed"), {
+          description: t("matching.validation.requiredMappingIncomplete"),
         });
         return;
       }
       if (hasDuplicateReference(validMappings)) {
-        toast.error("Tidak dapat melanjutkan", {
+        toast.error(t("feedback.error.cannotProceed"), {
           description: t("matching.validation.duplicateReference"),
         });
         return;
       }
     } else if (nextStep === 3) {
       if (!reference?.result || !input?.result) {
-        toast.error("Tidak dapat melanjutkan", {
+        toast.error(t("feedback.error.cannotProceed"), {
           description: t("matching.validation.uploadRequired"),
         });
         return;
       }
       if (validMappings.length === 0) {
-        toast.error("Tidak dapat melanjutkan", {
-          description: "Pastikan semua mapping wajib telah diisi atau tambahkan minimal satu mapping kolom.",
+        toast.error(t("feedback.error.cannotProceed"), {
+          description: t("matching.validation.requiredMappingIncomplete"),
         });
         return;
       }
       if (!runResult || runState !== "success") {
-        toast.error("Tidak dapat melanjutkan", {
+        toast.error(t("feedback.error.cannotProceed"), {
           description: t("matching.validation.runRequired"),
         });
         return;

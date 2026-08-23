@@ -304,7 +304,7 @@ function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
           to="/workspaces"
           className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline cursor-pointer"
         >
-          <span>Lihat Semua</span>
+          <span>{t("dashboard.real.viewAll")}</span>
           <ArrowRight className="size-3.5" />
         </Link>
       </div>

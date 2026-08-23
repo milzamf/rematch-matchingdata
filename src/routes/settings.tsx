@@ -126,15 +126,15 @@ function SettingsPage() {
 
   const handleUpdatePassword = () => {
     if (!oldPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) {
-      toast.error("Semua kolom password wajib diisi");
+      toast.error(t("settings.passwordRequired"));
       return;
     }
     if (newPassword !== confirmPassword) {
-      toast.error("Konfirmasi password baru tidak cocok");
+      toast.error(t("settings.passwordMismatch"));
       return;
     }
     if (newPassword.length < 8) {
-      toast.error("Password baru minimal 8 karakter");
+      toast.error(t("settings.passwordTooShort"));
       return;
     }
 
@@ -144,7 +144,7 @@ function SettingsPage() {
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      toast.success("Password akun berhasil diperbarui");
+      toast.success(t("settings.passwordUpdated"));
     }, 600);
   };
 
@@ -154,25 +154,22 @@ function SettingsPage() {
     setPrivacy(defaultPrivacy);
     setExportPreferences(defaultExportPreferences);
     setSettingsError(null);
-    toast.info(t("feedback.toast.discarded") ?? "Perubahan dibatalkan.");
+    toast.info(t("feedback.toast.discarded"));
   };
 
   const saveLocalState = () => {
     const auto = Number(matchingDefaults.autoThreshold);
     const review = Number(matchingDefaults.reviewThreshold);
     if (!Number.isFinite(auto) || !Number.isFinite(review) || auto <= review) {
-      setSettingsError(
-        t("feedback.error.desc") ??
-          "Ambang batas auto-match harus lebih tinggi dari ambang batas review.",
-      );
-      toast.error(t("feedback.error.title") ?? "Konfigurasi tidak valid");
+      setSettingsError(t("feedback.error.desc"));
+      toast.error(t("feedback.error.title"));
       return;
     }
     setSettingsError(null);
     setSaving(true);
     window.setTimeout(() => {
       setSaving(false);
-      toast.success(t("feedback.toast.saved") ?? "Pengaturan berhasil disimpan.");
+      toast.success(t("feedback.toast.saved"));
     }, 600);
   };
 
@@ -180,11 +177,8 @@ function SettingsPage() {
     <AppLayout>
       <div className="px-6 lg:px-10 py-8 max-w-[1100px] mx-auto space-y-6">
         <PageHeader
-          title={t("settings.title") ?? "Pengaturan"}
-          description={
-            t("settings.description") ??
-            "Kelola preferensi akun, algoritma engine pencocokan, privasi data, dan format ekspor."
-          }
+          title={t("settings.title")}
+          description={t("settings.description")}
         />
 
         <Tabs
@@ -202,7 +196,7 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <User className="size-4 shrink-0" />
-                  <span>Akun & Tampilan</span>
+                  <span>{t("settings.tabAccount")}</span>
                 </TabsTrigger>
 
                 <TabsTrigger
@@ -210,7 +204,7 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <Cpu className="size-4 shrink-0" />
-                  <span>Mesin Matching</span>
+                  <span>{t("settings.tabEngine")}</span>
                 </TabsTrigger>
 
                 <TabsTrigger
@@ -218,7 +212,7 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <ShieldCheck className="size-4 shrink-0" />
-                  <span>Keamanan & AI</span>
+                  <span>{t("settings.tabSecurity")}</span>
                 </TabsTrigger>
 
                 <TabsTrigger
@@ -226,7 +220,7 @@ function SettingsPage() {
                   className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
                 >
                   <FileSpreadsheet className="size-4 shrink-0" />
-                  <span>Ekspor Data</span>
+                  <span>{t("settings.tabExport")}</span>
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -235,10 +229,10 @@ function SettingsPage() {
             <div className="rounded-xl border border-border/80 bg-secondary/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground flex items-center gap-1.5">
                 <Sparkles className="size-3.5 text-brand" />
-                <span>RE-MATCH Enterprise</span>
+                <span>{t("settings.enterpriseTitle")}</span>
               </p>
               <p className="text-[11px] leading-relaxed">
-                Pengaturan preferensi tersimpan secara lokal dan otomatis disinkronkan saat login.
+                {t("settings.enterpriseDesc")}
               </p>
             </div>
           </div>
@@ -251,9 +245,9 @@ function SettingsPage() {
               <Card className="p-6 space-y-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-base font-semibold text-foreground">Identitas Pengguna</h3>
+                    <h3 className="text-base font-semibold text-foreground">{t("settings.userIdentity")}</h3>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Informasi identitas akun yang digunakan untuk jejak audit dan log reviu.
+                      {t("settings.userIdentityDesc")}
                     </p>
                   </div>
 
@@ -265,31 +259,31 @@ function SettingsPage() {
                         className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary transition-colors cursor-pointer shrink-0 shadow-xs"
                       >
                         <Pencil className="size-3.5 text-muted-foreground" />
-                        <span>Ubah Profil</span>
+                        <span>{t("settings.editProfile")}</span>
                       </button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-md">
                       <DialogHeader>
-                        <DialogTitle>Ubah Profil Pengguna</DialogTitle>
+                        <DialogTitle>{t("settings.editProfileTitle")}</DialogTitle>
                         <DialogDescription>
-                          Perbarui nama tampilan dan data profil akun Anda.
+                          {t("settings.editProfileDesc")}
                         </DialogDescription>
                       </DialogHeader>
 
                       <div className="space-y-4 py-2">
                         <label className="block space-y-1.5">
-                          <span className="text-xs font-medium text-foreground">Nama Lengkap</span>
+                          <span className="text-xs font-medium text-foreground">{t("settings.fullName")}</span>
                           <input
                             type="text"
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
-                            placeholder="Nama Lengkap"
+                            placeholder={t("settings.fullName")}
                             className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
                           />
                         </label>
 
                         <label className="block space-y-1.5">
-                          <span className="text-xs font-medium text-foreground">Email (Akun SSO)</span>
+                          <span className="text-xs font-medium text-foreground">{t("settings.emailSso")}</span>
                           <input
                             type="email"
                             disabled
@@ -297,7 +291,7 @@ function SettingsPage() {
                             className="w-full bg-secondary/50 border border-border rounded-md px-3 py-2 text-xs text-muted-foreground cursor-not-allowed"
                           />
                           <span className="text-[10px] text-muted-foreground">
-                            Alamat email dikelola melalui sistem Single Sign-On (SSO) institusi.
+                            {t("settings.emailSsoHelp")}
                           </span>
                         </label>
                       </div>
@@ -308,18 +302,18 @@ function SettingsPage() {
                             type="button"
                             className="px-3 py-1.5 rounded-md border border-border text-xs font-medium text-foreground hover:bg-secondary"
                           >
-                            Batal
+                            {t("common.cancel")}
                           </button>
                         </DialogClose>
                         <button
                           type="button"
                           onClick={() => {
                             setIsEditProfileOpen(false);
-                            toast.success("Profil pengguna berhasil diperbarui.");
+                            toast.success(t("settings.profileUpdated"));
                           }}
                           className="px-3 py-1.5 rounded-md bg-brand text-brand-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
                         >
-                          Simpan
+                          {t("common.saveChanges")}
                         </button>
                       </DialogFooter>
                     </DialogContent>
@@ -337,14 +331,14 @@ function SettingsPage() {
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h4 className="text-base font-bold text-foreground truncate">
-                        {currentUser?.name || "Administrator"}
+                        {currentUser?.name || t("auth.defaultAdmin")}
                       </h4>
                       <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-[11px] font-semibold text-brand capitalize">
                         <Shield className="size-3" />
                         {currentUser
                           ? t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0]) ||
                             currentUser.role
-                          : "Admin"}
+                          : t("auth.defaultAdmin")}
                       </span>
                     </div>
 
@@ -361,10 +355,10 @@ function SettingsPage() {
                     <Building2 className="size-4 shrink-0 text-muted-foreground mt-0.5" />
                     <div className="min-w-0 space-y-0.5">
                       <span className="text-[11px] font-medium text-muted-foreground block">
-                        {t("settings.organization") ?? "Organisasi"}
+                        {t("settings.organization")}
                       </span>
                       <p className="text-xs font-semibold text-foreground truncate">
-                        {t("brand.organization") ?? "Kementerian / Lembaga"}
+                        {t("brand.organization")}
                       </p>
                     </div>
                   </div>
@@ -373,10 +367,10 @@ function SettingsPage() {
                     <Building2 className="size-4 shrink-0 text-muted-foreground mt-0.5" />
                     <div className="min-w-0 space-y-0.5">
                       <span className="text-[11px] font-medium text-muted-foreground block">
-                        {t("settings.organizationUnit") ?? "Unit Kerja"}
+                        {t("settings.organizationUnit")}
                       </span>
                       <p className="text-xs font-semibold text-foreground truncate">
-                        {t("brand.organizationUnit") ?? "Pusat Data dan Informasi"}
+                        {t("brand.organizationUnit")}
                       </p>
                     </div>
                   </div>
@@ -387,11 +381,10 @@ function SettingsPage() {
               <Card className="p-6 space-y-6">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
-                    {t("settings.preferencesTitle") ?? "Preferensi Tampilan"}
+                    {t("settings.preferencesTitle")}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {t("settings.preferencesDescription") ??
-                      "Sesuaikan tema visual dan bahasa tampilan aplikasi."}
+                    {t("settings.preferencesDescription")}
                   </p>
                 </div>
 
@@ -441,43 +434,43 @@ function SettingsPage() {
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <KeyRound className="size-4 text-brand" />
-                    <span>Keamanan Akun</span>
+                    <span>{t("settings.accountSecurity")}</span>
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Perbarui kata sandi untuk melindungi akses akun Anda.
+                    {t("settings.accountSecurityDesc")}
                   </p>
                 </div>
 
                 <div className="space-y-3.5 max-w-md">
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-foreground">Password Lama</span>
+                    <span className="text-xs font-medium text-foreground">{t("settings.oldPassword")}</span>
                     <input
                       type="password"
                       value={oldPassword}
                       onChange={(e) => setOldPassword(e.target.value)}
-                      placeholder="Masukkan password saat ini"
+                      placeholder={t("settings.oldPasswordPlaceholder")}
                       className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
                     />
                   </label>
 
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-foreground">Password Baru</span>
+                    <span className="text-xs font-medium text-foreground">{t("settings.newPassword")}</span>
                     <input
                       type="password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Minimal 8 karakter"
+                      placeholder={t("settings.newPasswordPlaceholder")}
                       className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
                     />
                   </label>
 
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-medium text-foreground">Konfirmasi Password Baru</span>
+                    <span className="text-xs font-medium text-foreground">{t("settings.confirmPassword")}</span>
                     <input
                       type="password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Ulangi password baru"
+                      placeholder={t("settings.confirmPasswordPlaceholder")}
                       className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
                     />
                   </label>
@@ -494,7 +487,7 @@ function SettingsPage() {
                       ) : (
                         <KeyRound className="size-3.5" />
                       )}
-                      <span>Perbarui Password</span>
+                      <span>{t("settings.updatePassword")}</span>
                     </button>
                   </div>
                 </div>
@@ -506,16 +499,16 @@ function SettingsPage() {
               <Card className="p-6 space-y-5">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
-                    Ambang Batas Matching Default
+                    {t("settings.matchingDefaults")}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Nilai ambang batas global yang digunakan sebagai standar awal saat membuat workspace matching baru.
+                    {t("settings.matchingDefaultsDesc")}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Field
-                    label={t("settings.defaultAutoThreshold") ?? "Ambang Batas Auto-Match (%)"}
+                    label={t("settings.defaultAutoThreshold")}
                     value={matchingDefaults.autoThreshold}
                     onChange={(value) =>
                       setMatchingDefaults((current) => ({ ...current, autoThreshold: value }))
@@ -523,7 +516,7 @@ function SettingsPage() {
                     type="number"
                   />
                   <Field
-                    label={t("settings.defaultReviewThreshold") ?? "Ambang Batas Perlu Reviu (%)"}
+                    label={t("settings.defaultReviewThreshold")}
                     value={matchingDefaults.reviewThreshold}
                     onChange={(value) =>
                       setMatchingDefaults((current) => ({ ...current, reviewThreshold: value }))
@@ -538,10 +531,10 @@ function SettingsPage() {
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <SlidersHorizontal className="size-4 text-brand" />
-                    <span>Daftar Kata Abaikan (Stopwords)</span>
+                    <span>{t("settings.customStopwords")}</span>
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Kata yang otomatis dihapus sebelum algoritma menghitung skor kemiripan (pisahkan dengan koma).
+                    {t("settings.customStopwordsDesc")}
                   </p>
                 </div>
 
@@ -559,7 +552,7 @@ function SettingsPage() {
                     className="w-full rounded-md border border-border bg-background p-3 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-brand leading-relaxed"
                   />
                   <p className="text-[11px] text-muted-foreground italic">
-                    Contoh: singkatan badan usaha, kata penghubung alamat, atau prefiks dokumen yang tidak relevan dengan kesamaan entitas.
+                    {t("settings.customStopwordsExample")}
                   </p>
                 </div>
               </Card>
@@ -568,42 +561,39 @@ function SettingsPage() {
             {/* TAB 3: KEAMANAN & AI */}
             <TabsContent value="keamanan" className="mt-0 space-y-6">
               <SettingsSection
-                title={t("settings.aiPreferences") ?? "Fitur Kecerdasan Buatan (AI)"}
-                description={
-                  t("settings.aiPreferencesDesc") ??
-                  "Aktifkan asisten AI untuk memandu pemetaan kolom dan memberikan analisis reviu."
-                }
+                title={t("settings.aiPreferences")}
+                description={t("settings.aiPreferencesDesc")}
               >
                 <Toggle
-                  label={t("settings.enableAiSuggestions") ?? "Aktifkan Saran AI"}
+                  label={t("settings.enableAiSuggestions")}
                   checked={aiPreferences.suggestions}
                   onChange={(checked) =>
                     setAiPreferences((current) => ({ ...current, suggestions: checked }))
                   }
                 />
                 <Toggle
-                  label={t("settings.columnMappingSuggestions") ?? "Saran Pemetaan Kolom Otomatis"}
+                  label={t("settings.columnMappingSuggestions")}
                   checked={aiPreferences.columnMapping}
                   onChange={(checked) =>
                     setAiPreferences((current) => ({ ...current, columnMapping: checked }))
                   }
                 />
                 <Toggle
-                  label={t("settings.matchingConfigurationRecommendations") ?? "Rekomendasi Bobot & Aturan"}
+                  label={t("settings.matchingConfigurationRecommendations")}
                   checked={aiPreferences.configuration}
                   onChange={(checked) =>
                     setAiPreferences((current) => ({ ...current, configuration: checked }))
                   }
                 />
                 <Toggle
-                  label={t("settings.reviewExplanation") ?? "Penjelasan Hasil Review (AI Diagnosis)"}
+                  label={t("settings.reviewExplanation")}
                   checked={aiPreferences.reviewExplanation}
                   onChange={(checked) =>
                     setAiPreferences((current) => ({ ...current, reviewExplanation: checked }))
                   }
                 />
                 <Toggle
-                  label={t("settings.tuningRecommendations") ?? "Rekomendasi Penyesuaian Algoritma (Tuning)"}
+                  label={t("settings.tuningRecommendations")}
                   checked={aiPreferences.tuning}
                   onChange={(checked) =>
                     setAiPreferences((current) => ({ ...current, tuning: checked }))
@@ -612,34 +602,31 @@ function SettingsPage() {
               </SettingsSection>
 
               <SettingsSection
-                title={t("settings.dataPrivacy") ?? "Privasi & Masking Data"}
-                description={
-                  t("settings.dataPrivacyDesc") ??
-                  "Pilih kolom data sensitif yang harus disamarkan (masking) sebelum pemrosesan atau log."
-                }
+                title={t("settings.dataPrivacy")}
+                description={t("settings.dataPrivacyDesc")}
               >
                 <Toggle
-                  label={t("settings.maskNik") ?? "Samarkan NIK (Nomor Induk Kependudukan)"}
+                  label={t("settings.maskNik")}
                   checked={privacy.nik}
                   onChange={(checked) => setPrivacy((current) => ({ ...current, nik: checked }))}
                 />
                 <Toggle
-                  label={t("settings.maskNpwp") ?? "Samarkan NPWP (Nomor Pokok Wajib Pajak)"}
+                  label={t("settings.maskNpwp")}
                   checked={privacy.npwp}
                   onChange={(checked) => setPrivacy((current) => ({ ...current, npwp: checked }))}
                 />
                 <Toggle
-                  label={t("settings.maskEmail") ?? "Samarkan Alamat Email"}
+                  label={t("settings.maskEmail")}
                   checked={privacy.email}
                   onChange={(checked) => setPrivacy((current) => ({ ...current, email: checked }))}
                 />
                 <Toggle
-                  label={t("settings.maskPhone") ?? "Samarkan Nomor Telepon / HP"}
+                  label={t("settings.maskPhone")}
                   checked={privacy.phone}
                   onChange={(checked) => setPrivacy((current) => ({ ...current, phone: checked }))}
                 />
                 <Toggle
-                  label={t("settings.aiMaskedOnly") ?? "Kirim Data Hanya dalam Bentuk Masked ke AI"}
+                  label={t("settings.aiMaskedOnly")}
                   checked={privacy.maskedOnly}
                   onChange={(checked) =>
                     setPrivacy((current) => ({ ...current, maskedOnly: checked }))
@@ -652,19 +639,24 @@ function SettingsPage() {
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <Lock className="size-4 text-brand" />
-                    <span>Retensi Workspace (Auto-Cleanup)</span>
+                    <span>{t("settings.autoCleanup")}</span>
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Jadwal penghapusan otomatis data sensitif dari server.
+                    {t("settings.autoCleanupDesc")}
                   </p>
                 </div>
 
                 <div className="max-w-md">
                   <Select
-                    label="Jadwal Retensi Data"
+                    label={t("settings.retentionSchedule")}
                     value={privacy.autoCleanup}
                     onChange={(val) => setPrivacy((current) => ({ ...current, autoCleanup: val }))}
-                    options={["7 Hari", "14 Hari", "30 Hari", "Jangan Hapus"]}
+                    options={[
+                      t("settings.retention7Days"),
+                      t("settings.retention14Days"),
+                      t("settings.retention30Days"),
+                      t("settings.retentionNever"),
+                    ]}
                   />
                 </div>
               </Card>
@@ -675,16 +667,16 @@ function SettingsPage() {
               <Card className="p-6 space-y-5">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
-                    Format Export Default
+                    {t("settings.exportDefaults")}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Konfigurasi default struktur dan pembatas file saat mengunduh hasil pencocokan.
+                    {t("settings.exportDefaultsDesc")}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Select
-                    label={t("settings.defaultExportFormat") ?? "Format File Default"}
+                    label={t("settings.defaultExportFormat")}
                     value={exportPreferences.exportFormat}
                     onChange={(val) =>
                       setExportPreferences((current) => ({ ...current, exportFormat: val }))
@@ -694,26 +686,26 @@ function SettingsPage() {
 
                   {/* NEW FEATURE: DELIMITER CSV */}
                   <Select
-                    label="Delimiter CSV"
+                    label={t("settings.csvDelimiter")}
                     value={exportPreferences.csvDelimiter}
                     onChange={(val) =>
                       setExportPreferences((current) => ({ ...current, csvDelimiter: val }))
                     }
-                    options={["Koma (,)", "Titik Koma (;)"]}
+                    options={[t("settings.csvComma"), t("settings.csvSemicolon")]}
                   />
                 </div>
 
                 <p className="text-[11px] text-muted-foreground">
-                  Pemisah kolom default untuk file CSV. Titik koma (;) direkomendasikan untuk Microsoft Excel regional Indonesia.
+                  {t("settings.csvDelimiterDesc")}
                 </p>
               </Card>
 
               <SettingsSection
-                title="Metadata & Kolom Audit Tambahan"
-                description="Tentukan kolom sistem yang otomatis disertakan pada file ekspor hasil pencocokan."
+                title={t("settings.exportMetadata")}
+                description={t("settings.exportMetadataDesc")}
               >
                 <Toggle
-                  label="Sertakan Kunci / ID Record Referensi"
+                  label={t("settings.includeReferenceKey")}
                   checked={exportPreferences.includeReferenceKey}
                   onChange={(checked) =>
                     setExportPreferences((current) => ({
@@ -723,7 +715,7 @@ function SettingsPage() {
                   }
                 />
                 <Toggle
-                  label="Sertakan Jejak Audit & Riwayat Reviewer"
+                  label={t("settings.includeAuditTrail")}
                   checked={exportPreferences.includeAuditTrail}
                   onChange={(checked) =>
                     setExportPreferences((current) => ({
@@ -733,7 +725,7 @@ function SettingsPage() {
                   }
                 />
                 <Toggle
-                  label="Sertakan Skor Kemiripan Numerik (%)"
+                  label={t("settings.includeScore")}
                   checked={exportPreferences.includeScore}
                   onChange={(checked) =>
                     setExportPreferences((current) => ({ ...current, includeScore: checked }))
@@ -745,14 +737,14 @@ function SettingsPage() {
             {/* Error and Loading panels */}
             {settingsError && (
               <ErrorPanel
-                title={t("feedback.error.title") ?? "Gagal Menyimpan"}
+                title={t("feedback.error.title")}
                 description={settingsError}
                 action={
                   <button
                     onClick={() => setSettingsError(null)}
                     className="rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary cursor-pointer"
                   >
-                    {t("common.tryAgain") ?? "Coba Lagi"}
+                    {t("common.tryAgain")}
                   </button>
                 }
               />
@@ -760,8 +752,8 @@ function SettingsPage() {
 
             {saving && (
               <LoadingPanel
-                title={t("feedback.loading.title") ?? "Menyimpan"}
-                description={t("feedback.loading.desc") ?? "Menerapkan konfigurasi ke sistem..."}
+                title={t("feedback.loading.title")}
+                description={t("feedback.loading.desc")}
               />
             )}
 
@@ -773,7 +765,7 @@ function SettingsPage() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-secondary transition-colors cursor-pointer"
               >
                 <RotateCcw className="size-3.5 text-muted-foreground" />
-                <span>{t("common.discard") ?? "Batal"}</span>
+                <span>{t("common.discard")}</span>
               </button>
               <button
                 type="button"
@@ -782,20 +774,17 @@ function SettingsPage() {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-brand-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-60 transition-opacity cursor-pointer shadow-xs"
               >
                 <Save className="size-3.5" />
-                <span>{t("common.saveChanges") ?? "Simpan Perubahan"}</span>
+                <span>{t("common.saveChanges")}</span>
               </button>
             </div>
 
             <ConfirmationDialog
               open={discardOpen}
               setOpen={setDiscardOpen}
-              title={t("feedback.confirm.discardTitle") ?? "Batalkan Perubahan?"}
-              description={
-                t("feedback.confirm.discardDesc") ??
-                "Semua perubahan yang belum disimpan akan dikembalikan ke nilai awal."
-              }
-              cancelLabel={t("common.cancel") ?? "Batal"}
-              actionLabel={t("common.discard") ?? "Kembalikan"}
+              title={t("feedback.confirm.discardTitle")}
+              description={t("feedback.confirm.discardDesc")}
+              cancelLabel={t("common.cancel")}
+              actionLabel={t("common.discard")}
               onConfirm={resetLocalState}
             />
           </div>
