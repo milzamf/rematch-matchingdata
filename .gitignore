@@ -23,6 +23,28 @@ coverage/
 .wrangler/
 .dev.vars
 
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# SQLite & Databases
+*.sqlite
+*.sqlite-journal
+backend/database/*.sqlite
+backend/database/*.sqlite-journal
+
+# Backend storage & vendor
+backend/vendor/
+backend/storage/app/private/
+backend/storage/app/public/
+backend/storage/framework/
+backend/storage/logs/
+backend/bootstrap/cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -20,6 +20,12 @@
 /public/storage
 /storage/*.key
 /storage/pail
+/storage/app/private/
+/storage/app/public/
+/database/*.sqlite
+/database/*.sqlite-journal
+*.sqlite
+*.sqlite-journal
 /vendor
 _ide_helper.php
 Homestead.json
