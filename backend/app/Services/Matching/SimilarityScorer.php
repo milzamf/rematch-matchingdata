@@ -8,13 +8,14 @@ class SimilarityScorer
     {
     }
 
-    public function score(string $algorithm, string $left, string $right): float
+    public function score(string $algorithm, string $left, string $right, bool $applyNumericGuardrail = true): float
     {
         if ($left === '' || $right === '') {
             return 0.0;
         }
 
-        return round(match ($this->normalizeAlgorithm($algorithm)) {
+        $normAlgorithm = $this->normalizeAlgorithm($algorithm);
+        $rawScore = match ($normAlgorithm) {
             'Exact' => $left === $right ? 100.0 : 0.0,
             'Case-Insensitive Exact' => mb_strtolower($left) === mb_strtolower($right) ? 100.0 : 0.0,
             'Normalized Exact', 'Numeric Exact', 'Date Exact' => $left === $right ? 100.0 : 0.0,
@@ -33,7 +34,50 @@ class SimilarityScorer
             'Partial Token Sort' => $this->partialRatio($this->sortTokens($left), $this->sortTokens($right)) * 100,
             'Partial Token Set' => $this->partialRatio($this->tokenSetText($left), $this->tokenSetText($right)) * 100,
             default => $this->levenshteinRatio($left, $right) * 100,
-        }, 2);
+        };
+
+        // Strict Numeric Guardrail:
+        // If the algorithm is a fuzzy metric and both strings contain conflicting digits/numbers,
+        // penalize the score to prevent wrongful automatic matching (e.g. "PT Makmur 1" vs "PT Makmur 2").
+        $isExact = in_array($normAlgorithm, ['Exact', 'Case-Insensitive Exact', 'Normalized Exact', 'Numeric Exact', 'Date Exact'], true);
+        if (! $isExact && $applyNumericGuardrail && $this->hasNumericMismatch($left, $right)) {
+            $rawScore *= 0.65;
+        }
+
+        return round($rawScore, 2);
+    }
+
+    /**
+     * Extract normalized digits/numbers from text (e.g. "RT 01" -> ["1"], "Makmur 2" -> ["2"]).
+     *
+     * @return list<string>
+     */
+    public function extractNumbers(string $text): array
+    {
+        preg_match_all('/\d+/', $text, $matches);
+        if (empty($matches[0])) {
+            return [];
+        }
+
+        return array_values(array_map(static fn (string $num) => ltrim($num, '0') ?: '0', $matches[0]));
+    }
+
+    /**
+     * Check whether two texts contain conflicting numeric sequences.
+     */
+    public function hasNumericMismatch(string $left, string $right): bool
+    {
+        $leftNumbers = $this->extractNumbers($left);
+        $rightNumbers = $this->extractNumbers($right);
+
+        if (empty($leftNumbers) || empty($rightNumbers)) {
+            return false;
+        }
+
+        sort($leftNumbers);
+        sort($rightNumbers);
+
+        return $leftNumbers !== $rightNumbers;
     }
 
     private function normalizeAlgorithm(string $algorithm): string

@@ -677,6 +677,7 @@ class MatchingEngineService
             $weightedScoreSum = 0.0;
             $weightTotal = 0.0;
             $identityConflict = false;
+            $numericConflict = false;
 
             foreach ($mappings as $mapping) {
                 $refCol = $mapping['reference_column_name'];
@@ -691,6 +692,11 @@ class MatchingEngineService
 
                 if ($fieldIdentityConflict) {
                     $identityConflict = true;
+                }
+
+                $fieldNumericMismatch = $this->scorer->hasNumericMismatch($left, $right);
+                if ($fieldNumericMismatch) {
+                    $numericConflict = true;
                 }
 
                 $algorithm = $mapping['algorithm'];
@@ -712,6 +718,7 @@ class MatchingEngineService
                         'input' => $inpIdentity,
                     ] : null,
                     'identity_conflict' => $fieldIdentityConflict,
+                    'numeric_mismatch' => $fieldNumericMismatch,
                 ];
             }
 
@@ -802,6 +809,11 @@ class MatchingEngineService
                 $downgraded = true;
                 $downgradeReason = implode('; ', $failedRuleReasons);
                 $decisionReason = "Auto-match downgraded to needs_review: {$downgradeReason}";
+            } elseif ($numericConflict && $finalClassification === 'matched') {
+                $finalClassification = 'possible_match';
+                $downgraded = true;
+                $downgradeReason = 'Numeric sequence mismatch requires review';
+                $decisionReason = 'Numeric sequence mismatch requires review';
             } elseif ($identityConflict && $finalClassification === 'matched') {
                 $finalClassification = 'possible_match';
                 $downgraded = true;
@@ -987,6 +999,7 @@ class MatchingEngineService
                     'input' => $inpIdentity,
                 ] : null,
                 'identity_conflict' => $fieldIdentityConflict,
+                'numeric_mismatch' => $this->scorer->hasNumericMismatch($left, $right),
             ];
         }
 
