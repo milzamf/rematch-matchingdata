@@ -180,7 +180,7 @@ export function AppSidebar() {
 
               {/* Action items */}
               <DropdownMenuItem
-                onClick={() => navigate({ to: "/settings" })}
+                onClick={() => navigate({ to: "/settings", search: { tab: "akun" } })}
                 className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg cursor-pointer hover:bg-secondary focus:bg-secondary"
               >
                 <User className="size-4 text-muted-foreground" />
@@ -188,7 +188,7 @@ export function AppSidebar() {
               </DropdownMenuItem>
 
               <DropdownMenuItem
-                onClick={() => navigate({ to: "/settings" })}
+                onClick={() => navigate({ to: "/settings", search: { tab: "akun" } })}
                 className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg cursor-pointer hover:bg-secondary focus:bg-secondary"
               >
                 <SlidersHorizontal className="size-4 text-muted-foreground" />
