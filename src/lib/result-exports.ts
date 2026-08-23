@@ -3,6 +3,12 @@ import type { ExportTable } from "@/lib/export-files";
 
 export type ExportStatus = "matched" | "new" | "rejected" | "pending";
 export type ExportFormat = "xlsx" | "csv";
+export type ExportPreset = "master_update" | "full_audit" | "pending_review";
+
+export interface IntentExportOptions {
+  preset: ExportPreset;
+  autoEnrich: boolean;
+}
 
 export type StoredExportHistoryEntry = {
   id: string;
@@ -10,7 +16,9 @@ export type StoredExportHistoryEntry = {
   format: ExportFormat | string;
   generatedAt: string;
   recordCount: number;
-  mode: "default" | "custom";
+  mode: "default" | "custom" | "intent";
+  preset?: ExportPreset;
+  autoEnrich?: boolean;
   statuses: ExportStatus[];
   columns: string[];
   includeReferenceKey: boolean;
@@ -18,6 +26,175 @@ export type StoredExportHistoryEntry = {
   includeScore: boolean;
   sourceJobId: string | null;
 };
+
+export function buildIntentExportRows(
+  items: ReviewItem[],
+  options: IntentExportOptions,
+): ExportTable {
+  const { preset, autoEnrich } = options;
+
+  let filteredItems: ReviewItem[] = [];
+  if (preset === "master_update") {
+    filteredItems = items.filter((item) => {
+      const s = exportStatus(item);
+      return s === "matched" || s === "new";
+    });
+  } else if (preset === "pending_review") {
+    filteredItems = items.filter((item) => {
+      const s = exportStatus(item);
+      return s === "pending";
+    });
+  } else {
+    // full_audit
+    filteredItems = items;
+  }
+
+  const inputColKeys = new Set<string>();
+  const refColKeys = new Set<string>();
+  items.forEach((item) => {
+    Object.keys(item.input_record || {}).forEach((k) => inputColKeys.add(k));
+    const ref = item.candidates[0]?.reference_record || {};
+    Object.keys(ref).forEach((k) => refColKeys.add(k));
+  });
+
+  const inputCols = Array.from(inputColKeys);
+  const refCols = Array.from(refColKeys);
+
+  if (preset === "master_update") {
+    const rows = filteredItems.map((item) => {
+      const candidate = item.candidates[0] ?? null;
+      const refRecord = candidate?.reference_record ?? {};
+      const status = exportStatus(item);
+      const isMatched = status === "matched";
+
+      const row: Record<string, string | number | boolean | null> = {
+        input_record_key: item.input_record_key,
+        match_status: isMatched ? "MATCHED" : "NEW_ENTITY",
+        reference_record_key: isMatched ? (candidate?.reference_record_key ?? null) : null,
+      };
+
+      inputCols.forEach((col) => {
+        row[`input.${col}`] = (item.input_record[col] as string | number | boolean | null) ?? null;
+      });
+
+      if (autoEnrich && isMatched) {
+        refCols.forEach((col) => {
+          const refVal = refRecord[col];
+          const inpVal = item.input_record[col];
+          const enrichedVal =
+            refVal !== undefined && refVal !== null && String(refVal).trim() !== ""
+              ? refVal
+              : inpVal !== undefined && inpVal !== null && String(inpVal).trim() !== ""
+                ? inpVal
+                : null;
+          row[`enriched.${col}`] = enrichedVal as string | number | boolean | null;
+        });
+      }
+
+      return row;
+    });
+
+    const columns = [
+      "input_record_key",
+      "match_status",
+      "reference_record_key",
+      ...inputCols.map((c) => `input.${c}`),
+      ...(autoEnrich ? refCols.map((c) => `enriched.${c}`) : []),
+    ];
+
+    return {
+      name: "Master Data Update",
+      columns,
+      rows,
+    };
+  }
+
+  // full_audit or pending_review: Side-by-side structure
+  const pairedFields = Array.from(new Set([...inputCols, ...refCols]));
+
+  const rows = filteredItems.map((item) => {
+    const candidate = item.candidates[0] ?? null;
+    const refRecord = candidate?.reference_record ?? {};
+    const status = exportStatus(item);
+
+    const row: Record<string, string | number | boolean | null> = {
+      input_record_key: item.input_record_key,
+      match_status:
+        status === "matched"
+          ? "MATCHED"
+          : status === "pending"
+            ? "NEED_REVIEW"
+            : status === "rejected"
+              ? "REJECTED"
+              : "UNMATCHED",
+      matching_score: candidate?.score ?? (status === "new" ? 0 : null),
+      reference_record_key: candidate?.reference_record_key ?? null,
+    };
+
+    pairedFields.forEach((field) => {
+      const inpVal = item.input_record[field];
+      const refVal = refRecord[field];
+
+      row[`input.${field}`] = (inpVal as string | number | boolean | null) ?? null;
+      row[`ref.${field}`] = (refVal as string | number | boolean | null) ?? null;
+
+      if (autoEnrich && status === "matched") {
+        const enriched =
+          refVal !== undefined && refVal !== null && String(refVal).trim() !== ""
+            ? refVal
+            : inpVal !== undefined && inpVal !== null && String(inpVal).trim() !== ""
+              ? inpVal
+              : null;
+        row[`enriched.${field}`] = enriched as string | number | boolean | null;
+      }
+    });
+
+    if (item.decision) {
+      row.review_decision = item.decision.decision;
+      row.review_source = item.decision.source ?? null;
+      row.review_reviewer = item.decision.reviewer ?? null;
+    }
+
+    return row;
+  });
+
+  const dynamicColumns: string[] = [];
+  pairedFields.forEach((field) => {
+    dynamicColumns.push(`input.${field}`);
+    dynamicColumns.push(`ref.${field}`);
+    if (autoEnrich) {
+      dynamicColumns.push(`enriched.${field}`);
+    }
+  });
+
+  const columns = [
+    "input_record_key",
+    "match_status",
+    "matching_score",
+    "reference_record_key",
+    ...dynamicColumns,
+    "review_decision",
+    "review_reason",
+  ];
+
+  return {
+    name: preset === "full_audit" ? "Audit Report" : "Pending Review Export",
+    columns,
+    rows,
+  };
+}
+
+export function buildIntentExportPreview(
+  items: ReviewItem[],
+  options: IntentExportOptions,
+  sampleLimit = 3,
+): ExportTable {
+  const table = buildIntentExportRows(items, options);
+  return {
+    ...table,
+    rows: table.rows.slice(0, sampleLimit),
+  };
+}
 
 export function buildExportRows(
   items: ReviewItem[],
@@ -134,7 +311,7 @@ export function buildStoredExportHistoryEntry(input: {
   fileName: string;
   format: ExportFormat;
   recordCount: number;
-  mode: "default" | "custom";
+  mode: "default" | "custom" | "intent";
   statuses: ExportStatus[];
   columns: string[];
   includeReferenceKey: boolean;
@@ -198,7 +375,7 @@ function normalizeStoredExportHistoryEntry(value: unknown): StoredExportHistoryE
     format,
     generatedAt,
     recordCount,
-    mode: record.mode === "custom" ? "custom" : "default",
+    mode: record.mode === "custom" ? "custom" : record.mode === "intent" ? "intent" : "default",
     statuses,
     columns,
     includeReferenceKey: Boolean(record.includeReferenceKey ?? record.include_reference_key),

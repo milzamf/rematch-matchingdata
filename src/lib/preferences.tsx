@@ -987,10 +987,31 @@ const translations = {
     "matching.export.exporting": "Preparing",
     "matching.export.success": "Export file generated",
     "matching.export.failed": "Export failed",
-    "matching.export.excelDesc": "Workbook with results, sync summary, and audit trail",
-    "matching.export.csvDesc": "Flat file with match scores and selected merge action",
     "matching.export.referenceLabel": "Updated Reference",
     "matching.export.referenceDesc": "Preview output after applying the synchronization plan",
+    "matching.export.autoEnrichLabel": "Auto-enrich empty reference fields with input data",
+    "matching.export.autoEnrichDesc":
+      "Fill empty or null reference columns with values from matched input records",
+    "matching.export.presetsTitle": "Choose Export Preset & Format",
+    "matching.export.presetMasterUpdate": "Master Data Update",
+    "matching.export.presetMasterUpdateDesc":
+      "Exports ONLY Matched records and New Entities. Clean structure with input columns and reference IDs.",
+    "matching.export.presetFullAudit": "Full Audit Report",
+    "matching.export.presetFullAuditDesc":
+      "Exports ALL records with side-by-side comparison structure (input.X vs ref.X), similarity scores, and status.",
+    "matching.export.presetPendingReview": "Remaining Needs Review",
+    "matching.export.presetPendingReviewDesc":
+      "Exports ONLY records that are Pending Review for further investigation.",
+    "matching.export.livePreviewTitle": "Live Export Data Preview",
+    "matching.export.livePreviewDesc":
+      "Sample 3 rows of data that will be generated in the Excel / CSV file according to the selected preset",
+    "matching.export.downloadXlsx": "Download XLSX",
+    "matching.export.downloadCsv": "Download CSV",
+    "matching.preview.title": "Data Previews (Head Preview)",
+    "matching.preview.desc":
+      "Preview the first 5 rows of raw data to validate datasets before column mapping",
+    "matching.preview.referenceTitle": "Reference Data Preview (First 5 Rows)",
+    "matching.preview.inputTitle": "Input Data Preview (First 5 Rows)",
     "results.title": "Matching Results",
     "results.description":
       "Review matching outcomes, review decisions, and the final workspace status",
@@ -2200,10 +2221,31 @@ const translations = {
     "matching.export.exporting": "Menyiapkan",
     "matching.export.success": "File ekspor berhasil dibuat",
     "matching.export.failed": "Ekspor gagal",
-    "matching.export.excelDesc": "Workbook berisi hasil, ringkasan Sinkronisasi, dan audit",
-    "matching.export.csvDesc": "File berisi hasil akhir dan status data",
     "matching.export.referenceLabel": "Rujukan Terupdate",
     "matching.export.referenceDesc": "Preview output setelah rencana sinkronisasi diterapkan",
+    "matching.export.autoEnrichLabel": "Lengkapi data referensi yang kosong dengan data input",
+    "matching.export.autoEnrichDesc":
+      "Mengisi kolom data referensi yang bernilai kosong dengan nilai dari data input pada record yang cocok",
+    "matching.export.presetsTitle": "Pilih Format & Tujuan Ekspor",
+    "matching.export.presetMasterUpdate": "Pemutakhiran Master Data",
+    "matching.export.presetMasterUpdateDesc":
+      "Hanya mengekspor record yang sudah Cocok (Matched) dan Entitas Baru. Struktur bersih dengan kolom input dan ID referensi.",
+    "matching.export.presetFullAudit": "Laporan Audit Lengkap",
+    "matching.export.presetFullAuditDesc":
+      "Mengekspor seluruh record dengan struktur perbandingan berdampingan (input.X vs ref.X), skor kemiripan, dan status.",
+    "matching.export.presetPendingReview": "Sisa Perlu Reviu",
+    "matching.export.presetPendingReviewDesc":
+      "Hanya mengekspor record yang belum diputuskan / berstatus Perlu Review untuk investigasi atau review manual lanjutan.",
+    "matching.export.livePreviewTitle": "Pratinjau Data Ekspor",
+    "matching.export.livePreviewDesc":
+      "Contoh 3 baris data yang akan dihasilkan dalam file Excel / CSV sesuai preset yang dipilih",
+    "matching.export.downloadXlsx": "Unduh XLSX",
+    "matching.export.downloadCsv": "Unduh CSV",
+    "matching.preview.title": "Pratinjau Data (Head Preview)",
+    "matching.preview.desc":
+      "Pratinjau 5 baris pertama data mentah untuk memvalidasi isi dataset sebelum pemetaan kolom",
+    "matching.preview.referenceTitle": "Pratinjau Data Referensi (5 Baris Pertama)",
+    "matching.preview.inputTitle": "Pratinjau Data Input (5 Baris Pertama)",
     "results.title": "Hasil Matching",
     "results.description": "Lihat hasil pencocokan, keputusan review, dan status akhir workspace",
     "results.loadFailed": "Hasil tidak dapat dimuat",

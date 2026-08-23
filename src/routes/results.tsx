@@ -32,6 +32,7 @@ import {
   VerificationEvidenceBreakdown,
   VerificationRuleChecklist,
 } from "@/components/verification-evidence";
+import { IntentExportPanel } from "@/components/intent-export-panel";
 import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import {
@@ -200,14 +201,20 @@ function ResultsPage() {
   const needReviewItems = useMemo(() => items.filter(isPendingReview), [items]);
   const unmatchedItems = useMemo(() => items.filter(isFinalUnmatched), [items]);
   const caseGroups = review?.case_groups ?? [];
-  const exportHistory = useMemo(
-    () =>
-      normalizeStoredExportHistory(workspace?.export_history).filter((item) => {
-        const jobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
-        return !jobId || !item.sourceJobId || item.sourceJobId === jobId;
-      }),
-    [workspace],
-  );
+  const [localExportHistory, setLocalExportHistory] = useState<StoredExportHistoryEntry[]>([]);
+  const exportHistory = useMemo(() => {
+    const fromWorkspace = normalizeStoredExportHistory(workspace?.export_history).filter((item) => {
+      const jobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
+      return !jobId || !item.sourceJobId || item.sourceJobId === jobId;
+    });
+    const combined = [...localExportHistory, ...fromWorkspace];
+    const seen = new Set<string>();
+    return combined.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [workspace, localExportHistory]);
   const syncSummary = normalizeSyncSummary(workspace?.sync_state);
   const inputRecordCount =
     workspace?.input_dataset?.dataset.row_count ??
@@ -503,6 +510,9 @@ function ResultsPage() {
                   downloadingId={downloadingId}
                   exportHistory={exportHistory}
                   items={items}
+                  jobId={workspace.matching_job_id}
+                  jobName={workspace.matching_job?.name ?? workspace.name}
+                  onExportHistoryChange={setLocalExportHistory}
                   onDownload={async (entry) => {
                     try {
                       setDownloadingId(entry.id);
@@ -1657,7 +1667,9 @@ function ExportTab({
   exportHistory,
   items,
   onDownload,
-  workspaceId,
+  jobId,
+  jobName,
+  onExportHistoryChange,
 }: {
   canOpenExport: boolean;
   downloadingId: string | null;
@@ -1665,72 +1677,75 @@ function ExportTab({
   items: ReviewItem[];
   onDownload: (entry: StoredExportHistoryEntry) => Promise<void>;
   workspaceId: string;
+  jobId?: string | null;
+  jobName?: string;
+  onExportHistoryChange?: (
+    updater: (prev: StoredExportHistoryEntry[]) => StoredExportHistoryEntry[],
+  ) => void;
 }) {
   const { t } = usePreferences();
 
   return (
-    <div className="space-y-4 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-4">
-        <div>
-          <p className="text-sm font-semibold">{t("results.export.title")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{t("results.export.desc")}</p>
-        </div>
-        {canOpenExport && (
-          <Link
-            to="/matching"
-            search={buildMatchingSearch(workspaceId, 8)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
-          >
-            <FileDown className="size-4" />
-            {t("results.export.openSettings")}
-          </Link>
-        )}
-      </div>
+    <div className="space-y-6 p-6">
+      {/* Intent-Based Streamlined Export Panel */}
+      <IntentExportPanel
+        jobId={jobId ?? null}
+        items={items}
+        jobName={jobName}
+        canExecute={canOpenExport}
+        onExportHistoryChange={onExportHistoryChange}
+      />
 
-      {exportHistory.length === 0 ? (
-        <SimpleTabEmpty
-          icon={FileSpreadsheet}
-          title={t("results.export.emptyTitle")}
-          description={t("results.export.emptyDesc")}
-        />
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-6 py-3 font-medium">{t("results.export.fileName")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.export.format")}</th>
-                <th className="px-6 py-3 text-right font-medium">{t("results.export.recordCount")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.export.generatedAt")}</th>
-                <th className="px-6 py-3 font-medium">{t("results.table.action")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {exportHistory.map((entry) => (
-                <tr key={entry.id} className="hover:bg-secondary/20">
-                  <td className="px-6 py-4">{entry.fileName}</td>
-                  <td className="px-6 py-4 uppercase">{entry.format}</td>
-                  <td className="px-6 py-4 text-right tabular-nums">{formatNumber(entry.recordCount)}</td>
-                  <td className="px-6 py-4">{formatDateTime(entry.generatedAt)}</td>
-                  <td className="px-6 py-4">
-                    <button
-                      type="button"
-                      disabled={items.length === 0 || downloadingId === entry.id}
-                      onClick={() => void onDownload(entry)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-50"
-                    >
-                      {downloadingId === entry.id ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Download className="size-3.5" />
-                      )}
-                      {t("common.download")}
-                    </button>
-                  </td>
+      {/* Export History Table */}
+      {exportHistory.length > 0 && (
+        <div className="space-y-3 pt-6 border-t border-border">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-foreground">
+              {t("results.export.title")}
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              {t("results.export.desc")}
+            </p>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-6 py-3 font-medium">{t("results.export.fileName")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.export.format")}</th>
+                  <th className="px-6 py-3 text-right font-medium">{t("results.export.recordCount")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.export.generatedAt")}</th>
+                  <th className="px-6 py-3 font-medium">{t("results.table.action")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {exportHistory.map((entry) => (
+                  <tr key={entry.id} className="hover:bg-secondary/20">
+                    <td className="px-6 py-4">{entry.fileName}</td>
+                    <td className="px-6 py-4 uppercase">{entry.format}</td>
+                    <td className="px-6 py-4 text-right tabular-nums">{formatNumber(entry.recordCount)}</td>
+                    <td className="px-6 py-4">{formatDateTime(entry.generatedAt)}</td>
+                    <td className="px-6 py-4">
+                      <button
+                        type="button"
+                        disabled={items.length === 0 || downloadingId === entry.id}
+                        onClick={() => void onDownload(entry)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary disabled:opacity-50"
+                      >
+                        {downloadingId === entry.id ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Download className="size-3.5" />
+                        )}
+                        {t("common.download")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

@@ -28,6 +28,7 @@ import {
   VerificationEvidenceBadge,
   VerificationEvidenceBreakdown,
 } from "@/components/verification-evidence";
+import { IntentExportPanel } from "@/components/intent-export-panel";
 import {
   fetchAiMatchingConfiguration,
   fetchAiReviewAnalysis,
@@ -1096,9 +1097,15 @@ function MatchingPage() {
                   />
 
                   {(reference?.result || input?.result) && (
-                    <div className="border-t border-border pt-6">
-                      <StepProfile reference={reference?.result} input={input?.result} />
-                    </div>
+                    <>
+                      <div className="border-t border-border pt-6">
+                        <StepDataPreview reference={reference?.result} input={input?.result} />
+                      </div>
+
+                      <div className="border-t border-border pt-6">
+                        <StepProfile reference={reference?.result} input={input?.result} />
+                      </div>
+                    </>
                   )}
 
                   {referenceColumns.length > 0 && inputColumns.length > 0 && (
@@ -1652,6 +1659,136 @@ function DatasetProfileCard({
                 >
                   {column.sample_values.length > 0 ? column.sample_values.join(", ") : "—"}
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StepDataPreview({
+  reference,
+  input,
+}: {
+  reference?: DatasetInspectResult;
+  input?: DatasetInspectResult;
+}) {
+  const { t } = usePreferences();
+
+  if (!reference && !input) return null;
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle
+        title={t("matching.preview.title") ?? "Pratinjau Data (Head Preview)"}
+        desc={
+          t("matching.preview.desc") ??
+          "Pratinjau 5 baris pertama data mentah untuk memvalidasi isi dataset sebelum pemetaan kolom"
+        }
+      />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {reference && (
+          <RawDataPreviewTable
+            title={t("matching.upload.reference")}
+            filename={reference.dataset.original_filename}
+            columns={reference.columns.map((c) => c.name)}
+            rows={reference.preview_rows.slice(0, 5)}
+            totalRows={reference.dataset.row_count}
+            badgeColor="brand"
+          />
+        )}
+
+        {input && (
+          <RawDataPreviewTable
+            title={t("matching.upload.input")}
+            filename={input.dataset.original_filename}
+            columns={input.columns.map((c) => c.name)}
+            rows={input.preview_rows.slice(0, 5)}
+            totalRows={input.dataset.row_count}
+            badgeColor="secondary"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RawDataPreviewTable({
+  title,
+  filename,
+  columns,
+  rows,
+  totalRows,
+  badgeColor,
+}: {
+  title: string;
+  filename: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  totalRows: number;
+  badgeColor: "brand" | "secondary";
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+        <div>
+          <span
+            className={`text-[11px] font-bold uppercase tracking-wider ${
+              badgeColor === "brand" ? "text-brand" : "text-foreground"
+            }`}
+          >
+            {title}
+          </span>
+          <p className="mt-0.5 text-xs font-semibold text-muted-foreground truncate max-w-[260px]">
+            {filename}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+            {rows.length} dari {totalRows.toLocaleString()} baris
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full text-xs">
+          <thead className="bg-secondary/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="w-8 px-2.5 py-2 text-center font-medium border-r border-border/50">#</th>
+              {columns.map((col) => (
+                <th key={col} className="px-3 py-2 text-left font-mono font-medium whitespace-nowrap">
+                  {col}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border font-mono text-[11px]">
+            {rows.map((row, idx) => (
+              <tr key={idx} className="hover:bg-secondary/20">
+                <td className="px-2.5 py-2 text-center text-muted-foreground border-r border-border/50 font-sans text-xs">
+                  {idx + 1}
+                </td>
+                {columns.map((col) => {
+                  const val = row[col];
+                  const displayVal =
+                    val === null || val === undefined || String(val).trim() === "" ? (
+                      <span className="text-muted-foreground/40 italic">null</span>
+                    ) : (
+                      String(val)
+                    );
+                  return (
+                    <td
+                      key={col}
+                      className="px-3 py-2 whitespace-nowrap max-w-[200px] truncate text-foreground"
+                      title={String(val ?? "")}
+                    >
+                      {displayVal}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -3612,9 +3749,6 @@ function StepReviewAndResults({
   jobId,
   canDecide,
   columnMappings,
-  syncState,
-  onSyncStateChange,
-  canExecuteSync,
   canExecuteExport,
   onExportHistoryChange,
   workspaceId,
@@ -3622,15 +3756,15 @@ function StepReviewAndResults({
   jobId: string | null;
   canDecide: boolean;
   columnMappings: ColumnMappingDraft[];
-  syncState: SyncState | null;
-  onSyncStateChange: Dispatch<SetStateAction<SyncState | null>>;
-  canExecuteSync: boolean;
+  syncState?: SyncState | null;
+  onSyncStateChange?: Dispatch<SetStateAction<SyncState | null>>;
+  canExecuteSync?: boolean;
   canExecuteExport: boolean;
   onExportHistoryChange: Dispatch<SetStateAction<StoredExportHistoryEntry[]>>;
   workspaceId?: string | null;
 }) {
   const { t } = usePreferences();
-  const [activeSubTab, setActiveSubTab] = useState<"review" | "sync" | "export">("review");
+  const [activeSubTab, setActiveSubTab] = useState<"review" | "export">("review");
 
   return (
     <div className="space-y-6">
@@ -3646,17 +3780,6 @@ function StepReviewAndResults({
             }`}
           >
             {t("step.review")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSubTab("sync")}
-            className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              activeSubTab === "sync"
-                ? "bg-brand text-brand-foreground"
-                : "bg-secondary text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t("step.sync")}
           </button>
           <button
             type="button"
@@ -3688,16 +3811,6 @@ function StepReviewAndResults({
           jobId={jobId}
           canDecide={canDecide}
           columnMappings={columnMappings}
-        />
-      )}
-
-      {activeSubTab === "sync" && (
-        <StepSynchronize
-          jobId={jobId}
-          syncState={syncState}
-          onBackToReview={() => setActiveSubTab("review")}
-          onSyncStateChange={onSyncStateChange}
-          canExecute={canExecuteSync}
         />
       )}
 
@@ -5882,301 +5995,6 @@ function comparisonLabel(comparison: string, t: ReturnType<typeof usePreferences
   return t("matching.review.different");
 }
 
-function StepSynchronize({
-  jobId,
-  syncState,
-  onBackToReview,
-  onSyncStateChange,
-  canExecute,
-}: {
-  jobId: string | null;
-  syncState: SyncState | null;
-  onBackToReview: () => void;
-  onSyncStateChange: (state: SyncState | null) => void;
-  canExecute: boolean;
-}) {
-  const { t } = usePreferences();
-  const [review, setReview] = useState<ReviewResults | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"recommended" | "custom">("recommended");
-  const [updateExisting, setUpdateExisting] = useState(false);
-  const [conflictAction, setConflictAction] = useState("Keep reference and fill blanks");
-  const [syncAudit, setSyncAudit] = useState<SyncState | null>(syncState);
-
-  useEffect(() => {
-    if (!jobId) return;
-
-    const existing = localStorage.getItem(syncAuditKey(jobId));
-    const restored = existing ? normalizeSyncState(JSON.parse(existing)) : syncState;
-    setSyncAudit(restored ?? null);
-    if (restored?.confirmed && !syncState?.confirmed) onSyncStateChange(restored);
-    setLoading(true);
-    setError(null);
-    fetchReviewResults(jobId)
-      .then(setReview)
-      .catch((err) =>
-        setError(err instanceof ApiError ? err.message : t("matching.review.loadFailed")),
-      )
-      .finally(() => setLoading(false));
-  }, [jobId, onSyncStateChange, syncState, t]);
-
-  const items = review?.items ?? [];
-  const pendingReview = items.filter(
-    (item) =>
-      !item.decision &&
-      ((item.display_status ?? item.status) === "need_review" || item.status === "possible_match"),
-  ).length;
-  const matched = items.filter((item) =>
-    ["auto_matched", "manual_accepted", "matched"].includes(item.display_status ?? item.status),
-  ).length;
-  const newEntities = items.filter((item) =>
-    ["confirmed_unmatched", "unmatched"].includes(item.display_status ?? item.status),
-  ).length;
-  const excluded = items.filter((item) => item.display_status === "manual_rejected").length;
-  const referenceKeys = new Set(
-    items.flatMap((item) =>
-      item.candidates
-        .map((candidate) => candidate.reference_record_key)
-        .filter((key): key is string => Boolean(key)),
-    ),
-  );
-  const referenceBefore = referenceKeys.size;
-  const referenceAfter = referenceBefore + newEntities;
-  const readyToSync = Boolean(jobId && !loading && !error && pendingReview === 0);
-
-  const confirmSync = () => {
-    if (!jobId || !readyToSync) return;
-    const existing = localStorage.getItem(syncAuditKey(jobId));
-
-    if (existing) {
-      setSyncAudit(JSON.parse(existing));
-      toast.info(t("matching.sync.alreadySynced"));
-      return;
-    }
-
-    const audit = {
-      confirmed: true,
-      id: `sync-${jobId}`,
-      auditId: `sync-${jobId}`,
-      createdAt: new Date().toISOString(),
-      confirmedAt: new Date().toISOString(),
-      planMode: mode,
-      matched,
-      newEntities,
-      excluded,
-      referenceBefore,
-      referenceAfter,
-      conflictAction,
-    };
-    localStorage.setItem(syncAuditKey(jobId), JSON.stringify(audit));
-    setSyncAudit(audit);
-    onSyncStateChange(audit);
-    toast.success(t("matching.sync.confirmed"));
-  };
-
-  return (
-    <>
-      <SectionTitle title={t("matching.sync.title")} desc={t("matching.sync.desc")} />
-
-      {!jobId && (
-        <EmptyState
-          icon={ClipboardCheck}
-          title={t("matching.sync.noReviewTitle")}
-          description={t("matching.sync.noReviewDesc")}
-        />
-      )}
-
-      {jobId && loading && (
-        <div className="rounded-lg border border-border bg-secondary/20 p-6">
-          <div className="flex items-center gap-3">
-            <Loader2 className="size-5 animate-spin text-accent" />
-            <p className="text-sm font-semibold">{t("matching.sync.loading")}</p>
-          </div>
-        </div>
-      )}
-
-      {jobId && error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
-          <p className="text-sm font-semibold">{t("feedback.error.title")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{error}</p>
-        </div>
-      )}
-
-      {jobId && review && (
-        <div className="space-y-5">
-          {pendingReview > 0 && (
-            <div className="rounded-lg border border-warning/30 bg-warning/5 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold">{t("matching.sync.pendingTitle")}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t("matching.sync.pendingDesc", { count: pendingReview })}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onBackToReview}
-                  className="rounded-md bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground"
-                >
-                  {t("matching.sync.backToReview")}
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <SyncMetric label={t("matching.sync.previewMatched")} value={String(matched)} />
-            <SyncMetric label={t("matching.sync.previewNew")} value={String(newEntities)} />
-            <SyncMetric label={t("matching.sync.previewExcluded")} value={String(excluded)} />
-            <SyncMetric label={t("matching.sync.previewPending")} value={String(pendingReview)} />
-            <SyncMetric
-              label={t("matching.sync.referenceBefore")}
-              value={String(referenceBefore)}
-            />
-            <SyncMetric
-              label={t("matching.sync.referenceAfter")}
-              value={String(referenceAfter)}
-              strong
-            />
-          </div>
-
-          <section className="rounded-lg border border-border p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold">{t("matching.sync.recommendedPlan")}</p>
-                <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
-                  {t("matching.sync.recommendedDesc")}
-                </p>
-              </div>
-              <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
-                {(["recommended", "custom"] as const).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setMode(item)}
-                    className={[
-                      "rounded-md px-3 py-1.5 text-xs font-semibold",
-                      mode === item
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground",
-                    ].join(" ")}
-                  >
-                    {item === "recommended"
-                      ? t("matching.sync.useRecommendation")
-                      : t("matching.sync.customize")}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <SyncPlanLine
-                title={t("matching.sync.planMatched")}
-                desc={t("matching.sync.planMatchedDesc")}
-              />
-              <SyncPlanLine
-                title={t("matching.sync.planNew")}
-                desc={t("matching.sync.planNewDesc")}
-              />
-              <SyncPlanLine
-                title={t("matching.sync.planRejected")}
-                desc={t("matching.sync.planRejectedDesc")}
-              />
-              <SyncPlanLine
-                title={t("matching.sync.planConflict")}
-                desc={t("matching.sync.planConflictDesc")}
-              />
-            </div>
-
-            {mode === "custom" && (
-              <details className="mt-5 rounded-lg border border-border p-4" open>
-                <summary className="cursor-pointer text-sm font-semibold">
-                  {t("matching.sync.manualSettings")}
-                </summary>
-                <label className="mt-4 flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={updateExisting}
-                    onChange={(event) => setUpdateExisting(event.target.checked)}
-                  />
-                  {t("matching.sync.updateExistingReference")}
-                </label>
-                {updateExisting && (
-                  <div className="mt-4">
-                    <p className="text-xs font-semibold">{t("matching.sync.conflictTitle")}</p>
-                    <div className="mt-2 grid gap-2 md:grid-cols-3">
-                      {[
-                        "Keep reference and fill blanks",
-                        "Keep reference value",
-                        "Merge non-empty fields",
-                      ].map((option) => (
-                        <button
-                          key={option}
-                          type="button"
-                          onClick={() => setConflictAction(option)}
-                          className={[
-                            "rounded-md border px-3 py-2 text-left text-xs font-medium",
-                            conflictAction === option
-                              ? "border-brand bg-brand/10"
-                              : "border-border text-muted-foreground hover:bg-secondary",
-                          ].join(" ")}
-                        >
-                          {syncLabel(option, t)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </details>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-border p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">{t("matching.sync.previewTitle")}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {readyToSync ? t("matching.sync.readyDesc") : t("matching.sync.notReadyDesc")}
-                </p>
-                {syncAudit && (
-                  <p className="mt-2 text-xs text-success">
-                    {t("matching.sync.auditSaved")}: {syncAudit.auditId ?? syncAudit.id} ·{" "}
-                    {syncAudit.confirmedAt ?? syncAudit.createdAt}
-                  </p>
-                )}
-              </div>
-              {canExecute && (
-                <button
-                  type="button"
-                  onClick={confirmSync}
-                  disabled={!readyToSync}
-                  className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
-                >
-                  {t("matching.sync.confirm")}
-                </button>
-              )}
-            </div>
-          </section>
-        </div>
-      )}
-    </>
-  );
-}
-
-function SyncPlanLine({ title, desc }: { title: string; desc: string }) {
-  return (
-    <div className="rounded-md bg-secondary/30 px-3 py-3">
-      <p className="text-xs font-semibold">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
-    </div>
-  );
-}
-
-function syncAuditKey(jobId: string) {
-  return `batchmatch.sync.${jobId}`;
-}
-
 function normalizeSyncState(value: unknown): SyncState | null {
   if (!value || typeof value !== "object") return null;
   const state = value as SyncState;
@@ -6186,15 +6004,6 @@ function normalizeSyncState(value: unknown): SyncState | null {
     auditId: state.auditId ?? state.id,
     confirmedAt: state.confirmedAt ?? state.createdAt,
   };
-}
-
-function syncLabel(value: string, t: ReturnType<typeof usePreferences>["t"]) {
-  const labels: Record<string, Parameters<typeof t>[0]> = {
-    "Keep reference and fill blanks": "matching.sync.keepReferenceFillBlanks",
-    "Keep reference value": "matching.sync.keepReference",
-    "Merge non-empty fields": "matching.sync.mergeNonEmpty",
-  };
-  return labels[value] ? t(labels[value]) : value;
 }
 
 function SyncMetric({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
@@ -6222,19 +6031,7 @@ function StepExport({
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
   const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"default" | "custom">("default");
-  const [format, setFormat] = useState<ExportFormat>("xlsx");
-  const [selectedStatuses, setSelectedStatuses] = useState<ExportStatus[]>([
-    "matched",
-    "new",
-    "rejected",
-  ]);
-  const [includeScore, setIncludeScore] = useState(true);
-  const [includeReferenceKey, setIncludeReferenceKey] = useState(true);
-  const [includeReviewFields, setIncludeReviewFields] = useState(true);
-  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -6242,74 +6039,12 @@ function StepExport({
     setLoading(true);
     setError(null);
     fetchReviewResults(jobId)
-      .then((data) => {
-        setReview(data);
-        const columns = exportColumns(data.items);
-        setSelectedColumns(columns.slice(0, 16));
-      })
+      .then(setReview)
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : t("matching.review.loadFailed")),
       )
       .finally(() => setLoading(false));
   }, [jobId, t]);
-
-  const items = review?.items ?? [];
-  const allColumns = exportColumns(items);
-  const activeStatuses =
-    mode === "default" ? (["matched", "new", "rejected"] as ExportStatus[]) : selectedStatuses;
-  const exportRows = buildExportRows(items, {
-    columns: mode === "default" ? allColumns : selectedColumns,
-    includeReferenceKey: mode === "default" || includeReferenceKey,
-    includeReviewFields: mode === "default" || includeReviewFields,
-    includeScore: mode === "default" || includeScore,
-    statuses: activeStatuses,
-  });
-  const summaryRows = exportSummaryRows(items);
-  const exportFileName = `batchmatch-${review?.job.name ?? "matching-results"}-${new Date().toISOString().slice(0, 10)}.${format}`;
-  const statusCounts = countExportStatuses(items);
-
-  const toggleStatus = (status: ExportStatus) => {
-    setSelectedStatuses((current) =>
-      current.includes(status) ? current.filter((item) => item !== status) : [...current, status],
-    );
-  };
-
-  const toggleColumn = (column: string) => {
-    setSelectedColumns((current) =>
-      current.includes(column) ? current.filter((item) => item !== column) : [...current, column],
-    );
-  };
-
-  const runExport = () => {
-    if (!review || exportRows.rows.length === 0) return;
-
-    setExporting(true);
-    try {
-      if (format === "csv") {
-        downloadCsv(exportFileName, exportRows);
-      } else {
-        downloadXlsx(exportFileName, [exportRows, summaryRows]);
-      }
-      const historyEntry = buildStoredExportHistoryEntry({
-        fileName: exportFileName,
-        format,
-        recordCount: exportRows.rows.length,
-        mode,
-        statuses: activeStatuses,
-        columns: mode === "default" ? allColumns : selectedColumns,
-        includeReferenceKey: mode === "default" || includeReferenceKey,
-        includeReviewFields: mode === "default" || includeReviewFields,
-        includeScore: mode === "default" || includeScore,
-        sourceJobId: jobId,
-      });
-      onExportHistoryChange((current) => [historyEntry, ...current]);
-      toast.success(t("matching.export.success"));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("matching.export.failed"));
-    } finally {
-      setExporting(false);
-    }
-  };
 
   return (
     <>
@@ -6340,208 +6075,14 @@ function StepExport({
       )}
 
       {jobId && review && (
-        <div className="space-y-5">
-          <div className="grid gap-3 md:grid-cols-4">
-            <SyncMetric
-              label={t("matching.export.previewMatched")}
-              value={String(statusCounts.matched)}
-            />
-            <SyncMetric label={t("matching.export.previewNew")} value={String(statusCounts.new)} />
-            <SyncMetric
-              label={t("matching.export.previewRejected")}
-              value={String(statusCounts.rejected)}
-            />
-            <SyncMetric
-              label={t("matching.export.previewRows")}
-              value={String(exportRows.rows.length)}
-              strong
-            />
-          </div>
-
-          <section className="rounded-lg border border-border p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold">{t("matching.export.defaultTitle")}</p>
-                <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
-                  {t("matching.export.defaultDesc")}
-                </p>
-              </div>
-              <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
-                {(["default", "custom"] as const).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setMode(item)}
-                    className={[
-                      "rounded-md px-3 py-1.5 text-xs font-semibold",
-                      mode === item
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground",
-                    ].join(" ")}
-                  >
-                    {item === "default"
-                      ? t("matching.export.defaultMode")
-                      : t("matching.export.customMode")}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <ExportPlanLine
-                title={t("matching.export.finalMatched")}
-                desc={t("matching.export.finalMatchedDesc")}
-              />
-              <ExportPlanLine
-                title={t("matching.export.newEntities")}
-                desc={t("matching.export.newEntitiesDesc")}
-              />
-              <ExportPlanLine
-                title={t("matching.export.rejectedRecords")}
-                desc={t("matching.export.rejectedRecordsDesc")}
-              />
-              <ExportPlanLine
-                title={t("matching.export.reviewSummary")}
-                desc={t("matching.export.reviewSummaryDesc")}
-              />
-            </div>
-
-            {mode === "custom" && (
-              <details className="mt-5 rounded-lg border border-border p-4" open>
-                <summary className="cursor-pointer text-sm font-semibold">
-                  {t("matching.export.customOptions")}
-                </summary>
-
-                <div className="mt-4 grid gap-5 lg:grid-cols-2">
-                  <div>
-                    <p className="text-xs font-semibold">{t("matching.export.statusRecords")}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(["matched", "new", "rejected", "pending"] as ExportStatus[]).map(
-                        (status) => (
-                          <button
-                            key={status}
-                            type="button"
-                            onClick={() => toggleStatus(status)}
-                            className={[
-                              "rounded-md border px-3 py-1.5 text-xs font-semibold",
-                              selectedStatuses.includes(status)
-                                ? "border-brand bg-brand/10"
-                                : "border-border text-muted-foreground hover:bg-secondary",
-                            ].join(" ")}
-                          >
-                            {exportStatusLabel(status, t)}
-                          </button>
-                        ),
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-semibold">{t("matching.export.includeFields")}</p>
-                    <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={includeScore}
-                          onChange={(event) => setIncludeScore(event.target.checked)}
-                        />
-                        {t("matching.export.includeScore")}
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={includeReferenceKey}
-                          onChange={(event) => setIncludeReferenceKey(event.target.checked)}
-                        />
-                        {t("matching.export.includeReferenceKey")}
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={includeReviewFields}
-                          onChange={(event) => setIncludeReviewFields(event.target.checked)}
-                        />
-                        {t("matching.export.includeReviewFields")}
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-5">
-                  <p className="text-xs font-semibold">{t("matching.export.columns")}</p>
-                  <div className="mt-2 grid max-h-52 gap-2 overflow-auto rounded-md border border-border p-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
-                    {allColumns.map((column) => (
-                      <label key={column} className="flex min-w-0 items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedColumns.includes(column)}
-                          onChange={() => toggleColumn(column)}
-                        />
-                        <span className="truncate">{column}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </details>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-border p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold">{t("matching.export.fileReady")}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{exportFileName}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("matching.export.previewCount", { count: exportRows.rows.length })}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {(["xlsx", "csv"] as ExportFormat[]).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => setFormat(item)}
-                    className={[
-                      "rounded-md border px-3 py-2 text-xs font-semibold uppercase",
-                      format === item
-                        ? "border-brand bg-brand/10"
-                        : "border-border text-muted-foreground hover:bg-secondary",
-                    ].join(" ")}
-                  >
-                    {item}
-                  </button>
-                ))}
-                {canExecute && (
-                  <button
-                    type="button"
-                    onClick={runExport}
-                    disabled={exporting || exportRows.rows.length === 0}
-                    className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground disabled:opacity-40"
-                  >
-                    {exporting ? t("matching.export.exporting") : t("matching.export.download")}
-                  </button>
-                )}
-              </div>
-            </div>
-          </section>
-        </div>
+        <IntentExportPanel
+          jobId={jobId}
+          items={review.items}
+          jobName={review.job.name}
+          canExecute={canExecute}
+          onExportHistoryChange={onExportHistoryChange}
+        />
       )}
     </>
   );
-}
-
-function ExportPlanLine({ title, desc }: { title: string; desc: string }) {
-  return (
-    <div className="rounded-md bg-secondary/30 px-3 py-3">
-      <p className="text-xs font-semibold">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
-    </div>
-  );
-}
-
-function exportStatusLabel(status: ExportStatus, t: ReturnType<typeof usePreferences>["t"]) {
-  if (status === "matched") return t("matching.export.statusMatched");
-  if (status === "new") return t("matching.export.statusNew");
-  if (status === "rejected") return t("matching.export.statusRejected");
-  return t("matching.export.statusPending");
 }
