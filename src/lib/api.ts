@@ -60,6 +60,7 @@ export type AuthUser = {
   name: string;
   email: string;
   role: UserRole;
+  avatar_url?: string | null;
 };
 
 export type AuthSession = {

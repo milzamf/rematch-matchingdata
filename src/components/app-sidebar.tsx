@@ -1,13 +1,24 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   ShieldCheck,
   ChartColumnIncreasing,
   LayoutDashboard,
   GitCompareArrows,
   ClipboardCheck,
-  Settings as SettingsIcon,
+  Settings,
+  User,
+  SlidersHorizontal,
+  LogOut,
 } from "lucide-react";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getInitials, useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
@@ -16,7 +27,7 @@ const nav = [
   { labelKey: "nav.dashboard", url: "/", icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
   { labelKey: "nav.matching", url: "/matching", icon: GitCompareArrows, permission: PERMISSIONS.MATCHING_VIEW },
   { labelKey: "nav.results", url: "/results", icon: ClipboardCheck, permission: PERMISSIONS.EXPORT_VIEW },
-  { labelKey: "nav.settings", url: "/settings", icon: SettingsIcon },
+  { labelKey: "nav.settings", url: "/settings", icon: Settings },
 ] as const;
 
 const secondaryNav = [
@@ -36,10 +47,16 @@ const secondaryNav = [
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const navigate = useNavigate();
   const { t } = usePreferences();
-  const { can, currentUser } = useAuth();
+  const { can, currentUser, logout } = useAuth();
   const visibleNav = nav.filter((item) => !("permission" in item) || can(item.permission));
   const visibleSecondaryNav = secondaryNav.filter((item) => can(item.permission));
+
+  const handleLogout = async () => {
+    await logout();
+    navigate({ to: "/login", replace: true });
+  };
 
   return (
     <aside className="hidden lg:flex w-60 shrink-0 border-r border-border bg-sidebar flex-col sticky top-0 h-screen">
@@ -106,20 +123,90 @@ export function AppSidebar() {
         )}
       </nav>
 
-      <div className="p-3 border-t border-border">
+      {/* Modern Gemini-Style Compact Profile Row */}
+      <div className="p-2 border-t border-border">
         {currentUser ? (
-          <div className="flex items-center gap-3 rounded-lg bg-secondary/30 px-3 py-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-full bg-background text-xs font-semibold text-foreground">
-              {getInitials(currentUser.name)}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-foreground">{currentUser.name}</p>
-              <p className="truncate text-[11px] text-muted-foreground">{currentUser.email}</p>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0])}
-              </p>
-            </div>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-3 w-full p-2 rounded-xl hover:bg-secondary/70 transition-colors text-left group cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {/* 1. Avatar */}
+                <Avatar className="h-9 w-9 shrink-0 border border-border/60">
+                  <AvatarImage alt={currentUser.name} src={currentUser.avatar_url ?? undefined} />
+                  <AvatarFallback className="bg-brand/10 text-brand font-semibold text-xs">
+                    {getInitials(currentUser.name)}
+                  </AvatarFallback>
+                </Avatar>
+
+                {/* 2. Text Container (Must handle long names gracefully with truncation) */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate leading-tight">
+                    {currentUser.name || "Administrator"}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate leading-tight mt-0.5 capitalize">
+                    {t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0]) || currentUser.role || "Admin"}
+                  </p>
+                </div>
+
+                {/* 3. Action Icon */}
+                <Settings className="size-4 text-muted-foreground/70 group-hover:text-foreground transition-colors shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent
+              side="top"
+              align="start"
+              sideOffset={8}
+              className="w-64 p-1.5 shadow-xl border-border bg-popover text-popover-foreground rounded-xl"
+            >
+              {/* Header: Full Name and Email address (no truncation, wrap text) */}
+              <div className="px-2.5 py-2">
+                <p className="text-sm font-semibold text-foreground break-words leading-snug">
+                  {currentUser.name}
+                </p>
+                <p className="text-xs text-muted-foreground break-all mt-0.5 leading-tight">
+                  {currentUser.email}
+                </p>
+                <div className="mt-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand capitalize">
+                    {t(`auth.role.${currentUser.role}` as Parameters<typeof t>[0]) || currentUser.role}
+                  </span>
+                </div>
+              </div>
+
+              <DropdownMenuSeparator className="my-1" />
+
+              {/* Action items */}
+              <DropdownMenuItem
+                onClick={() => navigate({ to: "/settings" })}
+                className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg cursor-pointer hover:bg-secondary focus:bg-secondary"
+              >
+                <User className="size-4 text-muted-foreground" />
+                <span>{t("settings.profile") ?? "Pengaturan Profil"}</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem
+                onClick={() => navigate({ to: "/settings" })}
+                className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg cursor-pointer hover:bg-secondary focus:bg-secondary"
+              >
+                <SlidersHorizontal className="size-4 text-muted-foreground" />
+                <span>{t("settings.preferencesTitle") ?? "Preferensi"}</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator className="my-1" />
+
+              {/* Destructive Action */}
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+              >
+                <LogOut className="size-4 text-destructive" />
+                <span className="font-medium">{t("auth.logout") ?? "Keluar"}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
       </div>
     </aside>
