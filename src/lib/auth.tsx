@@ -36,13 +36,50 @@ type AuthContextValue = {
   hydrated: boolean;
 };
 
+const AUTH_STORAGE_KEY = "rematch_auth_session";
+
+function getStoredSession(): AuthSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.user) {
+      return parsed as AuthSession;
+    }
+  } catch {
+    // Ignore JSON errors
+  }
+  return null;
+}
+
+function setStoredSession(session: AuthSession | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (session) {
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    } else {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [permissions, setPermissions] = useState<PermissionName[]>([]);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const currentUserRef = useRef<AuthUser | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    return getStoredSession()?.user ?? null;
+  });
+  const [permissions, setPermissions] = useState<PermissionName[]>(() => {
+    return getStoredSession()?.permissions ?? [];
+  });
+  const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return !getStoredSession();
+  });
+  const currentUserRef = useRef<AuthUser | null>(currentUser);
   const bootstrapStartedRef = useRef(false);
   const refreshRequestVersionRef = useRef(0);
   const inFlightRefreshRef = useRef<Promise<AuthUser | null> | null>(null);
@@ -50,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const applySession = useCallback((session: AuthSession | null) => {
     setCurrentUser(session?.user ?? null);
     setPermissions(session?.permissions ?? []);
+    setStoredSession(session);
   }, []);
 
   useEffect(() => {
@@ -66,7 +104,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return inFlightRefreshRef.current;
     }
 
-    setIsLoadingAuth(true);
     const requestVersion = refreshRequestVersionRef.current + 1;
     refreshRequestVersionRef.current = requestVersion;
 
@@ -99,6 +136,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [applySession]);
 
   useEffect(() => {
+    // Hydrate from localStorage immediately if not already initialized
+    const stored = getStoredSession();
+    if (stored && !currentUserRef.current) {
+      applySession(stored);
+      setIsLoadingAuth(false);
+    }
+  }, [applySession]);
+
+  useEffect(() => {
     if (bootstrapStartedRef.current) return;
     bootstrapStartedRef.current = true;
     void refreshCurrentUser();
@@ -114,6 +160,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
     return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
   }, [applySession, invalidateAuthRefreshes]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AUTH_STORAGE_KEY) {
+        const stored = getStoredSession();
+        applySession(stored);
+        setIsLoadingAuth(false);
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [applySession]);
 
   const login = useCallback(async (input: { email: string; password: string }): Promise<AuthResult> => {
     try {
@@ -135,7 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return { ok: false, error: "Unable to connect to the server" };
     }
-  }, [applySession]);
+  }, [applySession, invalidateAuthRefreshes]);
 
   const logout = useCallback(async () => {
     try {

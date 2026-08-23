@@ -301,7 +301,7 @@ function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
           <p className="text-xs text-muted-foreground mt-0.5">{t("dashboard.real.recentDesc")}</p>
         </div>
         <Link
-          to="/matching"
+          to="/workspaces"
           className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline cursor-pointer"
         >
           <span>Lihat Semua</span>
