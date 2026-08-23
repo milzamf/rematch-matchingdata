@@ -491,9 +491,10 @@ class MatchingEngineService
                             $exactMatchFound = true;
                             $exactRefs = array_slice($mandatoryRefIndex[$compKey], 0, $topN);
                             $summary['candidates_scored'] += count($exactRefs);
+                            // 1 input row = 1 matched status
+                            $summary['matched']++;
 
                             foreach ($exactRefs as $rank => $exactRef) {
-                                $summary['matched']++;
                                 $exactFieldScores = $this->calculateFieldScores($inputRecord, $exactRef, $mappings);
 
                                 $evidence = [
@@ -584,9 +585,21 @@ class MatchingEngineService
                     continue;
                 }
 
+                // Determine single distinct outcome for this unique input row
+                $rowOutcome = 'unmatched';
+                foreach ($scoredCandidates as $sc) {
+                    if ($sc['classification'] === 'matched') {
+                        $rowOutcome = 'matched';
+                        break;
+                    }
+                    if ($sc['classification'] === 'possible_match' && $rowOutcome !== 'matched') {
+                        $rowOutcome = 'possible_match';
+                    }
+                }
+                $summary[$rowOutcome]++;
+
                 foreach ($scoredCandidates as $rank => $candidate) {
                     $classification = $candidate['classification'];
-                    $summary[$classification]++;
 
                     $batchResults[] = $this->resultRow(
                         $job,
@@ -1009,7 +1022,11 @@ class MatchingEngineService
      */
     private function responseFor(MatchingJob $job): array
     {
-        $counts = $job->record_counts ?? [];
+        $counts = $job->record_counts;
+        if (! is_array($counts) || ! isset($counts['matched'])) {
+            $counts = $job->calculateDistinctRecordCounts();
+        }
+
         $progress = $job->total_count > 0 ? round(($job->processed_count / $job->total_count) * 100, 2) : 0;
 
         return [

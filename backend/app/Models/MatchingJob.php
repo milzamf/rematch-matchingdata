@@ -71,4 +71,38 @@ class MatchingJob extends Model
     {
         return $this->hasMany(ReviewDecision::class);
     }
+
+    /**
+     * Compute distinct summary statistics where 1 input row = 1 outcome.
+     *
+     * @return array<string, int>
+     */
+    public function calculateDistinctRecordCounts(): array
+    {
+        $results = $this->results()
+            ->select('input_record_key', 'result_type')
+            ->get()
+            ->groupBy('input_record_key');
+
+        $matched = 0;
+        $possibleMatch = 0;
+        $unmatched = 0;
+
+        foreach ($results as $group) {
+            if ($group->contains('result_type', 'matched')) {
+                $matched++;
+            } elseif ($group->contains('result_type', 'possible_match')) {
+                $possibleMatch++;
+            } else {
+                $unmatched++;
+            }
+        }
+
+        return [
+            'matched' => $matched,
+            'possible_match' => $possibleMatch,
+            'unmatched' => $unmatched,
+            'candidates_scored' => $this->results()->count(),
+        ];
+    }
 }

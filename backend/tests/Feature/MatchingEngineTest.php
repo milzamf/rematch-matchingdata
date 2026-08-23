@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Dataset;
+use App\Models\MatchingJob;
+use App\Models\MatchingResult;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -280,5 +282,83 @@ class MatchingEngineTest extends TestCase
         $this->assertTrue($rulesEvaluated[0]['passed']);
         $this->assertFalse($rulesEvaluated[1]['passed']);
         $this->assertStringContainsString('downgraded to needs_review', $result->decision_reason);
+    }
+
+    public function test_multi_candidate_generation_counts_distinct_input_rows_in_summary(): void
+    {
+        $reference = Dataset::create([
+            'dataset_role' => 'reference',
+            'name' => 'ref',
+            'original_filename' => 'ref.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/ref.csv',
+            'column_count' => 1,
+            'row_count' => 5,
+            'preview_rows' => [
+                ['name' => 'PT Maju Bersama Jaya'],
+                ['name' => 'PT Maju Bersama Sejahtera'],
+                ['name' => 'PT Maju Bersama Makmur'],
+                ['name' => 'PT Indah Permai'],
+                ['name' => 'PT Sumber Rezeki'],
+            ],
+        ]);
+
+        $input = Dataset::create([
+            'dataset_role' => 'input',
+            'name' => 'inp',
+            'original_filename' => 'inp.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/inp.csv',
+            'column_count' => 1,
+            'row_count' => 2,
+            'preview_rows' => [
+                ['name' => 'PT Maju Bersama'], // Generates 3 candidates (topN=3), all possible_match (~80-85%)
+                ['name' => 'PT Sumber Rezeki'], // Generates 1 candidate, matched (100%)
+            ],
+        ]);
+
+        $response = $this->postJson('/api/matching-jobs/run', [
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'Distinct Count Test Job',
+            'mappings' => [[
+                'referenceColumnName' => 'name',
+                'inputColumnName' => 'name',
+                'algorithm' => 'Jaro-Winkler',
+                'weight' => 100,
+            ]],
+            'configuration' => [
+                'preset' => 'Default',
+                'strategy' => 'Fuzzy',
+                'thresholds' => ['autoMatch' => 95, 'review' => 70, 'noMatch' => 50],
+                'candidateGeneration' => ['topN' => 3],
+                'normalization' => ['mode' => 'auto', 'preset' => 'Default'],
+                'runOptions' => ['chunkSize' => 10, 'workerCount' => 1],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.summary.matched', 1)
+            ->assertJsonPath('data.summary.possible_match', 1)
+            ->assertJsonPath('data.summary.unmatched', 0)
+            ->assertJsonPath('data.progress.total', 2);
+
+        // Verify total candidates in database is 4 (3 for input 1 + 1 for input 2)
+        $jobId = $response->json('data.job.id');
+        $job = MatchingJob::findOrFail($jobId);
+        $this->assertSame(4, $job->results()->count());
+
+        // Verify distinct counts method
+        $distinctCounts = $job->calculateDistinctRecordCounts();
+        $this->assertSame(1, $distinctCounts['matched']);
+        $this->assertSame(1, $distinctCounts['possible_match']);
+        $this->assertSame(0, $distinctCounts['unmatched']);
+        $this->assertSame(4, $distinctCounts['candidates_scored']);
+        $this->assertSame(2, $distinctCounts['matched'] + $distinctCounts['possible_match'] + $distinctCounts['unmatched']);
     }
 }
