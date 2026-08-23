@@ -357,4 +357,77 @@ class MatchingEnginePipelineTest extends TestCase
         $this->assertSame(1, $evidence['summary']['failed_rules']);
         $this->assertFalse($evidence['summary']['all_passed']);
     }
+
+    public function test_virtual_columns_are_extracted_and_evaluated(): void
+    {
+        $reference = Dataset::create([
+            'dataset_role' => 'reference',
+            'name' => 'ref',
+            'original_filename' => 'ref.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/ref.csv',
+            'row_count' => 1,
+            'column_count' => 1,
+            'parse_status' => 'inspected',
+            'preview_rows' => [
+                ['company_name' => 'PT Sumber Makmur Jaya Tbk'],
+            ],
+        ]);
+        $input = Dataset::create([
+            'dataset_role' => 'input',
+            'name' => 'inp',
+            'original_filename' => 'inp.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/inp.csv',
+            'row_count' => 1,
+            'column_count' => 1,
+            'parse_status' => 'inspected',
+            'preview_rows' => [
+                ['company' => 'Sumber Makmur Jaya, PT'],
+            ],
+        ]);
+
+        $this->postJson('/api/matching-jobs/run', [
+            'name' => 'Virtual Columns Test',
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'mappings' => [
+                [
+                    'id' => 'map-core-name',
+                    'referenceColumnId' => 'virtual-ref-core-name',
+                    'inputColumnId' => 'virtual-inp-core-name',
+                    'referenceColumnName' => '[Generated] Nama Inti',
+                    'inputColumnName' => '[Generated] Nama Inti',
+                    'algorithm' => 'Normalized Exact',
+                    'required_match' => true,
+                    'weight' => 50,
+                ],
+                [
+                    'id' => 'map-legal-form',
+                    'referenceColumnId' => 'virtual-ref-legal-form',
+                    'inputColumnId' => 'virtual-inp-legal-form',
+                    'referenceColumnName' => '[Generated] Badan Usaha',
+                    'inputColumnName' => '[Generated] Badan Usaha',
+                    'algorithm' => 'Exact',
+                    'required_match' => true,
+                    'weight' => 50,
+                ],
+            ],
+            'configuration' => [
+                'preset' => 'Default',
+                'strategy' => 'Hybrid',
+            ],
+        ])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.summary.matched', 1);
+
+        $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
+        $this->assertSame('matched', $result->result_type);
+        $this->assertSame(100.0, (float) $result->overall_score);
+    }
 }

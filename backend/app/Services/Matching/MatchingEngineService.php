@@ -77,8 +77,8 @@ class MatchingEngineService
             foreach ($mappings as $mapping) {
                 ColumnMapping::create([
                     'matching_job_id' => $job->id,
-                    'reference_column_id' => $mapping['reference_column_id'] ?? null,
-                    'input_column_id' => $mapping['input_column_id'] ?? null,
+                    'reference_column_id' => Str::isUuid($mapping['reference_column_id'] ?? null) ? $mapping['reference_column_id'] : null,
+                    'input_column_id' => Str::isUuid($mapping['input_column_id'] ?? null) ? $mapping['input_column_id'] : null,
                     'reference_column_name' => $mapping['reference_column_name'],
                     'input_column_name' => $mapping['input_column_name'],
                     'algorithm' => $mapping['algorithm'],
@@ -297,7 +297,7 @@ class MatchingEngineService
             return (string) $row[$columnName];
         }
 
-        if ($columnName === '[Generated] Nama Inti') {
+        if (str_contains($columnName, '[Generated] Nama Inti')) {
             $nameVal = $this->findEntityNameValue($row);
             if ($nameVal !== null) {
                 $parsed = $this->entityNameParser->parse($nameVal);
@@ -305,7 +305,7 @@ class MatchingEngineService
             }
         }
 
-        if ($columnName === '[Generated] Badan Usaha') {
+        if (str_contains($columnName, '[Generated] Badan Usaha')) {
             $nameVal = $this->findEntityNameValue($row);
             if ($nameVal !== null) {
                 $parsed = $this->entityNameParser->parse($nameVal);
@@ -318,16 +318,22 @@ class MatchingEngineService
 
     private function findEntityNameValue(array $row): ?string
     {
+        // First priority: column with entity name keywords
         foreach ($row as $col => $val) {
-            if ($this->entityNameParser->isEntityNameColumn((string) $col) && is_string($val) && trim($val) !== '') {
-                return $val;
+            $colStr = (string) $col;
+            if (! str_starts_with($colStr, '[Generated]') && $this->entityNameParser->isEntityNameColumn($colStr) && is_string($val) && trim($val) !== '') {
+                return trim($val);
             }
         }
+
+        // Second priority: first non-empty text column
         foreach ($row as $col => $val) {
-            if (is_string($val) && trim($val) !== '') {
-                return $val;
+            $colStr = (string) $col;
+            if (! str_starts_with($colStr, '[Generated]') && is_string($val) && trim($val) !== '') {
+                return trim($val);
             }
         }
+
         return null;
     }
 

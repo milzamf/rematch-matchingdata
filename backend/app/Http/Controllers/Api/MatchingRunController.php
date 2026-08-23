@@ -8,6 +8,7 @@ use App\Services\Matching\MatchingEngineService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Throwable;
 
@@ -34,10 +35,14 @@ class MatchingRunController extends Controller
                 'success' => false,
                 'message' => 'The requested dataset, workspace, or matching job was not found.',
             ], 404);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            Log::error('Matching Engine Crash: ' . $exception->getMessage(), [
+                'trace' => $exception->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'success' => false,
-                'message' => 'Matching run failed. Please check the datasets and configuration.',
+                'message' => 'Matching run failed: ' . $exception->getMessage(),
             ], 500);
         }
     }
