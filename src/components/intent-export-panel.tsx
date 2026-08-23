@@ -24,6 +24,8 @@ import {
 } from "@/lib/result-exports";
 import type { ReviewItem } from "@/lib/api";
 
+import { DataPreviewTable } from "@/components/data-preview-table";
+
 export interface IntentExportPanelProps {
   jobId: string | null;
   items: ReviewItem[];
@@ -75,11 +77,6 @@ export function IntentExportPanel({
       masterUpdateCount: matchedCount + newCount,
     };
   }, [items]);
-
-  // Live preview data (Top 3 sample rows)
-  const previewTable = useMemo(() => {
-    return buildIntentExportPreview(items, { preset, autoEnrich }, 3);
-  }, [items, preset, autoEnrich]);
 
   // Full export rows
   const fullExportTable = useMemo(() => {
@@ -154,7 +151,7 @@ export function IntentExportPanel({
             type="checkbox"
             checked={autoEnrich}
             onChange={(e) => setAutoEnrich(e.target.checked)}
-            className="mt-1 size-4 rounded border-border text-brand focus:ring-brand focus:ring-offset-background"
+            className="mt-1 size-4 rounded border-border text-brand focus:ring-brand focus:ring-offset-background cursor-pointer"
           />
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -324,112 +321,33 @@ export function IntentExportPanel({
         </div>
       </div>
 
-      {/* SECTION 3: Live Table Preview */}
-      <Card className="p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-          <div className="flex items-center gap-2">
-            <Eye className="size-4 text-brand" />
-            <div>
-              <h4 className="text-sm font-semibold text-foreground">
-                {t("matching.export.livePreviewTitle") ?? "Pratinjau Data Ekspor"}
-              </h4>
-              <p className="text-xs text-muted-foreground">
-                {t("matching.export.livePreviewDesc") ??
-                  "Contoh 3 baris data yang akan dihasilkan dalam file Excel / CSV"}
-              </p>
-            </div>
-          </div>
+      {/* SECTION 3: Live Table Preview with Safe Expansion Modal */}
+      <div className="space-y-4">
+        <DataPreviewTable
+          title={t("matching.export.livePreviewTitle") ?? "Pratinjau Data Ekspor"}
+          subtitle={
+            t("matching.export.livePreviewDesc") ??
+            "Pratinjau struktur kolom dan format data yang akan dihasilkan dalam file Excel / CSV."
+          }
+          columns={fullExportTable.columns}
+          rows={fullExportTable.rows}
+          totalRows={fullExportTable.rows.length}
+          previewLimit={3}
+          badgeColor="brand"
+          badgeText={
+            preset === "master_update"
+              ? "Pemutakhiran Master"
+              : preset === "full_audit"
+                ? "Laporan Audit"
+                : "Sisa Perlu Reviu"
+          }
+          emptyMessage="Tidak ada baris data yang cocok dengan preset ini."
+        />
 
-          <div className="flex items-center gap-2">
-            <span className="rounded-md bg-secondary px-2.5 py-1 text-xs font-mono text-muted-foreground">
-              {fullExportTable.columns.length} Kolom · {fullExportTable.rows.length} Baris Total
-            </span>
-          </div>
-        </div>
-
-        {previewTable.rows.length === 0 ? (
-          <div className="py-8 text-center text-xs text-muted-foreground">
-            <FileSpreadsheet className="mx-auto size-8 text-muted-foreground/40 mb-2" />
-            Tidak ada baris data yang cocok dengan preset ini.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-md border border-border">
-            <table className="w-full text-xs">
-              <thead className="bg-secondary/40 text-[10px] uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="w-8 px-2.5 py-2 text-center font-medium border-r border-border/50">
-                    #
-                  </th>
-                  {previewTable.columns.map((col) => (
-                    <th
-                      key={col}
-                      className="px-3 py-2 text-left font-mono font-medium whitespace-nowrap"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border font-mono text-[11px]">
-                {previewTable.rows.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-secondary/20">
-                    <td className="px-2.5 py-2 text-center text-muted-foreground border-r border-border/50 font-sans text-xs">
-                      {idx + 1}
-                    </td>
-                    {previewTable.columns.map((col) => {
-                      const val = row[col];
-                      const displayVal =
-                        val === null || val === undefined || String(val).trim() === "" ? (
-                          <span className="text-muted-foreground/40 italic">null</span>
-                        ) : typeof val === "boolean" ? (
-                          val ? (
-                            "TRUE"
-                          ) : (
-                            "FALSE"
-                          )
-                        ) : (
-                          String(val)
-                        );
-
-                      return (
-                        <td
-                          key={col}
-                          className="px-3 py-2 whitespace-nowrap max-w-[220px] truncate text-foreground"
-                          title={String(val ?? "")}
-                        >
-                          {col === "match_status" ? (
-                            <span
-                              className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-sans font-semibold ${
-                                val === "MATCHED"
-                                  ? "bg-success/15 text-success"
-                                  : val === "NEED_REVIEW"
-                                    ? "bg-warning/15 text-warning"
-                                    : "bg-secondary text-muted-foreground"
-                              }`}
-                            >
-                              {String(val)}
-                            </span>
-                          ) : col === "matching_score" && typeof val === "number" ? (
-                            <span className="font-semibold tabular-nums text-brand">
-                              {val}%
-                            </span>
-                          ) : (
-                            displayVal
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* SECTION 4: Final Download Buttons */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border/60">
+        {/* SECTION 4: Final Download Action Buttons */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-border bg-card">
           <div className="text-xs text-muted-foreground">
-            Klik tombol untuk mengunduh {fullExportTable.rows.length.toLocaleString()} record
+            Klik tombol untuk mengunduh {fullExportTable.rows.length.toLocaleString()} record siap pakai
           </div>
 
           <div className="flex items-center gap-3">
@@ -437,7 +355,7 @@ export function IntentExportPanel({
               type="button"
               disabled={!canExecute || isExporting || fullExportTable.rows.length === 0}
               onClick={() => handleDownload("xlsx")}
-              className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-2 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 transition-colors cursor-pointer"
             >
               {isExporting ? (
                 <Loader2 className="size-4 animate-spin" />
@@ -451,14 +369,14 @@ export function IntentExportPanel({
               type="button"
               disabled={!canExecute || isExporting || fullExportTable.rows.length === 0}
               onClick={() => handleDownload("csv")}
-              className="inline-flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition-colors cursor-pointer"
             >
               <Download className="size-4" />
               <span>{t("matching.export.downloadCsv") ?? "Unduh CSV"}</span>
             </button>
           </div>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

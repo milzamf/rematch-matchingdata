@@ -29,6 +29,8 @@ import {
   VerificationEvidenceBreakdown,
 } from "@/components/verification-evidence";
 import { IntentExportPanel } from "@/components/intent-export-panel";
+import { DataPreviewTable } from "@/components/data-preview-table";
+import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
 import {
   fetchAiMatchingConfiguration,
   fetchAiReviewAnalysis,
@@ -1122,13 +1124,22 @@ function MatchingPage() {
               )}
               {activeStep === 2 && (
                 <div className="space-y-8">
-                  <StepConfigV2
-                    jobId={runResult?.job.id ?? null}
+                  {/* Step 2 Standardized Data Preview */}
+                  <StepStandardizedPreview
+                    reference={reference?.result}
+                    input={input?.result}
                     mappings={columnMappings}
-                    configuration={matchingConfiguration}
-                    onConfigurationChange={setMatchingConfiguration}
-                    onValidityChange={setConfigureValid}
                   />
+
+                  <div className="border-t border-border pt-6">
+                    <StepConfigV2
+                      jobId={runResult?.job.id ?? null}
+                      mappings={columnMappings}
+                      configuration={matchingConfiguration}
+                      onConfigurationChange={setMatchingConfiguration}
+                      onValidityChange={setConfigureValid}
+                    />
+                  </div>
 
                   <div className="border-t border-border pt-6">
                     <StepRunCard
@@ -1691,24 +1702,28 @@ function StepDataPreview({
 
       <div className="grid gap-4 lg:grid-cols-2">
         {reference && (
-          <RawDataPreviewTable
-            title={t("matching.upload.reference")}
+          <DataPreviewTable
+            title={t("matching.upload.reference") ?? "Data Referensi"}
+            subtitle="Dataset acuan yang menjadi target pencocokan"
             filename={reference.dataset.original_filename}
             columns={reference.columns.map((c) => c.name)}
-            rows={reference.preview_rows.slice(0, 5)}
+            rows={reference.preview_rows}
             totalRows={reference.dataset.row_count}
             badgeColor="brand"
+            badgeText="Acuan"
           />
         )}
 
         {input && (
-          <RawDataPreviewTable
-            title={t("matching.upload.input")}
+          <DataPreviewTable
+            title={t("matching.upload.input") ?? "Data Input"}
+            subtitle="Dataset input yang akan dicocokkan terhadap acuan"
             filename={input.dataset.original_filename}
             columns={input.columns.map((c) => c.name)}
-            rows={input.preview_rows.slice(0, 5)}
+            rows={input.preview_rows}
             totalRows={input.dataset.row_count}
             badgeColor="secondary"
+            badgeText="Input"
           />
         )}
       </div>
@@ -1716,84 +1731,216 @@ function StepDataPreview({
   );
 }
 
-function RawDataPreviewTable({
-  title,
-  filename,
-  columns,
-  rows,
-  totalRows,
-  badgeColor,
+function StepStandardizedPreview({
+  reference,
+  input,
+  mappings,
 }: {
-  title: string;
-  filename: string;
-  columns: string[];
-  rows: Record<string, unknown>[];
-  totalRows: number;
-  badgeColor: "brand" | "secondary";
+  reference?: DatasetInspectResult;
+  input?: DatasetInspectResult;
+  mappings: ColumnMappingDraft[];
 }) {
+  const [activeTab, setActiveTab] = useState<"input" | "reference">("input");
+
+  // Build standardized input rows
+  const inputStdData = useMemo(() => {
+    if (!input?.preview_rows || input.preview_rows.length === 0) {
+      return { columns: [], rows: [] };
+    }
+
+    const cols: { key: string; label: string; isVirtual?: boolean; isStandardized?: boolean }[] = [];
+    const mappedInputCols = mappings
+      .map((m) => input.columns.find((c) => c.id === m.inputColumnId))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c));
+
+    const columnsToUse = mappedInputCols.length > 0 ? mappedInputCols : input.columns;
+
+    columnsToUse.forEach((col) => {
+      cols.push({ key: `raw_${col.name}`, label: `${col.name} (Mentah)` });
+      cols.push({
+        key: `std_${col.name}`,
+        label: `${col.name} (Terstandardisasi)`,
+        isStandardized: true,
+      });
+
+      const isEntity =
+        col.name.toLowerCase().includes("nama") ||
+        col.name.toLowerCase().includes("name") ||
+        col.name.toLowerCase().includes("perusahaan") ||
+        col.name.toLowerCase().includes("company");
+
+      if (isEntity) {
+        cols.push({
+          key: `gen_core_${col.name}`,
+          label: `[Generated] ${col.name} - Nama Inti`,
+          isVirtual: true,
+        });
+        cols.push({
+          key: `gen_legal_${col.name}`,
+          label: `[Generated] ${col.name} - Badan Usaha`,
+          isVirtual: true,
+        });
+      }
+    });
+
+    const rows = input.preview_rows.map((rawRow) => {
+      const row: Record<string, unknown> = {};
+      columnsToUse.forEach((col) => {
+        const rawVal = rawRow[col.name];
+        row[`raw_${col.name}`] = rawVal ?? null;
+
+        const stdVal = standardizeColumnValue(rawVal, col.name, col.data_type);
+        row[`std_${col.name}`] = stdVal || null;
+
+        const isEntity =
+          col.name.toLowerCase().includes("nama") ||
+          col.name.toLowerCase().includes("name") ||
+          col.name.toLowerCase().includes("perusahaan") ||
+          col.name.toLowerCase().includes("company");
+
+        if (isEntity) {
+          const parsed = parseEntityName(rawVal);
+          row[`gen_core_${col.name}`] = parsed.core_name || null;
+          row[`gen_legal_${col.name}`] = parsed.legal_form || null;
+        }
+      });
+      return row;
+    });
+
+    return { columns: cols, rows };
+  }, [input, mappings]);
+
+  // Build standardized reference rows
+  const referenceStdData = useMemo(() => {
+    if (!reference?.preview_rows || reference.preview_rows.length === 0) {
+      return { columns: [], rows: [] };
+    }
+
+    const cols: { key: string; label: string; isVirtual?: boolean; isStandardized?: boolean }[] = [];
+    const mappedRefCols = mappings
+      .map((m) => reference.columns.find((c) => c.id === m.referenceColumnId))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c));
+
+    const columnsToUse = mappedRefCols.length > 0 ? mappedRefCols : reference.columns;
+
+    columnsToUse.forEach((col) => {
+      cols.push({ key: `raw_${col.name}`, label: `${col.name} (Mentah)` });
+      cols.push({
+        key: `std_${col.name}`,
+        label: `${col.name} (Terstandardisasi)`,
+        isStandardized: true,
+      });
+
+      const isEntity =
+        col.name.toLowerCase().includes("nama") ||
+        col.name.toLowerCase().includes("name") ||
+        col.name.toLowerCase().includes("perusahaan") ||
+        col.name.toLowerCase().includes("company");
+
+      if (isEntity) {
+        cols.push({
+          key: `gen_core_${col.name}`,
+          label: `[Generated] ${col.name} - Nama Inti`,
+          isVirtual: true,
+        });
+        cols.push({
+          key: `gen_legal_${col.name}`,
+          label: `[Generated] ${col.name} - Badan Usaha`,
+          isVirtual: true,
+        });
+      }
+    });
+
+    const rows = reference.preview_rows.map((rawRow) => {
+      const row: Record<string, unknown> = {};
+      columnsToUse.forEach((col) => {
+        const rawVal = rawRow[col.name];
+        row[`raw_${col.name}`] = rawVal ?? null;
+
+        const stdVal = standardizeColumnValue(rawVal, col.name, col.data_type);
+        row[`std_${col.name}`] = stdVal || null;
+
+        const isEntity =
+          col.name.toLowerCase().includes("nama") ||
+          col.name.toLowerCase().includes("name") ||
+          col.name.toLowerCase().includes("perusahaan") ||
+          col.name.toLowerCase().includes("company");
+
+        if (isEntity) {
+          const parsed = parseEntityName(rawVal);
+          row[`gen_core_${col.name}`] = parsed.core_name || null;
+          row[`gen_legal_${col.name}`] = parsed.legal_form || null;
+        }
+      });
+      return row;
+    });
+
+    return { columns: cols, rows };
+  }, [reference, mappings]);
+
+  if (!reference && !input) return null;
+
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
-        <div>
-          <span
-            className={`text-[11px] font-bold uppercase tracking-wider ${
-              badgeColor === "brand" ? "text-brand" : "text-foreground"
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SectionTitle
+          title="Pratinjau Data Terstandardisasi (Standardized Preview)"
+          desc="Lihat bagaimana teks dibersihkan, singkatan alamat diperluas, dan token badan usaha diekstrak sebelum pembobotan pencocokan."
+        />
+
+        <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab("input")}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+              activeTab === "input"
+                ? "bg-brand text-brand-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {title}
-          </span>
-          <p className="mt-0.5 text-xs font-semibold text-muted-foreground truncate max-w-[260px]">
-            {filename}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
-            {rows.length} dari {totalRows.toLocaleString()} baris
-          </span>
+            Dataset Input
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("reference")}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+              activeTab === "reference"
+                ? "bg-brand text-brand-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Dataset Referensi
+          </button>
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-md border border-border">
-        <table className="w-full text-xs">
-          <thead className="bg-secondary/40 text-[10px] uppercase tracking-wider text-muted-foreground">
-            <tr>
-              <th className="w-8 px-2.5 py-2 text-center font-medium border-r border-border/50">#</th>
-              {columns.map((col) => (
-                <th key={col} className="px-3 py-2 text-left font-mono font-medium whitespace-nowrap">
-                  {col}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border font-mono text-[11px]">
-            {rows.map((row, idx) => (
-              <tr key={idx} className="hover:bg-secondary/20">
-                <td className="px-2.5 py-2 text-center text-muted-foreground border-r border-border/50 font-sans text-xs">
-                  {idx + 1}
-                </td>
-                {columns.map((col) => {
-                  const val = row[col];
-                  const displayVal =
-                    val === null || val === undefined || String(val).trim() === "" ? (
-                      <span className="text-muted-foreground/40 italic">null</span>
-                    ) : (
-                      String(val)
-                    );
-                  return (
-                    <td
-                      key={col}
-                      className="px-3 py-2 whitespace-nowrap max-w-[200px] truncate text-foreground"
-                      title={String(val ?? "")}
-                    >
-                      {displayVal}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {activeTab === "input" && input && (
+        <DataPreviewTable
+          title="Hasil Standardisasi: Dataset Input"
+          subtitle="Nilai mentah disandingkan dengan nilai terstandardisasi dan kolom entitas yang di-generate"
+          filename={input.dataset.original_filename}
+          columns={inputStdData.columns}
+          rows={inputStdData.rows}
+          totalRows={input.dataset.row_count}
+          previewLimit={5}
+          badgeColor="secondary"
+          badgeText="Input Normalized"
+        />
+      )}
+
+      {activeTab === "reference" && reference && (
+        <DataPreviewTable
+          title="Hasil Standardisasi: Dataset Referensi"
+          subtitle="Nilai mentah disandingkan dengan nilai terstandardisasi dan kolom entitas yang di-generate"
+          filename={reference.dataset.original_filename}
+          columns={referenceStdData.columns}
+          rows={referenceStdData.rows}
+          totalRows={reference.dataset.row_count}
+          previewLimit={5}
+          badgeColor="brand"
+          badgeText="Reference Normalized"
+        />
+      )}
     </div>
   );
 }
