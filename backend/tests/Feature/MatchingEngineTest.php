@@ -659,4 +659,84 @@ class MatchingEngineTest extends TestCase
 
         $this->assertSame(150, MatchingResult::where('matching_job_id', $response->json('data.job.id'))->count());
     }
+
+    public function test_matching_engine_executes_entire_large_dataset_without_row_capping(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+
+        $rowCount = 500;
+        $refCsv = "id,nama_perusahaan\n";
+        for ($i = 1; $i <= $rowCount; $i++) {
+            $refCsv .= "{$i},PT Maju Bersama {$i}\n";
+        }
+        \Illuminate\Support\Facades\Storage::disk('local')->put('datasets/ref_large.csv', $refCsv);
+
+        $inpCsv = "id,nama_vendor\n";
+        for ($i = 1; $i <= $rowCount; $i++) {
+            $inpCsv .= "{$i},PT Maju Bersama {$i}\n";
+        }
+        \Illuminate\Support\Facades\Storage::disk('local')->put('datasets/inp_large.csv', $inpCsv);
+
+        $reference = Dataset::create([
+            'dataset_role' => 'reference',
+            'name' => 'ref_large',
+            'original_filename' => 'ref_large.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => strlen($refCsv),
+            'storage_path' => 'datasets/ref_large.csv',
+            'column_count' => 2,
+            'row_count' => $rowCount,
+            'preview_rows' => [
+                ['id' => '1', 'nama_perusahaan' => 'PT Maju Bersama 1'],
+            ],
+        ]);
+
+        $input = Dataset::create([
+            'dataset_role' => 'input',
+            'name' => 'inp_large',
+            'original_filename' => 'inp_large.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => strlen($inpCsv),
+            'storage_path' => 'datasets/inp_large.csv',
+            'column_count' => 2,
+            'row_count' => $rowCount,
+            'preview_rows' => [
+                ['id' => '1', 'nama_vendor' => 'PT Maju Bersama 1'],
+            ],
+        ]);
+
+        $response = $this->postJson('/api/matching-jobs/run', [
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => '500 Rows Matching Job',
+            'mappings' => [
+                [
+                    'referenceColumnName' => 'nama_perusahaan',
+                    'inputColumnName' => 'nama_vendor',
+                    'algorithm' => 'Normalized Exact',
+                    'weight' => 100,
+                ],
+            ],
+            'configuration' => [
+                'preset' => 'Default',
+                'strategy' => 'Hybrid',
+                'thresholds' => ['autoMatch' => 85, 'review' => 70, 'noMatch' => 50],
+                'candidateGeneration' => ['topN' => 1],
+                'normalization' => ['mode' => 'auto', 'preset' => 'Default'],
+                'runOptions' => ['chunkSize' => 100, 'workerCount' => 2],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.job.status', 'completed')
+            ->assertJsonPath('data.job.total_count', $rowCount)
+            ->assertJsonPath('data.job.processed_count', $rowCount)
+            ->assertJsonPath('data.summary.matched', $rowCount);
+
+        $jobId = $response->json('data.job.id');
+        $this->assertSame($rowCount, MatchingResult::where('matching_job_id', $jobId)->count());
+    }
 }
