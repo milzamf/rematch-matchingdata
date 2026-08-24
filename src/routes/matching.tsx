@@ -41,6 +41,7 @@ import {
   ApiError,
   createWorkspace,
   fetchReviewResults,
+  fetchMatchingJobStatus,
   fetchWorkspace,
   inspectDataset,
   runMatching,
@@ -345,6 +346,15 @@ function MatchingPage() {
   const lastSavedStateHashRef = useRef<string>("");
   const requestedStepRef = useRef(requestedStep);
   const hasRequestedStepRef = useRef(hasRequestedStep);
+  const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     requestedStepRef.current = requestedStep;
@@ -432,6 +442,68 @@ function MatchingPage() {
       syncState,
       workspaceNameEdited,
     ],
+  );
+
+  const pollMatchingJob = useCallback(
+    (jobId: string, currentWorkspaceId: string | null) => {
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
+      }
+
+      let pollAttempts = 0;
+      const maxPollAttempts = 240; // 6 minutes max polling
+
+      const checkStatus = async () => {
+        try {
+          pollAttempts++;
+          const statusResult = await fetchMatchingJobStatus(jobId);
+          setRunResult(statusResult);
+
+          const currentStatus = statusResult.job.status;
+          const pct = statusResult.progress.percentage ?? 0;
+
+          if (currentStatus === "completed") {
+            setProgress(100);
+            setRunState("success");
+            setStep(3);
+            void navigate({
+              to: "/matching",
+              search: buildMatchingSearch(currentWorkspaceId, 3),
+              replace: true,
+            });
+            return;
+          }
+
+          if (currentStatus === "failed") {
+            setProgress(0);
+            setRunState("failed");
+            setRunError(statusResult.job.error_message ?? t("matching.run.failedGeneric"));
+            return;
+          }
+
+          // Job is still processing or queued
+          setProgress(Math.max(10, Math.min(95, pct)));
+          setRunState("running");
+
+          if (pollAttempts < maxPollAttempts) {
+            pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
+          } else {
+            setRunState("failed");
+            setRunError(t("matching.run.timeout") || "Proses matching melebihi batas waktu (timeout).");
+          }
+        } catch (error) {
+          if (pollAttempts < maxPollAttempts) {
+            pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
+          } else {
+            setRunState("failed");
+            setRunError(error instanceof ApiError ? error.message : t("matching.run.failedGeneric"));
+          }
+        }
+      };
+
+      pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
+    },
+    [navigate, t],
   );
 
   const hydrateWorkspace = useCallback(
@@ -526,6 +598,15 @@ function MatchingPage() {
         setWorkspaceSaveState("saved");
         setWorkspaceError(null);
         hydratedWorkspaceRouteRef.current = workspace.id;
+
+        if (
+          restoredRunResult?.job.id &&
+          (restoredRunResult.job.status === "processing" ||
+            restoredRunResult.job.status === "queued" ||
+            restoredRunState === "running")
+        ) {
+          pollMatchingJob(restoredRunResult.job.id, workspace.id);
+        }
 
         // Record initial state hash so initial load does not trigger autosave
         const restoredSnapshot: WorkspaceStatePayload = {
@@ -849,18 +930,28 @@ function MatchingPage() {
           }),
         configuration: matchingConfiguration,
       });
+
       setRunResult(result);
-      setProgress(result.progress.percentage || 100);
-      setRunState(result.job.status === "completed" ? "success" : "failed");
-      if (result.job.status === "completed") {
+      const initialStatus = result.job.status;
+
+      if (initialStatus === "completed") {
+        setProgress(100);
+        setRunState("success");
         setStep(3);
         void navigate({
           to: "/matching",
           search: buildMatchingSearch(workspaceId, 3),
           replace: true,
         });
-      } else {
+      } else if (initialStatus === "failed") {
+        setProgress(0);
+        setRunState("failed");
         setRunError(result.job.error_message ?? t("matching.run.failedGeneric"));
+      } else {
+        // "processing" | "queued"
+        setProgress(Math.max(10, result.progress.percentage || 10));
+        setRunState("running");
+        pollMatchingJob(result.job.id, workspaceId);
       }
     } catch (error) {
       setProgress(0);

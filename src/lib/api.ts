@@ -779,6 +779,26 @@ export async function runMatching(input: RunMatchingInput): Promise<MatchingRunR
   return payload.data;
 }
 
+export async function fetchMatchingJobStatus(jobId: string): Promise<MatchingRunResult> {
+  const response = await apiFetch(`/matching-jobs/${jobId}/status`, {
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<MatchingRunResult>
+    | ApiFailure
+    | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Matching job status could not be loaded.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
 export async function fetchReviewResults(jobId: string): Promise<ReviewResults> {
   const response = await apiFetch(`/matching-jobs/${jobId}/review-results`, {
     headers: { Accept: "application/json" },
