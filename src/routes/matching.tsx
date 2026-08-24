@@ -322,9 +322,18 @@ function MatchingPage() {
   const suppressMappingSuggestRef = useRef(false);
   const restoringWorkspaceRef = useRef(false);
   const hydratedWorkspaceRouteRef = useRef<string | null>(null);
+  const lastSavedStateHashRef = useRef<string>("");
+  const requestedStepRef = useRef(requestedStep);
+  const hasRequestedStepRef = useRef(hasRequestedStep);
+
+  useEffect(() => {
+    requestedStepRef.current = requestedStep;
+    hasRequestedStepRef.current = hasRequestedStep;
+  }, [requestedStep, hasRequestedStep]);
 
   useEffect(() => {
     if (
+      !isHydratingWorkspace &&
       typeof search.step === "number" &&
       search.step >= 1 &&
       search.step <= 3 &&
@@ -332,7 +341,7 @@ function MatchingPage() {
     ) {
       setStep(search.step);
     }
-  }, [search.step, step]);
+  }, [isHydratingWorkspace, search.step, step]);
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
@@ -498,18 +507,49 @@ function MatchingPage() {
         setWorkspaceError(null);
         hydratedWorkspaceRouteRef.current = workspace.id;
 
+        // Record initial state hash so initial load does not trigger autosave
+        const restoredSnapshot: WorkspaceStatePayload = {
+          reference: uploadSnapshot(restoredReference),
+          input: uploadSnapshot(restoredInput),
+          columnMappings: restoredMappings,
+          matchingConfiguration: restoredConfiguration,
+          workspaceNameEdited: Boolean(snapshot?.workspaceNameEdited),
+          runState: restoredRunState,
+          progress: restoredProgress,
+          runResult: restoredRunResult,
+          runError: restoredRunError,
+          syncState: restoredSyncState,
+        };
+
+        lastSavedStateHashRef.current = JSON.stringify({
+          name: workspace.name,
+          status: workspace.status,
+          currentStep: nextStep,
+          referenceId: restoredReference?.result?.dataset.id ?? null,
+          inputId: restoredInput?.result?.dataset.id ?? null,
+          jobId: restoredRunResult?.job.id ?? null,
+          workflowState: restoredSnapshot,
+          syncState: restoredSyncState,
+          exportHistory: normalizeStoredExportHistory(workspace.export_history),
+        });
+
         if (options?.replaceUrl !== false) {
-          void navigate({
-            to: "/matching",
-            search: buildMatchingSearch(workspace.id, nextStep),
-            replace: true,
-          });
+          const currentSearchWorkspace = search.workspace ?? null;
+          const currentSearchStep = typeof search.step === "number" ? search.step : 1;
+          if (currentSearchWorkspace !== workspace.id || currentSearchStep !== nextStep) {
+            void navigate({
+              to: "/matching",
+              search: buildMatchingSearch(workspace.id, nextStep),
+              replace: true,
+            });
+          }
         }
 
         return workspace;
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) {
           hydratedWorkspaceRouteRef.current = null;
+          lastSavedStateHashRef.current = "";
           setWorkspaceNotFound(true);
           setWorkspaceId(null);
           setWorkspaceName(t("workspace.untitled"));
@@ -539,10 +579,10 @@ function MatchingPage() {
         window.setTimeout(() => {
           restoringWorkspaceRef.current = false;
           suppressMappingSuggestRef.current = false;
-        }, 0);
+        }, 100);
       }
     },
-    [navigate, t],
+    [navigate, search.step, search.workspace, t],
   );
 
   useEffect(() => {
@@ -553,12 +593,14 @@ function MatchingPage() {
     if (!initialWorkspaceId || !canViewMatching || !canViewWorkspaces) return;
     if (hydratedWorkspaceRouteRef.current === initialWorkspaceId) return;
 
+    hydratedWorkspaceRouteRef.current = initialWorkspaceId;
     let mounted = true;
+    setIsHydratingWorkspace(true);
     setWorkspaceSaveState("saving");
 
     hydrateWorkspace(initialWorkspaceId, {
-      requestedStep,
-      preferRequestedStep: hasRequestedStep,
+      requestedStep: requestedStepRef.current,
+      preferRequestedStep: hasRequestedStepRef.current,
     })
       .then(() => {
         if (!mounted) return;
@@ -567,6 +609,7 @@ function MatchingPage() {
         if (!mounted) return;
         setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.loadFailed"));
         setWorkspaceSaveState("error");
+        setIsHydratingWorkspace(false);
       });
 
     return () => {
@@ -575,22 +618,21 @@ function MatchingPage() {
   }, [
     canViewMatching,
     canViewWorkspaces,
-    hasRequestedStep,
     hydrateWorkspace,
     initialWorkspaceId,
-    requestedStep,
     t,
   ]);
 
   useEffect(() => {
     if (initialWorkspaceId) return;
     hydratedWorkspaceRouteRef.current = null;
+    lastSavedStateHashRef.current = "";
     setIsHydratingWorkspace(false);
     setWorkspaceNotFound(false);
   }, [initialWorkspaceId]);
 
   useEffect(() => {
-    if (!initialWorkspaceId || isHydratingWorkspace) return;
+    if (!initialWorkspaceId || isHydratingWorkspace || restoringWorkspaceRef.current) return;
     if (workspaceId !== initialWorkspaceId) return;
 
     const resolvedStep = hasRequestedStep
@@ -610,7 +652,30 @@ function MatchingPage() {
   ]);
 
   useEffect(() => {
-    if (!workspaceId || restoringWorkspaceRef.current || !canUpdateWorkspace) return;
+    if (
+      !workspaceId ||
+      isHydratingWorkspace ||
+      restoringWorkspaceRef.current ||
+      !canUpdateWorkspace
+    ) {
+      return;
+    }
+
+    const currentPayloadString = JSON.stringify({
+      name: workspaceName,
+      status: workspaceStatus,
+      currentStep: activeStep,
+      referenceId: reference?.result?.dataset.id ?? null,
+      inputId: input?.result?.dataset.id ?? null,
+      jobId: runResult?.job.id ?? null,
+      workflowState: workspaceSnapshot,
+      syncState: syncState as Record<string, unknown> | null,
+      exportHistory,
+    });
+
+    if (lastSavedStateHashRef.current === currentPayloadString) {
+      return;
+    }
 
     const timeout = window.setTimeout(() => {
       setWorkspaceSaveState("saving");
@@ -626,6 +691,7 @@ function MatchingPage() {
         exportHistory,
       })
         .then(() => {
+          lastSavedStateHashRef.current = currentPayloadString;
           setWorkspaceSaveState("saved");
           setWorkspaceError(null);
         })
@@ -633,7 +699,7 @@ function MatchingPage() {
           setWorkspaceSaveState("error");
           setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.saveFailed"));
         });
-    }, 700);
+    }, 1000);
 
     return () => window.clearTimeout(timeout);
   }, [
@@ -649,6 +715,7 @@ function MatchingPage() {
     workspaceSnapshot,
     workspaceStatus,
     canUpdateWorkspace,
+    isHydratingWorkspace,
   ]);
 
   const ensureWorkspace = async (role: DatasetRole, result: DatasetInspectResult) => {
@@ -806,6 +873,7 @@ function MatchingPage() {
   }, [reference?.result, input?.result]);
 
   useEffect(() => {
+    if (isHydratingWorkspace || restoringWorkspaceRef.current) return;
     if (step > highestAllowedStep) {
       setStep(highestAllowedStep);
       void navigate({
@@ -814,7 +882,7 @@ function MatchingPage() {
         replace: true,
       });
     }
-  }, [highestAllowedStep, navigate, step, workspaceId]);
+  }, [highestAllowedStep, isHydratingWorkspace, navigate, step, workspaceId]);
 
   useEffect(() => {
     if (workspaceNameEdited || !reference?.result || !input?.result) return;
