@@ -573,4 +573,90 @@ class MatchingEngineTest extends TestCase
         $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
         $this->assertSame('matched', $result->result_type);
     }
+
+    public function test_matching_engine_dynamically_streams_full_physical_files_exceeding_preview_rows(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+
+        // Create reference CSV with 150 rows in storage
+        $refCsv = "id,name,city\n";
+        for ($i = 1; $i <= 150; $i++) {
+            $refCsv .= "{$i},PT Perusahaan {$i},Jakarta\n";
+        }
+        \Illuminate\Support\Facades\Storage::disk('local')->put('datasets/test_ref_full.csv', $refCsv);
+
+        // Create input CSV with 150 rows in storage
+        $inpCsv = "id,company,region\n";
+        for ($i = 1; $i <= 150; $i++) {
+            $inpCsv .= "{$i},PT Perusahaan {$i},Jakarta\n";
+        }
+        \Illuminate\Support\Facades\Storage::disk('local')->put('datasets/test_inp_full.csv', $inpCsv);
+
+        $reference = Dataset::create([
+            'dataset_role' => 'reference',
+            'name' => 'ref_full',
+            'original_filename' => 'ref_full.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => strlen($refCsv),
+            'storage_path' => 'datasets/test_ref_full.csv',
+            'column_count' => 3,
+            'row_count' => 150,
+            'preview_rows' => [
+                ['id' => '1', 'name' => 'PT Perusahaan 1', 'city' => 'Jakarta'],
+            ], // Only 1 sample row in preview
+        ]);
+
+        $input = Dataset::create([
+            'dataset_role' => 'input',
+            'name' => 'inp_full',
+            'original_filename' => 'inp_full.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => strlen($inpCsv),
+            'storage_path' => 'datasets/test_inp_full.csv',
+            'column_count' => 3,
+            'row_count' => 150,
+            'preview_rows' => [
+                ['id' => '1', 'company' => 'PT Perusahaan 1', 'region' => 'Jakarta'],
+            ], // Only 1 sample row in preview
+        ]);
+
+        $response = $this->postJson('/api/matching-jobs/run', [
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'Full Streaming Test',
+            'mappings' => [
+                [
+                    'referenceColumnName' => 'name',
+                    'inputColumnName' => 'company',
+                    'algorithm' => 'Normalized Exact',
+                    'weight' => 70,
+                ],
+                [
+                    'referenceColumnName' => 'city',
+                    'inputColumnName' => 'region',
+                    'algorithm' => 'Normalized Exact',
+                    'weight' => 30,
+                ],
+            ],
+            'configuration' => [
+                'preset' => 'Default',
+                'strategy' => 'Hybrid',
+                'thresholds' => ['autoMatch' => 85, 'review' => 70, 'noMatch' => 50],
+                'candidateGeneration' => ['topN' => 1],
+                'normalization' => ['mode' => 'auto', 'preset' => 'Default'],
+                'runOptions' => ['chunkSize' => 50, 'workerCount' => 2],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.job.status', 'completed')
+            ->assertJsonPath('data.job.total_count', 150)
+            ->assertJsonPath('data.job.processed_count', 150)
+            ->assertJsonPath('data.summary.matched', 150);
+
+        $this->assertSame(150, MatchingResult::where('matching_job_id', $response->json('data.job.id'))->count());
+    }
 }

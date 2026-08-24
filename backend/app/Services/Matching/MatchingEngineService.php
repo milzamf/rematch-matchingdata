@@ -10,9 +10,14 @@ use App\Models\MatchingJob;
 use App\Models\MatchingResult;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Datasets\CsvDatasetParser;
+use App\Services\Datasets\XlsxDatasetParser;
 use App\Support\Auth\ResourceOwnership;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use Throwable;
@@ -70,18 +75,21 @@ class MatchingEngineService
             throw new InvalidArgumentException('At least one valid column mapping is required.');
         }
 
-        if (empty($input->preview_rows) || empty($reference->preview_rows)) {
-            throw new InvalidArgumentException('Reference and input datasets must contain preview rows before matching.');
+        $refRowCount = $reference->row_count > 0 ? (int) $reference->row_count : count($this->loadDatasetRows($reference));
+        $inpRowCount = $input->row_count > 0 ? (int) $input->row_count : count($this->loadDatasetRows($input));
+
+        if ($refRowCount === 0 || $inpRowCount === 0) {
+            throw new InvalidArgumentException('Reference and input datasets must contain data rows before matching.');
         }
 
-        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $workspace) {
+        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $workspace, $inpRowCount) {
             $job = MatchingJob::create([
                 'reference_dataset_id' => $reference->id,
                 'input_dataset_id' => $input->id,
                 'name' => $payload['name'] ?? 'Matching Job',
                 'status' => 'processing',
                 'processed_count' => 0,
-                'total_count' => count($input->preview_rows),
+                'total_count' => $inpRowCount,
                 'record_counts' => [
                     'matched' => 0,
                     'possible_match' => 0,
@@ -181,18 +189,22 @@ class MatchingEngineService
 
         $mappings = $this->resolveMappings($rawMappings, $configuration);
 
+        $referenceRowsRaw = $this->loadDatasetRows($reference);
+        $inputRowsRaw = $this->loadDatasetRows($input);
+        $totalInputCount = count($inputRowsRaw);
+
         $job->update([
             'status' => 'processing',
             'processed_count' => 0,
-            'total_count' => count($input->preview_rows ?? []),
+            'total_count' => $totalInputCount,
             'started_at' => Carbon::now(),
         ]);
 
         try {
-            $summary = $this->executePipeline($job, $reference, $input, $mappings, $configuration);
+            $summary = $this->executePipeline($job, $reference, $input, $referenceRowsRaw, $inputRowsRaw, $mappings, $configuration);
             $job->update([
                 'status' => 'completed',
-                'processed_count' => count($input->preview_rows ?? []),
+                'processed_count' => $totalInputCount,
                 'record_counts' => $summary,
                 'finished_at' => Carbon::now(),
             ]);
@@ -513,6 +525,8 @@ class MatchingEngineService
     /**
      * Executes the 4-phase matching pipeline.
      *
+     * @param array<int, array<string, mixed>> $referenceRowsRaw
+     * @param array<int, array<string, mixed>> $inputRowsRaw
      * @param array<int, array<string, mixed>> $mappings
      * @param array<string, mixed> $configuration
      * @return array<string, int>
@@ -521,6 +535,8 @@ class MatchingEngineService
         MatchingJob $job,
         Dataset $reference,
         Dataset $input,
+        array $referenceRowsRaw,
+        array $inputRowsRaw,
         array $mappings,
         array $configuration,
     ): array {
@@ -530,8 +546,8 @@ class MatchingEngineService
         // ---------------------------------------------------------------------
         // Phase 1: Automatic Normalization
         // ---------------------------------------------------------------------
-        $referenceRows = $this->normalizeRows($reference->preview_rows ?? [], $mappings, 'reference_column_name', $refColTypes);
-        $inputRows = $this->normalizeRows($input->preview_rows ?? [], $mappings, 'input_column_name', $inpColTypes);
+        $referenceRows = $this->normalizeRows($referenceRowsRaw, $mappings, 'reference_column_name', $refColTypes);
+        $inputRows = $this->normalizeRows($inputRowsRaw, $mappings, 'input_column_name', $inpColTypes);
 
         $referenceByKey = collect($referenceRows)->keyBy('key')->all();
 
@@ -1167,6 +1183,8 @@ class MatchingEngineService
                 'status' => $job->status,
                 'reference_dataset_id' => $job->reference_dataset_id,
                 'input_dataset_id' => $job->input_dataset_id,
+                'total_count' => $job->total_count,
+                'processed_count' => $job->processed_count,
                 'started_at' => optional($job->started_at)->toISOString(),
                 'finished_at' => optional($job->finished_at)->toISOString(),
                 'error_message' => $job->error_message,
@@ -1189,5 +1207,85 @@ class MatchingEngineService
                 ->get(['id', 'input_record_key', 'reference_record_key', 'result_type', 'overall_score', 'candidate_rank'])
                 ->all(),
         ];
+    }
+
+    /**
+     * Dynamically loads full dataset rows from disk storage,
+     * with graceful fallback to preview_rows for unit test fixtures.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function loadDatasetRows(Dataset $dataset): array
+    {
+        $storagePath = $dataset->storage_path;
+        if (empty($storagePath)) {
+            return $dataset->preview_rows ?? [];
+        }
+
+        $candidates = [
+            Storage::disk('local')->path($storagePath),
+            storage_path('app/' . $storagePath),
+            storage_path('app/private/' . $storagePath),
+            $storagePath,
+        ];
+
+        $filePath = null;
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && file_exists($candidate) && is_readable($candidate)) {
+                $filePath = $candidate;
+                break;
+            }
+        }
+
+        if ($filePath === null) {
+            return $dataset->preview_rows ?? [];
+        }
+
+        $format = strtolower((string) ($dataset->file_format ?: pathinfo($filePath, PATHINFO_EXTENSION)));
+
+        try {
+            if ($format === 'csv') {
+                $delimiter = $dataset->delimiter;
+                $headerRow = max(1, (int) ($dataset->header_row ?? 1));
+
+                $parser = new CsvDatasetParser();
+                $uploaded = new UploadedFile(
+                    $filePath,
+                    $dataset->original_filename ?: basename($filePath),
+                    $dataset->mime_type ?: 'text/csv',
+                    null,
+                    true
+                );
+
+                $parsed = $parser->parse($uploaded, [
+                    'delimiter' => $delimiter,
+                    'header_row' => $headerRow,
+                ]);
+
+                return $parsed->rows;
+            }
+
+            if ($format === 'xlsx' || $format === 'xls') {
+                $parser = new XlsxDatasetParser();
+                $uploaded = new UploadedFile(
+                    $filePath,
+                    $dataset->original_filename ?: basename($filePath),
+                    $dataset->mime_type ?: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    null,
+                    true
+                );
+
+                $parsed = $parser->parse($uploaded, [
+                    'sheet_name' => $dataset->selected_sheet,
+                    'header_row' => (int) ($dataset->header_row ?? 1),
+                ]);
+
+                return $parsed->rows;
+            }
+        } catch (Throwable $e) {
+            Log::warning("Failed to stream full dataset [{$filePath}]: " . $e->getMessage() . ". Falling back to preview_rows.");
+        }
+
+        return $dataset->preview_rows ?? [];
     }
 }

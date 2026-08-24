@@ -61,7 +61,7 @@ class CandidateGenerator
         int $limit,
     ): array {
         $strategy = $indexes['strategy'] ?? 'Hybrid';
-        $candidateKeys = [];
+        $candidateScores = [];
 
         if (in_array($strategy, ['Exact', 'Hybrid'], true)) {
             foreach ($mappings as $mapping) {
@@ -76,14 +76,15 @@ class CandidateGenerator
                 $inputValue = (string) ($inputRecord['normalized'][$inputCol] ?? '');
 
                 if ($inputValue !== '' && isset($indexes['exact'][$refCol][$inputValue])) {
+                    $weight = (int) ($mapping['weight'] ?? 50);
                     foreach ($indexes['exact'][$refCol][$inputValue] as $key) {
-                        $candidateKeys[$key] = true;
+                        $candidateScores[$key] = ($candidateScores[$key] ?? 0) + ($weight * 10);
                     }
                 }
             }
         }
 
-        if ($candidateKeys === [] && $strategy !== 'Exact') {
+        if (empty($candidateScores) && $strategy !== 'Exact') {
             foreach ($mappings as $mapping) {
                 $inputCol = (string) ($mapping['input_column_name'] ?? '');
                 $inputValue = (string) ($inputRecord['normalized'][$inputCol] ?? '');
@@ -92,20 +93,25 @@ class CandidateGenerator
                     continue;
                 }
 
+                $weight = (int) ($mapping['weight'] ?? 50);
                 foreach ($this->candidateKeys($inputValue) as $token) {
                     foreach (array_keys($indexes['tokens'][$token] ?? []) as $key) {
-                        $candidateKeys[$key] = true;
+                        $candidateScores[$key] = ($candidateScores[$key] ?? 0) + $weight;
                     }
                 }
             }
         }
 
-        if ($candidateKeys === []) {
-            $candidateKeys = array_fill_keys(array_slice(array_keys($referenceByKey), 0, $limit), true);
+        if (empty($candidateScores)) {
+            $candidateScores = array_fill_keys(array_slice(array_keys($referenceByKey), 0, $limit), 1);
         }
 
+        arsort($candidateScores);
+
+        $topKeys = array_slice(array_keys($candidateScores), 0, max(50, $limit * 10));
+
         return array_values(array_filter(
-            array_map(fn (string $key) => $referenceByKey[$key] ?? null, array_slice(array_keys($candidateKeys), 0, $limit * 10)),
+            array_map(fn (string $key) => $referenceByKey[$key] ?? null, $topKeys),
         ));
     }
 
