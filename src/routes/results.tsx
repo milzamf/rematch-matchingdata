@@ -2300,6 +2300,8 @@ function caseGroupLabel(item: ReviewItem, t: ReturnType<typeof usePreferences>["
 }
 
 function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
+  const pattern = readString(group.pattern) ?? "";
+  if (pattern === "NUMERIC_MISMATCH") return t("review.group.numericMismatch");
   const labels: Record<string, Parameters<typeof t>[0]> = {
     LEGAL_FORM_CONFLICT: "results.casePattern.legalFormConflict",
     FIELD_CONFLICT: "results.casePattern.fieldConflict",
@@ -2307,13 +2309,13 @@ function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof useP
     NO_CANDIDATE: "results.casePattern.noCandidate",
     LOW_CONFIDENCE_MATCH: "results.casePattern.lowConfidence",
   };
-  const pattern = readString(group.pattern) ?? "";
 
   return labels[pattern] ? t(labels[pattern]) : group.label || pattern || t("common.notAvailable");
 }
 
 function caseGroupReason(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
   const pattern = readString(group.pattern) ?? "";
+  if (pattern === "NUMERIC_MISMATCH") return t("review.reason.numericMismatch");
   const labels: Record<string, Parameters<typeof t>[0]> = {
     LEGAL_FORM_CONFLICT: "results.caseReason.legalFormConflict",
     FIELD_CONFLICT: "results.caseReason.fieldConflict",

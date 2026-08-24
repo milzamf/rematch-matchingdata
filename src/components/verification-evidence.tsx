@@ -759,14 +759,16 @@ export function ExploratoryDiagnosticsPanel({
                         </span>
                         {rule.downgradeCount > 0 && (
                           <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning">
-                            {rule.downgradeCount} Auto-Match Downgrades
+                            {t("review.evidence.autoDowngrades", { count: rule.downgradeCount })}
                           </span>
                         )}
                       </div>
                       <div className="font-semibold tabular-nums text-foreground">
-                        <span className="text-destructive">{rule.failCount} failed</span>
+                        <span className="text-destructive">
+                          {t("review.evidence.failedCount", { count: rule.failCount })}
+                        </span>
                         <span className="text-muted-foreground text-[11px] ml-1.5">
-                          ({rule.failPercentage}% fail rate)
+                          {t("review.evidence.failRate", { rate: rule.failPercentage })}
                         </span>
                       </div>
                     </div>

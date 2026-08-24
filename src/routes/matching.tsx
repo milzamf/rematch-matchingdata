@@ -28,6 +28,7 @@ import {
   VerificationEvidenceBadge,
   VerificationEvidenceBreakdown,
 } from "@/components/verification-evidence";
+import { ReviewDiagnosticCharts } from "@/components/review-diagnostic-charts";
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { DataPreviewTable } from "@/components/data-preview-table";
 import { TablePagination } from "@/components/ui/table-pagination";
@@ -4689,6 +4690,11 @@ function StepReview({
     <>
       <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
 
+      {/* Review Diagnostic Charts (Field Quality Heatmap & Pareto Breakdown) */}
+      <div className="mb-6">
+        <ReviewDiagnosticCharts items={items} columnMappings={columnMappings} />
+      </div>
+
       <div className="mb-4 grid gap-3 lg:grid-cols-[auto_1fr_auto] lg:items-center">
         <div className="inline-flex w-fit rounded-lg border border-border bg-secondary/30 p-1">
           {(["case_groups", "all_records"] as const).map((mode) => (
@@ -5183,8 +5189,9 @@ function StepReview({
                           <div className="grid gap-3 md:grid-cols-2">
                             <SyncMetric
                               label={t("matching.ai.recommendation")}
-                              value={formatAiValue(
+                              value={formatAiRecommendation(
                                 aiRecommendationByResult[selectedResultId]?.data?.recommendation,
+                                t,
                               )}
                             />
                             <SyncMetric
@@ -5196,7 +5203,10 @@ function StepReview({
                             />
                           </div>
                           <p className="text-muted-foreground">
-                            {aiRecommendationByResult[selectedResultId]?.data?.rationale}
+                            {formatAiRationale(
+                              aiRecommendationByResult[selectedResultId]?.data?.rationale,
+                              t,
+                            )}
                           </p>
                           <div className="grid gap-3 lg:grid-cols-2">
                             <CompactListCard
@@ -5437,7 +5447,7 @@ function CaseGroupsReview({
               <div className="grid gap-3 xl:grid-cols-[1fr_auto] xl:items-start">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-semibold">{group.label}</p>
+                    <p className="text-sm font-semibold">{caseGroupDisplayLabel(group, t)}</p>
                     <span className={caseGroupStatusClass(group.status ?? "open")}>
                       {caseGroupStatusLabel(group.status ?? "open", t)}
                     </span>
@@ -5456,12 +5466,12 @@ function CaseGroupsReview({
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{caseGroupReason(group, t)}</p>
                   {group.recommendation && (
                     <p className="mt-2 text-xs font-medium text-foreground">
                       {t("matching.review.recommendation")}:{" "}
                       <span className="font-normal text-muted-foreground">
-                        {group.recommendation}
+                        {caseGroupRecommendation(group, t)}
                       </span>
                     </p>
                   )}
@@ -5683,7 +5693,7 @@ function GroupReviewSubview({
             {t("matching.review.backToCaseGroups")}
           </button>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold">{group.label}</p>
+            <p className="text-sm font-semibold">{caseGroupDisplayLabel(group, t)}</p>
             <span className={caseGroupStatusClass(group.status ?? "open")}>
               {caseGroupStatusLabel(group.status ?? "open", t)}
             </span>
@@ -5697,11 +5707,13 @@ function GroupReviewSubview({
               {t("matching.review.caseCount", { count: group.item_count })}
             </span>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">{group.reason}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{caseGroupReason(group, t)}</p>
           {group.recommendation ? (
             <p className="mt-2 text-xs text-muted-foreground">
               {t("matching.review.recommendation")}:{" "}
-              <span className="font-medium text-foreground">{group.recommendation}</span>
+              <span className="font-medium text-foreground">
+                {caseGroupRecommendation(group, t)}
+              </span>
             </p>
           ) : null}
           <p className="mt-2 text-xs text-muted-foreground">
@@ -6241,6 +6253,74 @@ function DecisionHistory({ history }: { history: NonNullable<ReviewItem["decisio
 
 function candidateScore(item: ReviewItem) {
   return item.candidates[0]?.score ?? 0;
+}
+
+function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
+  const pattern = (group.pattern ?? "").toUpperCase();
+  if (pattern === "LEGAL_FORM_CONFLICT") return t("review.group.legalConflict");
+  if (pattern === "FIELD_CONFLICT") return t("review.group.fieldConflict");
+  if (pattern === "SIMILAR_NAME_REVIEW") return t("review.group.similarName");
+  if (pattern === "LOW_CONFIDENCE_MATCH") return t("review.group.lowConfidence");
+  if (pattern === "NO_CANDIDATE") return t("review.group.noCandidate");
+  if (pattern === "NUMERIC_MISMATCH") return t("review.group.numericMismatch");
+  return group.label || t("review.group.default");
+}
+
+function caseGroupReason(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
+  const pattern = (group.pattern ?? "").toUpperCase();
+  if (pattern === "LEGAL_FORM_CONFLICT") return t("review.reason.legalConflict");
+  if (pattern === "FIELD_CONFLICT") return t("review.reason.fieldConflict");
+  if (pattern === "SIMILAR_NAME_REVIEW") return t("review.reason.similarName");
+  if (pattern === "LOW_CONFIDENCE_MATCH") return t("review.reason.lowConfidence");
+  if (pattern === "NO_CANDIDATE") return t("review.reason.noCandidate");
+  if (pattern === "NUMERIC_MISMATCH") return t("review.reason.numericMismatch");
+  return group.reason || "";
+}
+
+function caseGroupRecommendation(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
+  const raw = group.recommendation ?? "";
+  if (!raw) return "";
+  const lower = raw.toLowerCase();
+  if (lower.includes("accept group after checking")) return t("review.recommendation.acceptGroup");
+  if (lower.includes("reject or reassign")) return t("review.recommendation.rejectGroup");
+  if (lower.includes("review individually") || lower.includes("confidence is mixed")) {
+    return t("review.recommendation.reviewIndividually");
+  }
+  if (lower.includes("representative sample before accepting")) {
+    return t("review.recommendation.reviewSamples");
+  }
+  if (lower.includes("no reference match") || lower.includes("confirm unmatched")) {
+    return t("review.recommendation.confirmUnmatched");
+  }
+  return raw;
+}
+
+function formatAiRecommendation(
+  recommendation: string | undefined | null,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  if (!recommendation) return "—";
+  const lower = recommendation.toLowerCase();
+  if (lower === "accept_match" || lower === "accept") return t("matching.review.recApprove");
+  if (lower === "reject_match" || lower === "reject") return t("matching.review.recReject");
+  if (lower === "needs_review" || lower === "review") return t("matching.review.recReview");
+  if (lower === "mark_unmatched" || lower === "unmatched") return t("matching.review.markUnmatched");
+  return recommendation;
+}
+
+function formatAiRationale(
+  rationale: string | undefined | null,
+  t: ReturnType<typeof usePreferences>["t"],
+) {
+  if (!rationale) return "";
+  const lower = rationale.toLowerCase();
+  if (lower.includes("legal form differs")) return t("review.reason.legalConflict");
+  if (lower.includes("some supporting fields differ")) return t("review.reason.fieldConflict");
+  if (lower.includes("candidate is similar but not strong")) return t("review.reason.similarName");
+  if (lower.includes("score is inside the review band")) return t("review.reason.lowConfidence");
+  if (lower.includes("no reference candidate was generated")) return t("review.reason.noCandidate");
+  if (lower.includes("numeric sequence mismatch")) return t("review.reason.numericMismatch");
+  return rationale;
 }
 
 function caseGroupFilterLabel(filter: CaseGroupFilter, t: ReturnType<typeof usePreferences>["t"]) {
