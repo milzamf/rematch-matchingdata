@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AdminWorkspaceController;
 use App\Http\Controllers\Api\DatasetInspectionController;
+use App\Http\Controllers\Api\DatasetRowsController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\AiReviewCaseController;
 use App\Http\Controllers\Api\AiReviewKnowledgeController;
@@ -40,6 +41,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_DELETE);
 
     Route::post('/datasets/inspect', DatasetInspectionController::class)
+        ->middleware('permission:'.PermissionRegistry::MATCHING_CREATE);
+    Route::get('/datasets/{dataset}/rows', DatasetRowsController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_CREATE);
     Route::post('/matching-jobs/run', MatchingRunController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_RUN);

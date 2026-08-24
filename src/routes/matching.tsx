@@ -1930,6 +1930,7 @@ function StepDataPreview({
       <div className="grid gap-4 lg:grid-cols-2">
         {reference && (
           <DataPreviewTable
+            datasetId={reference.dataset.id}
             title={t("matching.upload.reference")}
             subtitle={t("matching.preview.referenceSubtitle")}
             filename={reference.dataset.original_filename}
@@ -1943,6 +1944,7 @@ function StepDataPreview({
 
         {input && (
           <DataPreviewTable
+            datasetId={input.dataset.id}
             title={t("matching.upload.input")}
             subtitle={t("matching.preview.inputSubtitle")}
             filename={input.dataset.original_filename}

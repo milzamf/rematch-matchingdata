@@ -120,6 +120,59 @@ class DatasetInspectTest extends TestCase
             ->assertJsonValidationErrors('file');
     }
 
+    public function test_it_returns_paginated_rows_streamed_from_physical_csv_file(): void
+    {
+        $csvContent = "id,company_name,city\n";
+        for ($i = 1; $i <= 120; $i++) {
+            $csvContent .= "{$i},PT Perusahaan {$i},Jakarta\n";
+        }
+
+        $file = UploadedFile::fake()->createWithContent('companies.csv', $csvContent);
+
+        $inspectRes = $this->postJson('/api/datasets/inspect', [
+            'file' => $file,
+            'dataset_role' => 'reference',
+        ])->assertOk();
+
+        $datasetId = $inspectRes->json('data.dataset.id');
+
+        $rowsRes = $this->getJson("/api/datasets/{$datasetId}/rows?page=2&per_page=50")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 120)
+            ->assertJsonPath('data.current_page', 2)
+            ->assertJsonPath('data.per_page', 50)
+            ->assertJsonPath('data.last_page', 3)
+            ->assertJsonCount(50, 'data.data');
+
+        $this->assertSame('51', (string) $rowsRes->json('data.data.0.id'));
+    }
+
+    public function test_it_searches_paginated_rows(): void
+    {
+        $csvContent = "id,company_name,city\n";
+        for ($i = 1; $i <= 100; $i++) {
+            $city = $i === 42 ? 'Surabaya' : 'Jakarta';
+            $csvContent .= "{$i},PT Perusahaan {$i},{$city}\n";
+        }
+
+        $file = UploadedFile::fake()->createWithContent('search_test.csv', $csvContent);
+
+        $inspectRes = $this->postJson('/api/datasets/inspect', [
+            'file' => $file,
+            'dataset_role' => 'reference',
+        ])->assertOk();
+
+        $datasetId = $inspectRes->json('data.dataset.id');
+
+        $this->getJson("/api/datasets/{$datasetId}/rows?page=1&per_page=50&search=Surabaya")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.data.0.id', '42')
+            ->assertJsonPath('data.data.0.city', 'Surabaya');
+    }
+
     private function fakeXlsx(string $name): UploadedFile
     {
         $path = tempnam(sys_get_temp_dir(), 'batchmatch-xlsx-');

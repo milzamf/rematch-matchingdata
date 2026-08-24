@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Maximize2,
   Search,
@@ -8,6 +8,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   FileSpreadsheet,
+  Loader2,
 } from "lucide-react";
 import {
   Dialog,
@@ -18,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { parseEntityName } from "@/lib/data-normalizer";
 import { usePreferences } from "@/lib/preferences";
+import { fetchDatasetRows } from "@/lib/api";
 
 function findCompanyValueInRow(row: Record<string, unknown>): string | null {
   const companyKeyRegex =
@@ -79,6 +81,7 @@ export interface DataPreviewColumn {
 }
 
 export interface DataPreviewTableProps {
+  datasetId?: string;
   title: string;
   subtitle?: string;
   filename?: string;
@@ -95,6 +98,7 @@ export interface DataPreviewTableProps {
 }
 
 export function DataPreviewTable({
+  datasetId,
   title,
   subtitle,
   filename,
@@ -114,9 +118,53 @@ export function DataPreviewTable({
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [serverData, setServerData] = useState<{ data: Record<string, unknown>[]; total: number } | null>(null);
+  const [isLoadingServer, setIsLoadingServer] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const effectivePlaceholder = searchPlaceholder ?? t("preview.searchPlaceholder");
   const effectiveEmptyMessage = emptyMessage ?? t("preview.emptyMessage");
+
+  // Fetch paginated rows from backend when datasetId is provided
+  useEffect(() => {
+    if (!isModalOpen || !datasetId) {
+      setServerData(null);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsLoadingServer(true);
+    setServerError(null);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetchDatasetRows(datasetId, {
+          page: currentPage,
+          per_page: pageSize,
+          search: searchQuery.trim() || undefined,
+        });
+        if (!isCancelled) {
+          setServerData({
+            data: res.data,
+            total: res.total,
+          });
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setServerError(err instanceof Error ? err.message : "Gagal memuat baris dataset.");
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingServer(false);
+        }
+      }
+    }, 200);
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isModalOpen, datasetId, currentPage, pageSize, searchQuery]);
 
   // Normalize column definitions
   const columns: DataPreviewColumn[] = useMemo(() => {
@@ -146,8 +194,8 @@ export function DataPreviewTable({
     return rows.slice(0, previewLimit);
   }, [rows, previewLimit]);
 
-  // Filtered rows for expanded modal
-  const filteredRows = useMemo(() => {
+  // Filtered rows for client fallback
+  const filteredClientRows = useMemo(() => {
     if (!searchQuery.trim()) return rows;
     const query = searchQuery.toLowerCase().trim();
 
@@ -160,12 +208,18 @@ export function DataPreviewTable({
     });
   }, [rows, columns, searchQuery]);
 
+  // Dynamic row counts & pagination bounds
+  const activeTotalRows = serverData !== null ? serverData.total : (searchQuery.trim() ? filteredClientRows.length : totalRows);
+  const totalPages = Math.max(1, Math.ceil(activeTotalRows / pageSize));
+
   // Paginated rows for expanded modal
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const paginatedRows = useMemo(() => {
+    if (serverData !== null) {
+      return serverData.data;
+    }
     const startIndex = (currentPage - 1) * pageSize;
-    return filteredRows.slice(startIndex, startIndex + pageSize);
-  }, [filteredRows, currentPage, pageSize]);
+    return filteredClientRows.slice(startIndex, startIndex + pageSize);
+  }, [serverData, filteredClientRows, currentPage, pageSize]);
 
   // Handle page size change
   const handlePageSizeChange = (newSize: number) => {
@@ -380,7 +434,7 @@ export function DataPreviewTable({
                     </span>
                   )}
                   <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-                    {t("preview.filteredRowsBadge", { count: filteredRows.length.toLocaleString() })}
+                    {t("preview.filteredRowsBadge", { count: activeTotalRows.toLocaleString() })}
                   </span>
                 </DialogTitle>
                 <DialogDescription className="text-xs mt-0.5">
@@ -431,8 +485,17 @@ export function DataPreviewTable({
           </DialogHeader>
 
           {/* MODAL TABLE CONTENT */}
-          <div className="flex-1 overflow-auto rounded-md border border-border">
-            {paginatedRows.length === 0 ? (
+          <div className="relative flex-1 overflow-auto rounded-md border border-border">
+            {isLoadingServer && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-xs font-semibold shadow-md">
+                  <Loader2 className="size-4 animate-spin text-brand" />
+                  <span>Memuat baris...</span>
+                </div>
+              </div>
+            )}
+
+            {paginatedRows.length === 0 && !isLoadingServer ? (
               <div className="py-16 text-center text-xs text-muted-foreground">
                 <Search className="mx-auto size-8 text-muted-foreground/40 mb-2" />
                 {t("preview.noMatchQuery", { query: searchQuery })}
@@ -499,10 +562,10 @@ export function DataPreviewTable({
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/70 text-xs">
             <div className="text-muted-foreground">
               {t("preview.paginationShowing", {
-                from: filteredRows.length === 0 ? 0 : (currentPage - 1) * pageSize + 1,
-                to: Math.min(currentPage * pageSize, filteredRows.length),
-                total: filteredRows.length.toLocaleString(),
-                filteredInfo: searchQuery ? t("preview.filteredSuffix", { total: rows.length.toLocaleString() }) : "",
+                from: activeTotalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1,
+                to: Math.min(currentPage * pageSize, activeTotalRows),
+                total: activeTotalRows.toLocaleString(),
+                filteredInfo: searchQuery ? t("preview.filteredSuffix", { total: totalRows.toLocaleString() }) : "",
               })}
             </div>
 
