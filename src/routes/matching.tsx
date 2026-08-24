@@ -450,12 +450,8 @@ function MatchingPage() {
         clearTimeout(pollingTimeoutRef.current);
       }
 
-      let pollAttempts = 0;
-      const maxPollAttempts = 240; // 6 minutes max polling
-
       const checkStatus = async () => {
         try {
-          pollAttempts++;
           const statusResult = await fetchMatchingJobStatus(jobId);
           setRunResult(statusResult);
 
@@ -485,19 +481,11 @@ function MatchingPage() {
           setProgress(Math.max(10, Math.min(95, pct)));
           setRunState("running");
 
-          if (pollAttempts < maxPollAttempts) {
-            pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
-          } else {
-            setRunState("failed");
-            setRunError(t("matching.run.timeout") || "Proses matching melebihi batas waktu (timeout).");
-          }
+          // Keep polling until the backend explicitly returns 'completed' or 'failed'
+          pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
         } catch (error) {
-          if (pollAttempts < maxPollAttempts) {
-            pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
-          } else {
-            setRunState("failed");
-            setRunError(error instanceof ApiError ? error.message : t("matching.run.failedGeneric"));
-          }
+          // On network errors, wait a bit longer and retry indefinitely
+          pollingTimeoutRef.current = setTimeout(checkStatus, 3000);
         }
       };
 
