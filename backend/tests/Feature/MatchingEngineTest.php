@@ -361,4 +361,140 @@ class MatchingEngineTest extends TestCase
         $this->assertSame(4, $distinctCounts['candidates_scored']);
         $this->assertSame(2, $distinctCounts['matched'] + $distinctCounts['possible_match'] + $distinctCounts['unmatched']);
     }
+
+    public function test_matching_engine_resolves_synthetic_generated_columns_without_crash(): void
+    {
+        $reference = Dataset::create([
+            'dataset_role' => 'reference',
+            'name' => 'ref',
+            'original_filename' => 'ref.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/ref.csv',
+            'column_count' => 1,
+            'row_count' => 1,
+            'preview_rows' => [
+                ['nama_perusahaan' => 'PT Sumber Makmur Sejahtera'],
+            ],
+        ]);
+
+        $input = Dataset::create([
+            'dataset_role' => 'input',
+            'name' => 'inp',
+            'original_filename' => 'inp.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/inp.csv',
+            'column_count' => 1,
+            'row_count' => 1,
+            'preview_rows' => [
+                ['company_name' => 'PT Sumber Makmur Sejahtera'],
+            ],
+        ]);
+
+        $response = $this->postJson('/api/matching-jobs/run', [
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'Synthetic Columns Test',
+            'mappings' => [
+                [
+                    'referenceColumnName' => '[Generated] Nama Inti',
+                    'inputColumnName' => '[Generated] Nama Inti',
+                    'algorithm' => 'Jaro-Winkler',
+                    'weight' => 70,
+                ],
+                [
+                    'referenceColumnName' => '[Generated] Badan Usaha',
+                    'inputColumnName' => '[Generated] Badan Usaha',
+                    'algorithm' => 'Normalized Exact',
+                    'required_match' => true,
+                    'weight' => 30,
+                ],
+            ],
+            'configuration' => [
+                'preset' => 'Default',
+                'strategy' => 'Hybrid',
+                'thresholds' => ['autoMatch' => 85, 'review' => 70, 'noMatch' => 50],
+                'candidateGeneration' => ['topN' => 1],
+                'normalization' => ['mode' => 'auto', 'preset' => 'Default'],
+                'runOptions' => ['chunkSize' => 10, 'workerCount' => 1],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.job.status', 'completed')
+            ->assertJsonPath('data.summary.matched', 1);
+
+        $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
+        $this->assertSame('matched', $result->result_type);
+    }
+
+    public function test_mandatory_composite_key_with_empty_value_gracefully_drops_to_fuzzy(): void
+    {
+        $reference = Dataset::create([
+            'dataset_role' => 'reference',
+            'name' => 'ref',
+            'original_filename' => 'ref.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/ref.csv',
+            'column_count' => 2,
+            'row_count' => 1,
+            'preview_rows' => [
+                ['npwp' => '1234567890', 'name' => 'PT Makmur Sentosa'],
+            ],
+        ]);
+
+        $input = Dataset::create([
+            'dataset_role' => 'input',
+            'name' => 'inp',
+            'original_filename' => 'inp.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/inp.csv',
+            'column_count' => 2,
+            'row_count' => 1,
+            'preview_rows' => [
+                ['npwp' => '', 'name' => 'Makmur Sentosa'], // Empty NPWP drops out of Phase 2 into Phase 3
+            ],
+        ]);
+
+        $response = $this->postJson('/api/matching-jobs/run', [
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'Null-Safe Mandatory Test',
+            'mappings' => [
+                [
+                    'referenceColumnName' => 'npwp',
+                    'inputColumnName' => 'npwp',
+                    'algorithm' => 'Normalized Exact',
+                    'required_match' => true,
+                    'weight' => 50,
+                ],
+                [
+                    'referenceColumnName' => 'name',
+                    'inputColumnName' => 'name',
+                    'algorithm' => 'Jaro-Winkler',
+                    'weight' => 50,
+                ],
+            ],
+            'configuration' => [
+                'preset' => 'Default',
+                'strategy' => 'Hybrid',
+                'thresholds' => ['autoMatch' => 85, 'review' => 70, 'noMatch' => 50],
+                'candidateGeneration' => ['topN' => 1],
+                'normalization' => ['mode' => 'auto', 'preset' => 'Default'],
+                'runOptions' => ['chunkSize' => 10, 'workerCount' => 1],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.job.status', 'completed');
+    }
 }

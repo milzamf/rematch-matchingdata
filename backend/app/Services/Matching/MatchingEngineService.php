@@ -300,29 +300,72 @@ class MatchingEngineService
         return $base + ($index === 0 ? 100 - ($base * $total) : 0);
     }
 
-    private function resolveColumnValue(array $row, string $columnName): ?string
+    public function resolveFieldValue(array $row, string $columnName, ?array $parsedEntity = null): ?string
     {
-        if (isset($row[$columnName])) {
+        if ($columnName === '') {
+            return null;
+        }
+
+        // 1. Direct array key match
+        if (array_key_exists($columnName, $row) && $row[$columnName] !== null) {
             return (string) $row[$columnName];
         }
 
-        if (str_contains($columnName, '[Generated] Nama Inti')) {
+        // 2. Synthetic/Generated Nama Inti / Core Name
+        if (
+            str_contains($columnName, '[Generated] Nama Inti') ||
+            str_contains($columnName, 'Nama Inti') ||
+            $columnName === 'core_name' ||
+            $columnName === 'virtual_core_name'
+        ) {
+            if ($parsedEntity !== null && ! empty($parsedEntity['core_name'])) {
+                return (string) $parsedEntity['core_name'];
+            }
+
             $nameVal = $this->findEntityNameValue($row);
             if ($nameVal !== null) {
                 $parsed = $this->entityNameParser->parse($nameVal);
                 return $parsed['core_name'] !== '' ? $parsed['core_name'] : $nameVal;
             }
+
+            return null;
         }
 
-        if (str_contains($columnName, '[Generated] Badan Usaha')) {
+        // 3. Synthetic/Generated Badan Usaha / Legal Structure
+        if (
+            str_contains($columnName, '[Generated] Badan Usaha') ||
+            str_contains($columnName, 'Badan Usaha') ||
+            $columnName === 'legal_structure' ||
+            $columnName === 'legal_form' ||
+            $columnName === 'virtual_legal_form'
+        ) {
+            if ($parsedEntity !== null && ! empty($parsedEntity['legal_form'])) {
+                return (string) $parsedEntity['legal_form'];
+            }
+
             $nameVal = $this->findEntityNameValue($row);
             if ($nameVal !== null) {
                 $parsed = $this->entityNameParser->parse($nameVal);
                 return $parsed['legal_form'] ?? '';
             }
+
+            return null;
         }
 
-        return null;
+        // 4. Case-insensitive lookup fallback
+        $normalizedSearch = mb_strtolower(trim($columnName));
+        foreach ($row as $col => $val) {
+            if (mb_strtolower(trim((string) $col)) === $normalizedSearch && $val !== null) {
+                return (string) $val;
+            }
+        }
+
+        return $row[$columnName] ?? null;
+    }
+
+    private function resolveColumnValue(array $row, string $columnName, ?array $parsedEntity = null): ?string
+    {
+        return $this->resolveFieldValue($row, $columnName, $parsedEntity);
     }
 
     private function findEntityNameValue(array $row): ?string
@@ -366,30 +409,49 @@ class MatchingEngineService
                 $normalized = [];
                 $identity = [];
 
+                // Pre-extract entity name parsed object from row once if possible
+                $entityNameVal = $this->findEntityNameValue($row);
+                $parsedEntity = $entityNameVal !== null ? $this->entityNameParser->parse($entityNameVal) : null;
+
                 foreach ($mappings as $mapping) {
-                    $columnName = $mapping[$columnKey];
-                    $rawValue = $this->resolveColumnValue($row, $columnName);
+                    $columnName = (string) ($mapping[$columnKey] ?? '');
+                    if ($columnName === '') {
+                        continue;
+                    }
+
+                    $rawValue = $this->resolveFieldValue($row, $columnName, $parsedEntity);
                     $dataType = $columnDataTypes[$columnName] ?? null;
 
-                    if ($columnName === '[Generated] Badan Usaha') {
+                    if (
+                        str_contains($columnName, '[Generated] Badan Usaha') ||
+                        str_contains($columnName, 'Badan Usaha') ||
+                        $columnName === 'legal_structure' ||
+                        $columnName === 'legal_form' ||
+                        $columnName === 'virtual_legal_form'
+                    ) {
                         $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
                         $identity[$columnName] = ['legal_form' => $rawValue];
                         continue;
                     }
 
-                    if ($columnName === '[Generated] Nama Inti') {
+                    if (
+                        str_contains($columnName, '[Generated] Nama Inti') ||
+                        str_contains($columnName, 'Nama Inti') ||
+                        $columnName === 'core_name' ||
+                        $columnName === 'virtual_core_name'
+                    ) {
                         $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
                         $identity[$columnName] = ['core_name' => $rawValue];
                         continue;
                     }
 
-                    $parsedEntity = $this->entityNameParser->parse($rawValue);
+                    $parsedCurrent = $this->entityNameParser->parse($rawValue);
                     $isEntityName = $this->entityNameParser->isEntityNameColumn($columnName)
-                        || $this->entityNameParser->hasEntityMetadata($parsedEntity);
+                        || $this->entityNameParser->hasEntityMetadata($parsedCurrent);
 
                     if ($isEntityName) {
-                        $normalized[$columnName] = $this->normalizer->normalizeByType($parsedEntity['core_name'], $dataType, $columnName);
-                        $identity[$columnName] = $parsedEntity;
+                        $normalized[$columnName] = $this->normalizer->normalizeByType($parsedCurrent['core_name'], $dataType, $columnName);
+                        $identity[$columnName] = $parsedCurrent;
 
                         continue;
                     }

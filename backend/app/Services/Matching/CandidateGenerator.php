@@ -20,8 +20,12 @@ class CandidateGenerator
 
         foreach ($referenceRows as $record) {
             foreach ($mappings as $mapping) {
-                $field = $mapping['reference_column_name'];
-                $value = $record['normalized'][$field] ?? '';
+                $field = (string) ($mapping['reference_column_name'] ?? '');
+                if ($field === '') {
+                    continue;
+                }
+
+                $value = (string) ($record['normalized'][$field] ?? '');
 
                 if ($value === '') {
                     continue;
@@ -67,18 +71,26 @@ class CandidateGenerator
                     continue;
                 }
 
-                $inputValue = $inputRecord['normalized'][$mapping['input_column_name']] ?? '';
-                $field = $mapping['reference_column_name'];
+                $inputCol = (string) ($mapping['input_column_name'] ?? '');
+                $refCol = (string) ($mapping['reference_column_name'] ?? '');
+                $inputValue = (string) ($inputRecord['normalized'][$inputCol] ?? '');
 
-                foreach (($indexes['exact'][$field][$inputValue] ?? []) as $key) {
-                    $candidateKeys[$key] = true;
+                if ($inputValue !== '' && isset($indexes['exact'][$refCol][$inputValue])) {
+                    foreach ($indexes['exact'][$refCol][$inputValue] as $key) {
+                        $candidateKeys[$key] = true;
+                    }
                 }
             }
         }
 
         if ($candidateKeys === [] && $strategy !== 'Exact') {
             foreach ($mappings as $mapping) {
-                $inputValue = $inputRecord['normalized'][$mapping['input_column_name']] ?? '';
+                $inputCol = (string) ($mapping['input_column_name'] ?? '');
+                $inputValue = (string) ($inputRecord['normalized'][$inputCol] ?? '');
+
+                if ($inputValue === '') {
+                    continue;
+                }
 
                 foreach ($this->candidateKeys($inputValue) as $token) {
                     foreach (array_keys($indexes['tokens'][$token] ?? []) as $key) {
