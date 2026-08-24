@@ -757,7 +757,8 @@ function MatchingPage() {
       !workspaceId ||
       isHydratingWorkspace ||
       restoringWorkspaceRef.current ||
-      !canUpdateWorkspace
+      !canUpdateWorkspace ||
+      runState === "running"
     ) {
       return;
     }
@@ -807,6 +808,7 @@ function MatchingPage() {
     input,
     reference,
     runResult,
+    runState,
     activeStep,
     syncState,
     exportHistory,
