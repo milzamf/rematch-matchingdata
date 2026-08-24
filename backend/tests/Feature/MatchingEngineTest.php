@@ -497,4 +497,80 @@ class MatchingEngineTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.job.status', 'completed');
     }
+
+    public function test_matching_engine_resolves_synthetic_columns_with_custom_parent_columns(): void
+    {
+        $reference = Dataset::create([
+            'dataset_role' => 'reference',
+            'name' => 'ref_custom',
+            'original_filename' => 'ref_custom.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/ref_custom.csv',
+            'column_count' => 1,
+            'row_count' => 1,
+            'preview_rows' => [
+                ['nm_perusahaan_raw' => 'PT Nusantara Sejahtera Abadi'],
+            ],
+        ]);
+
+        $input = Dataset::create([
+            'dataset_role' => 'input',
+            'name' => 'inp_custom',
+            'original_filename' => 'inp_custom.csv',
+            'file_format' => 'csv',
+            'mime_type' => 'text/csv',
+            'file_size' => 100,
+            'storage_path' => 'datasets/inp_custom.csv',
+            'column_count' => 1,
+            'row_count' => 1,
+            'preview_rows' => [
+                ['nama_bu_custom' => 'PT Nusantara Sejahtera Abadi'],
+            ],
+        ]);
+
+        $response = $this->postJson('/api/matching-jobs/run', [
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'Parent Column Binding Test',
+            'mappings' => [
+                [
+                    'referenceColumnName' => '[Generated] Nama Inti',
+                    'inputColumnName' => '[Generated] Nama Inti',
+                    'parent_reference_column' => 'nm_perusahaan_raw',
+                    'parent_input_column' => 'nama_bu_custom',
+                    'transform' => 'EXTRACT_CORE_NAME',
+                    'algorithm' => 'Jaro-Winkler',
+                    'weight' => 60,
+                ],
+                [
+                    'referenceColumnName' => '[Generated] Badan Usaha',
+                    'inputColumnName' => '[Generated] Badan Usaha',
+                    'parent_reference_column' => 'nm_perusahaan_raw',
+                    'parent_input_column' => 'nama_bu_custom',
+                    'transform' => 'EXTRACT_LEGAL_FORM',
+                    'algorithm' => 'Normalized Exact',
+                    'required_match' => true,
+                    'weight' => 40,
+                ],
+            ],
+            'configuration' => [
+                'preset' => 'Default',
+                'strategy' => 'Hybrid',
+                'thresholds' => ['autoMatch' => 85, 'review' => 70, 'noMatch' => 50],
+                'candidateGeneration' => ['topN' => 1],
+                'normalization' => ['mode' => 'auto', 'preset' => 'Default'],
+                'runOptions' => ['chunkSize' => 10, 'workerCount' => 1],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.job.status', 'completed')
+            ->assertJsonPath('data.summary.matched', 1);
+
+        $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
+        $this->assertSame('matched', $result->result_type);
+    }
 }

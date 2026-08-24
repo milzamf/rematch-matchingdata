@@ -16,7 +16,60 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { parseEntityName } from "@/lib/data-normalizer";
 import { usePreferences } from "@/lib/preferences";
+
+function findCompanyValueInRow(row: Record<string, unknown>): string | null {
+  const companyKeyRegex =
+    /\b(perusahaan|company|nama|name|usaha|bu|vendor|client|customer|nama_bu|nm_perusahaan)\b/i;
+  for (const [key, val] of Object.entries(row)) {
+    if (
+      !key.startsWith("[Generated]") &&
+      companyKeyRegex.test(key) &&
+      val !== null &&
+      val !== undefined &&
+      String(val).trim() !== ""
+    ) {
+      return String(val).trim();
+    }
+  }
+  for (const [key, val] of Object.entries(row)) {
+    if (
+      !key.startsWith("[Generated]") &&
+      val !== null &&
+      val !== undefined &&
+      typeof val === "string" &&
+      val.trim() !== ""
+    ) {
+      return val.trim();
+    }
+  }
+  return null;
+}
+
+function resolveRowCellValue(row: Record<string, unknown>, colKey: string): unknown {
+  if (row[colKey] !== undefined && row[colKey] !== null) {
+    return row[colKey];
+  }
+
+  if (colKey.includes("[Generated] Nama Inti") || colKey.includes("Core Name")) {
+    const rawVal = findCompanyValueInRow(row);
+    if (rawVal) {
+      const parsed = parseEntityName(rawVal);
+      return parsed.core_name || rawVal;
+    }
+  }
+
+  if (colKey.includes("[Generated] Badan Usaha") || colKey.includes("Legal Form")) {
+    const rawVal = findCompanyValueInRow(row);
+    if (rawVal) {
+      const parsed = parseEntityName(rawVal);
+      return parsed.legal_form || "-";
+    }
+  }
+
+  return undefined;
+}
 
 export interface DataPreviewColumn {
   key: string;
@@ -100,7 +153,7 @@ export function DataPreviewTable({
 
     return rows.filter((row) => {
       return columns.some((col) => {
-        const val = row[col.key];
+        const val = resolveRowCellValue(row, col.key);
         if (val === null || val === undefined) return false;
         return String(val).toLowerCase().includes(query);
       });
@@ -294,7 +347,7 @@ export function DataPreviewTable({
                       {idx + 1}
                     </td>
                     {columns.map((col) => {
-                      const val = row[col.key];
+                      const val = resolveRowCellValue(row, col.key);
                       return (
                         <td
                           key={col.key}
@@ -423,7 +476,7 @@ export function DataPreviewTable({
                           {absoluteIndex}
                         </td>
                         {columns.map((col) => {
-                          const val = row[col.key];
+                          const val = resolveRowCellValue(row, col.key);
                           return (
                             <td
                               key={col.key}

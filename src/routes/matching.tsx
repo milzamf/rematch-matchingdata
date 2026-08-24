@@ -144,7 +144,7 @@ type MatchingAlgorithm =
   "Exact" | "Normalized Exact" | "Contains" | "Starts With" | "Ends With" | "Fuzzy";
 type MappingSuggestionSource =
   "exact_name" | "case_insensitive" | "normalized_name" | "similarity" | "manual" | "none";
-type ColumnMappingDraft = {
+export type ColumnMappingDraft = {
   id: string;
   referenceColumnId: string;
   inputColumnId: string;
@@ -163,6 +163,9 @@ type ColumnMappingDraft = {
   inputDuplicatePercentage?: number;
   referenceSampleValues?: string[];
   inputSampleValues?: string[];
+  parent_input_column?: string;
+  parent_reference_column?: string;
+  transform?: "EXTRACT_CORE_NAME" | "EXTRACT_LEGAL_FORM" | "NONE" | string;
 };
 type Preset = "Default" | "Custom";
 type Strategy = "Hybrid" | "Exact" | "Fuzzy" | "Composite" | "Rule-Based";
@@ -282,6 +285,22 @@ function injectVirtualColumns(
   };
 
   return [...columns, virtualCoreName, virtualLegalForm];
+}
+
+function findParentCompanyColumn(columns: DatasetInspectResult["columns"]) {
+  const nonVirtual = columns.filter((c) => !c.name.startsWith("[Generated]"));
+  const companyKeywordRegex =
+    /\b(perusahaan|company|nama|name|usaha|bu|vendor|client|customer|nama_bu|nm_perusahaan)\b/i;
+  const match = nonVirtual.find(
+    (c) => companyKeywordRegex.test(c.name) || companyKeywordRegex.test(c.normalized_name),
+  );
+  if (match) return match.name;
+
+  const firstText = nonVirtual.find(
+    (c) =>
+      ["text", "string", "varchar"].includes((c.data_type || "").toLowerCase()) || !c.data_type,
+  );
+  return firstText?.name ?? nonVirtual[0]?.name ?? "";
 }
 
 function MatchingPage() {
@@ -780,15 +799,54 @@ function MatchingPage() {
     setSyncState(null);
 
     try {
-      setProgress(20);
+      const inspectedRef = reference.result.columns ?? [];
+      const inspectedInp = input.result.columns ?? [];
+
       const result = await runMatching({
         workspaceId: workspaceId ?? undefined,
         name: `${reference.result.dataset.name} vs ${input.result.dataset.name}`,
         referenceDatasetId: reference.result.dataset.id,
         inputDatasetId: input.result.dataset.id,
-        mappings: columnMappings.filter(
-          (mapping) => mapping.referenceColumnId && mapping.inputColumnId,
-        ),
+        mappings: columnMappings
+          .filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
+          .map((mapping) => {
+            const isCoreName =
+              mapping.referenceColumnName.includes("[Generated] Nama Inti") ||
+              mapping.inputColumnName.includes("[Generated] Nama Inti");
+            const isLegalForm =
+              mapping.referenceColumnName.includes("[Generated] Badan Usaha") ||
+              mapping.inputColumnName.includes("[Generated] Badan Usaha");
+            const parentRef =
+              mapping.parent_reference_column ||
+              (isCoreName || isLegalForm ? findParentCompanyColumn(inspectedRef) : undefined);
+            const parentInp =
+              mapping.parent_input_column ||
+              (isCoreName || isLegalForm ? findParentCompanyColumn(inspectedInp) : undefined);
+            const transform =
+              mapping.transform ||
+              (isCoreName ? "EXTRACT_CORE_NAME" : isLegalForm ? "EXTRACT_LEGAL_FORM" : undefined);
+
+            return {
+              id: mapping.id,
+              referenceColumnId: mapping.referenceColumnId,
+              inputColumnId: mapping.inputColumnId,
+              referenceColumnName: mapping.referenceColumnName,
+              inputColumnName: mapping.inputColumnName,
+              algorithm: mapping.algorithm,
+              required_match: mapping.required_match,
+              parent_reference_column: parentRef,
+              parent_input_column: parentInp,
+              transform,
+              metadata: {
+                parent_reference_column: parentRef,
+                parent_input_column: parentInp,
+                transform,
+                suggested: mapping.suggested,
+                suggestion_source: mapping.suggestionSource,
+                suggestion_score: mapping.suggestionScore,
+              },
+            };
+          }),
         configuration: matchingConfiguration,
       });
       setRunResult(result);

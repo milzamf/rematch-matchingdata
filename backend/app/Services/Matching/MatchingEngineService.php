@@ -19,6 +19,8 @@ use Throwable;
 
 class MatchingEngineService
 {
+    private readonly FieldValueExtractor $fieldExtractor;
+
     public function __construct(
         private readonly MatchingConfigResolver $configResolver,
         private readonly ValueNormalizer $normalizer,
@@ -26,7 +28,9 @@ class MatchingEngineService
         private readonly CandidateGenerator $candidateGenerator,
         private readonly SimilarityScorer $scorer,
         private readonly ResourceOwnership $ownership,
+        ?FieldValueExtractor $fieldExtractor = null,
     ) {
+        $this->fieldExtractor = $fieldExtractor ?? new FieldValueExtractor($this->entityNameParser, $this->normalizer);
     }
 
     /**
@@ -166,6 +170,9 @@ class MatchingEngineService
             'input_column_id' => $m->input_column_id,
             'reference_column_name' => $m->reference_column_name,
             'input_column_name' => $m->input_column_name,
+            'parent_input_column' => data_get($m->metadata, 'parent_input_column'),
+            'parent_reference_column' => data_get($m->metadata, 'parent_reference_column'),
+            'transform' => data_get($m->metadata, 'transform'),
             'algorithm' => $m->algorithm,
             'weight' => $m->weight,
             'required_match' => $m->required_match,
@@ -247,12 +254,41 @@ class MatchingEngineService
             $configured = $configuredFields->get($mappingId, []);
             $weight = $weightByField->get($mappingId, []);
 
+            $parentInput = (string) (
+                $mapping['parent_input_column']
+                ?? $mapping['parentInputColumn']
+                ?? data_get($mapping, 'metadata.parent_input_column')
+                ?? data_get($mapping, 'metadata.parentInputColumn')
+                ?? ''
+            );
+            $parentRef = (string) (
+                $mapping['parent_reference_column']
+                ?? $mapping['parentReferenceColumn']
+                ?? data_get($mapping, 'metadata.parent_reference_column')
+                ?? data_get($mapping, 'metadata.parentReferenceColumn')
+                ?? ''
+            );
+            $transform = (string) (
+                $mapping['transform']
+                ?? data_get($mapping, 'metadata.transform')
+                ?? ''
+            );
+
+            if ($transform === '' && str_contains($inpCol, '[Generated] Nama Inti')) {
+                $transform = 'EXTRACT_CORE_NAME';
+            } elseif ($transform === '' && str_contains($inpCol, '[Generated] Badan Usaha')) {
+                $transform = 'EXTRACT_LEGAL_FORM';
+            }
+
             $validMappings[] = [
                 'id' => $mappingId,
                 'reference_column_id' => $mapping['referenceColumnId'] ?? $mapping['reference_column_id'] ?? null,
                 'input_column_id' => $mapping['inputColumnId'] ?? $mapping['input_column_id'] ?? null,
                 'reference_column_name' => $refCol,
                 'input_column_name' => $inpCol,
+                'parent_input_column' => $parentInput !== '' ? $parentInput : null,
+                'parent_reference_column' => $parentRef !== '' ? $parentRef : null,
+                'transform' => $transform !== '' ? $transform : null,
                 'algorithm' => $this->resolveAlgorithm($configuration['strategy'], $configured['algorithm'] ?? $mapping['algorithm'] ?? null),
                 'weight' => (float) ($weight['weight'] ?? $mapping['weight'] ?? $this->defaultWeight($index, count($rawMappings))),
                 'required_match' => (bool) ($mapping['required_match'] ?? $mapping['strict'] ?? $mapping['is_mandatory'] ?? false),
@@ -260,6 +296,9 @@ class MatchingEngineService
                     'suggested' => $mapping['suggested'] ?? false,
                     'suggestion_source' => $mapping['suggestionSource'] ?? null,
                     'suggestion_score' => $mapping['suggestionScore'] ?? null,
+                    'parent_input_column' => $parentInput !== '' ? $parentInput : null,
+                    'parent_reference_column' => $parentRef !== '' ? $parentRef : null,
+                    'transform' => $transform !== '' ? $transform : null,
                 ],
             ];
         }
@@ -419,7 +458,7 @@ class MatchingEngineService
                         continue;
                     }
 
-                    $rawValue = $this->resolveFieldValue($row, $columnName, $parsedEntity);
+                    $rawValue = $this->fieldExtractor->extract($row, $mapping, $columnKey, $parsedEntity);
                     $dataType = $columnDataTypes[$columnName] ?? null;
 
                     if (
@@ -427,7 +466,8 @@ class MatchingEngineService
                         str_contains($columnName, 'Badan Usaha') ||
                         $columnName === 'legal_structure' ||
                         $columnName === 'legal_form' ||
-                        $columnName === 'virtual_legal_form'
+                        $columnName === 'virtual_legal_form' ||
+                        ($mapping['transform'] ?? null) === 'EXTRACT_LEGAL_FORM'
                     ) {
                         $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
                         $identity[$columnName] = ['legal_form' => $rawValue];
@@ -438,7 +478,8 @@ class MatchingEngineService
                         str_contains($columnName, '[Generated] Nama Inti') ||
                         str_contains($columnName, 'Nama Inti') ||
                         $columnName === 'core_name' ||
-                        $columnName === 'virtual_core_name'
+                        $columnName === 'virtual_core_name' ||
+                        ($mapping['transform'] ?? null) === 'EXTRACT_CORE_NAME'
                     ) {
                         $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
                         $identity[$columnName] = ['core_name' => $rawValue];
@@ -866,16 +907,16 @@ class MatchingEngineService
             $downgradeReason = null;
             $finalClassification = $initialClassification;
 
-            if ($initialClassification === 'matched' && ! $allRulesPassed) {
-                $finalClassification = 'possible_match';
-                $downgraded = true;
-                $downgradeReason = implode('; ', $failedRuleReasons);
-                $decisionReason = "Auto-match downgraded to needs_review: {$downgradeReason}";
-            } elseif ($numericConflict && $finalClassification === 'matched') {
+            if ($numericConflict && ($initialClassification === 'matched' || ! $allRulesPassed)) {
                 $finalClassification = 'possible_match';
                 $downgraded = true;
                 $downgradeReason = 'Numeric sequence mismatch requires review';
                 $decisionReason = 'Numeric sequence mismatch requires review';
+            } elseif ($initialClassification === 'matched' && ! $allRulesPassed) {
+                $finalClassification = 'possible_match';
+                $downgraded = true;
+                $downgradeReason = implode('; ', $failedRuleReasons);
+                $decisionReason = "Auto-match downgraded to needs_review: {$downgradeReason}";
             } elseif ($identityConflict && $finalClassification === 'matched') {
                 $finalClassification = 'possible_match';
                 $downgraded = true;
