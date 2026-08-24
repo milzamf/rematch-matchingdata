@@ -1210,6 +1210,16 @@ class MatchingEngineService
     }
 
     /**
+     * Public alias to dynamically load full dataset rows from disk storage.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function loadFullRows(Dataset $dataset): array
+    {
+        return $this->loadDatasetRows($dataset);
+    }
+
+    /**
      * Dynamically loads full dataset rows from disk storage,
      * with graceful fallback to preview_rows for unit test fixtures.
      *
