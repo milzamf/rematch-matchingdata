@@ -286,12 +286,6 @@ class MatchingEngineService
                 ?? ''
             );
 
-            if ($transform === '' && str_contains($inpCol, '[Generated] Nama Inti')) {
-                $transform = 'EXTRACT_CORE_NAME';
-            } elseif ($transform === '' && str_contains($inpCol, '[Generated] Badan Usaha')) {
-                $transform = 'EXTRACT_LEGAL_FORM';
-            }
-
             $validMappings[] = [
                 'id' => $mappingId,
                 'reference_column_id' => $mapping['referenceColumnId'] ?? $mapping['reference_column_id'] ?? null,
@@ -473,26 +467,13 @@ class MatchingEngineService
                     $rawValue = $this->fieldExtractor->extract($row, $mapping, $columnKey, $parsedEntity);
                     $dataType = $columnDataTypes[$columnName] ?? null;
 
-                    if (
-                        str_contains($columnName, '[Generated] Badan Usaha') ||
-                        str_contains($columnName, 'Badan Usaha') ||
-                        $columnName === 'legal_structure' ||
-                        $columnName === 'legal_form' ||
-                        $columnName === 'virtual_legal_form' ||
-                        ($mapping['transform'] ?? null) === 'EXTRACT_LEGAL_FORM'
-                    ) {
+                    if (($mapping['transform'] ?? null) === 'EXTRACT_LEGAL_FORM') {
                         $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
                         $identity[$columnName] = ['legal_form' => $rawValue];
                         continue;
                     }
 
-                    if (
-                        str_contains($columnName, '[Generated] Nama Inti') ||
-                        str_contains($columnName, 'Nama Inti') ||
-                        $columnName === 'core_name' ||
-                        $columnName === 'virtual_core_name' ||
-                        ($mapping['transform'] ?? null) === 'EXTRACT_CORE_NAME'
-                    ) {
+                    if (($mapping['transform'] ?? null) === 'EXTRACT_CORE_NAME') {
                         $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
                         $identity[$columnName] = ['core_name' => $rawValue];
                         continue;

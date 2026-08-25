@@ -43,11 +43,7 @@ class FieldValueExtractor
             ?? ''
         );
 
-        if ($transform === '' && str_contains($fieldName, '[Generated] Nama Inti')) {
-            $transform = 'EXTRACT_CORE_NAME';
-        } elseif ($transform === '' && str_contains($fieldName, '[Generated] Badan Usaha')) {
-            $transform = 'EXTRACT_LEGAL_FORM';
-        }
+
 
         // If raw value is empty and an entity transform is requested, try finding entity name column in row
         if (($rawValue === null || trim($rawValue) === '') && in_array($transform, ['EXTRACT_CORE_NAME', 'EXTRACT_LEGAL_FORM', 'EXTRACT_LEGAL_STRUCTURE'], true)) {

@@ -109,6 +109,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import { ExtractionModal } from "@/components/extraction-modal";
 
 export const Route = createFileRoute("/matching")({
   validateSearch: validateWorkflowSearch,
@@ -288,21 +289,6 @@ function injectVirtualColumns(
   return [...columns, virtualCoreName, virtualLegalForm];
 }
 
-function findParentCompanyColumn(columns: DatasetInspectResult["columns"]) {
-  const nonVirtual = columns.filter((c) => !c.name.startsWith("[Generated]"));
-  const companyKeywordRegex =
-    /\b(perusahaan|company|nama|name|usaha|bu|vendor|client|customer|nama_bu|nm_perusahaan)\b/i;
-  const match = nonVirtual.find(
-    (c) => companyKeywordRegex.test(c.name) || companyKeywordRegex.test(c.normalized_name),
-  );
-  if (match) return match.name;
-
-  const firstText = nonVirtual.find(
-    (c) =>
-      ["text", "string", "varchar"].includes((c.data_type || "").toLowerCase()) || !c.data_type,
-  );
-  return firstText?.name ?? nonVirtual[0]?.name ?? "";
-}
 
 function MatchingPage() {
   const { t } = usePreferences();
@@ -881,21 +867,9 @@ function MatchingPage() {
         mappings: columnMappings
           .filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
           .map((mapping) => {
-            const isCoreName =
-              mapping.referenceColumnName.includes("[Generated] Nama Inti") ||
-              mapping.inputColumnName.includes("[Generated] Nama Inti");
-            const isLegalForm =
-              mapping.referenceColumnName.includes("[Generated] Badan Usaha") ||
-              mapping.inputColumnName.includes("[Generated] Badan Usaha");
-            const parentRef =
-              mapping.parent_reference_column ||
-              (isCoreName || isLegalForm ? findParentCompanyColumn(inspectedRef) : undefined);
-            const parentInp =
-              mapping.parent_input_column ||
-              (isCoreName || isLegalForm ? findParentCompanyColumn(inspectedInp) : undefined);
-            const transform =
-              mapping.transform ||
-              (isCoreName ? "EXTRACT_CORE_NAME" : isLegalForm ? "EXTRACT_LEGAL_FORM" : undefined);
+            const parentRef = mapping.parent_reference_column;
+            const parentInp = mapping.parent_input_column;
+            const transform = mapping.transform;
 
             return {
               id: mapping.id,
@@ -2236,6 +2210,58 @@ function StepColumnMapping({
     () => injectVirtualColumns(inputColumns, "inp"),
     [inputColumns],
   );
+  const [isExtractModalOpen, setIsExtractModalOpen] = useState(false);
+
+  const handleExtraction = (config: any) => {
+    const { extractLegalForm, extractCoreName, applyTo, refSourceId, inpSourceId } = config;
+
+    const refColumn = effectiveReferenceColumns.find(c => c.id === refSourceId);
+    const inpColumn = effectiveInputColumns.find(c => c.id === inpSourceId);
+
+    const newMappings: ColumnMappingDraft[] = [];
+
+    if (extractLegalForm) {
+      newMappings.push({
+        id: `virtual-legal-form-${Date.now()}`,
+        referenceColumnId: applyTo === "input" ? "" : (refSourceId || ""),
+        inputColumnId: applyTo === "reference" ? "" : (inpSourceId || ""),
+        algorithm: "Exact",
+        required_match: false,
+        suggested: false,
+        suggestionSource: "manual",
+        suggestionScore: null,
+        referenceColumnName: applyTo === "input" ? "" : (refColumn?.name || ""),
+        inputColumnName: applyTo === "reference" ? "" : (inpColumn?.name || ""),
+        referenceDataType: "text",
+        inputDataType: "text",
+        transform: "EXTRACT_LEGAL_FORM",
+        parent_reference_column: applyTo === "input" ? undefined : (refColumn?.name || ""),
+        parent_input_column: applyTo === "reference" ? undefined : (inpColumn?.name || ""),
+      });
+    }
+
+    if (extractCoreName) {
+      newMappings.push({
+        id: `virtual-core-name-${Date.now() + 1}`,
+        referenceColumnId: applyTo === "input" ? "" : (refSourceId || ""),
+        inputColumnId: applyTo === "reference" ? "" : (inpSourceId || ""),
+        algorithm: "Fuzzy",
+        required_match: false,
+        suggested: false,
+        suggestionSource: "manual",
+        suggestionScore: null,
+        referenceColumnName: applyTo === "input" ? "" : (refColumn?.name || ""),
+        inputColumnName: applyTo === "reference" ? "" : (inpColumn?.name || ""),
+        referenceDataType: "text",
+        inputDataType: "text",
+        transform: "EXTRACT_CORE_NAME",
+        parent_reference_column: applyTo === "input" ? undefined : (refColumn?.name || ""),
+        parent_input_column: applyTo === "reference" ? undefined : (inpColumn?.name || ""),
+      });
+    }
+
+    setMappings(current => [...current, ...newMappings]);
+  };
 
   const usedReferenceIds = new Set(mappings.map((mapping) => mapping.referenceColumnId));
   const hasColumns = effectiveReferenceColumns.length > 0 && effectiveInputColumns.length > 0;
@@ -2482,19 +2508,39 @@ function StepColumnMapping({
               </div>
             )}
 
-            <button
-              type="button"
-              data-testid="mapping-add-button"
-              onClick={addMapping}
-              disabled={!hasAvailableReference}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Plus className="size-4" />
-              {t("matching.mapping.add")}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsExtractModalOpen(true)}
+                disabled={!hasColumns}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus className="size-4" />
+                Ekstrak Entitas & Nama Inti
+              </button>
+
+              <button
+                type="button"
+                data-testid="mapping-add-button"
+                onClick={addMapping}
+                disabled={!hasAvailableReference}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus className="size-4" />
+                {t("matching.mapping.add")}
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      <ExtractionModal
+        isOpen={isExtractModalOpen}
+        onClose={() => setIsExtractModalOpen(false)}
+        onConfirm={handleExtraction}
+        referenceColumns={referenceColumns.filter(c => !c.name.startsWith("[Generated]"))}
+        inputColumns={inputColumns.filter(c => !c.name.startsWith("[Generated]"))}
+      />
     </>
   );
 }
@@ -4167,6 +4213,11 @@ function StepRunCard({
               style={{ width: `${progress}%` }}
             />
           </div>
+          {result?.progress?.total ? (
+            <p className="text-xs text-muted-foreground tabular-nums text-right">
+              {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
+            </p>
+          ) : null}
         </div>
       )}
 
@@ -4394,9 +4445,14 @@ function StepRun({
             <span className="text-muted-foreground">{t("common.progress")}</span>
             <span className="font-medium tabular-nums">{Math.round(progress)}%</span>
           </div>
-          <div className="h-2 bg-secondary rounded-full overflow-hidden">
+          <div className="h-2 bg-secondary rounded-full overflow-hidden mb-2">
             <div className="h-full bg-accent transition-all" style={{ width: `${progress}%` }} />
           </div>
+          {result?.progress?.total ? (
+            <p className="text-xs text-muted-foreground tabular-nums text-right mt-2">
+              {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
+            </p>
+          ) : null}
         </div>
       )}
 
