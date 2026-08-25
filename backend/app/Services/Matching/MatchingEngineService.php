@@ -30,7 +30,6 @@ class MatchingEngineService
         private readonly MatchingConfigResolver $configResolver,
         private readonly ValueNormalizer $normalizer,
         private readonly EntityNameParser $entityNameParser,
-        private readonly CandidateGenerator $candidateGenerator,
         private readonly SimilarityScorer $scorer,
         private readonly ResourceOwnership $ownership,
         ?FieldValueExtractor $fieldExtractor = null,
@@ -566,8 +565,42 @@ class MatchingEngineService
             }
         }
 
-        // Candidate Generation Index for Phase 3
-        $indexes = $this->candidateGenerator->buildIndexes($referenceRows, $mappings, $configuration['strategy']);
+        // Candidate Generation Index for Phase 3 via Meilisearch
+        $client = new \Meilisearch\Client(env('MEILISEARCH_HOST', 'http://127.0.0.1:7700'), env('MEILISEARCH_KEY', ''));
+        $indexUid = 'job_' . str_replace('-', '_', $job->id) . '_reference';
+        try {
+            $client->deleteIndex($indexUid);
+        } catch (\Exception $e) {
+            // ignore if not exists
+        }
+        
+        // Extract just the exact mapped searchable fields for Meilisearch, plus the row key
+        $searchableDocuments = [];
+        $searchableAttributes = [];
+        foreach ($mappings as $mapping) {
+            $colName = $mapping['reference_column_name'] ?? '';
+            if ($colName !== '') {
+                $searchableAttributes[] = 'col_' . md5($colName);
+            }
+        }
+        
+        foreach ($referenceRows as $refRecord) {
+            $doc = ['id' => $refRecord['key']];
+            foreach ($mappings as $mapping) {
+                $colName = $mapping['reference_column_name'] ?? '';
+                if ($colName !== '') {
+                    $doc['col_' . md5($colName)] = $refRecord['normalized'][$colName] ?? '';
+                }
+            }
+            $searchableDocuments[] = $doc;
+        }
+
+        $index = $client->index($indexUid);
+        $task = $index->addDocuments($searchableDocuments);
+        $client->waitForTask($task['taskUid']);
+        
+        $index->updateSearchableAttributes($searchableAttributes);
+        $indexes = ['uid' => $indexUid, 'client' => $client];
 
         $chunkSize = $configuration['runOptions']['chunkSize'];
         $workerCount = $configuration['runOptions']['workerCount'];
@@ -803,6 +836,12 @@ class MatchingEngineService
             $processed += count($chunk);
         }
 
+        if (isset($indexes['client']) && isset($indexes['uid'])) {
+            try {
+                $indexes['client']->deleteIndex($indexes['uid']);
+            } catch (\Exception $e) {}
+        }
+
         return $summary;
     }
 
@@ -824,7 +863,31 @@ class MatchingEngineService
         array $configuration,
         int $topN,
     ): array {
-        $candidates = $this->candidateGenerator->candidatesFor($indexes, $inputRecord, $mappings, $referenceByKey, max($topN, 3));
+        $searchTerms = [];
+        foreach ($mappings as $mapping) {
+            $colName = $mapping['input_column_name'] ?? '';
+            if ($colName !== '') {
+                $term = (string) ($inputRecord['normalized'][$colName] ?? '');
+                if ($term !== '') {
+                    $searchTerms[] = $term;
+                }
+            }
+        }
+        
+        // Sort by length descending so Meilisearch's 'last' matching strategy drops short IDs before long names
+        usort($searchTerms, fn($a, $b) => strlen($b) <=> strlen($a));
+        
+        $searchQuery = implode(' ', $searchTerms);
+
+        $searchResults = $indexes['client']->index($indexes['uid'])->search($searchQuery, ['limit' => max($topN, 3)])->getHits();
+
+        $candidates = [];
+        foreach ($searchResults as $hit) {
+            $refKey = $hit['id'];
+            if (isset($referenceByKey[$refKey])) {
+                $candidates[] = $referenceByKey[$refKey];
+            }
+        }
         $evaluated = [];
 
         $autoMatchThreshold = (float) ($configuration['thresholds']['autoMatch'] ?? 90);
