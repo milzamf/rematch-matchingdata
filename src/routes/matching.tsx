@@ -284,6 +284,7 @@ function MatchingPage() {
   const [runResult, setRunResult] = useState<MatchingRunResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
+  const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [columnMappings, setColumnMappings] = useState<ColumnMappingDraft[]>([]);
   const [configureValid, setConfigureValid] = useState(true);
@@ -331,7 +332,7 @@ function MatchingPage() {
 
   const referenceColumns = reference?.result?.columns ?? [];
   const inputColumns = input?.result?.columns ?? [];
-  const validMappings = columnMappings.filter(
+  const validMappings = columnMappings?.filter(
     (mapping) => mapping.referenceColumnId && mapping.inputColumnId,
   );
   console.log("Current Mappings:", validMappings);
@@ -499,7 +500,7 @@ function MatchingPage() {
         const restoredProgress = snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0;
         const restoredRunError = snapshot?.runError ?? restoredRunResult?.job.error_message ?? null;
         const restoredHasCompletedMapping =
-          restoredMappings.filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
+          restoredMappings?.filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
             .length > 0 && !hasDuplicateReference(restoredMappings);
         const restoredHighestStep = deriveHighestAllowedStep({
           reference: restoredReference,
@@ -901,16 +902,20 @@ function MatchingPage() {
 
   const handleStopMatching = async () => {
     if (!runResult?.job?.id) return;
-    if (!window.confirm("Apakah Anda yakin ingin membatalkan proses matching ini? Progres yang sudah berjalan akan disimpan.")) return;
     
-    setIsStopping(true);
+    if (pollingTimeoutRef.current) {
+      clearTimeout(pollingTimeoutRef.current);
+    }
+    
+    setRunState("idle");
+    setProgress(0);
+    setIsCancelConfirmOpen(false);
+    
     try {
       await stopMatching(runResult.job.id);
-      toast.success("Sinyal pembatalan terkirim. Menunggu backend berhenti...");
+      toast.success("Proses matching berhasil dibatalkan.");
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Gagal menghentikan matching.");
-    } finally {
-      setIsStopping(false);
     }
   };
 
@@ -966,10 +971,10 @@ function MatchingPage() {
 
     const effectiveReference = inspectedReferenceColumns;
     const effectiveInput = inspectedInputColumns;
-    const referenceIds = new Set(effectiveReference.map((column) => column.id));
-    const inputIds = new Set(effectiveInput.map((column) => column.id));
+    const referenceIds = new Set(effectiveReference?.map((column) => column.id));
+    const inputIds = new Set(effectiveInput?.map((column) => column.id));
     setColumnMappings((current) =>
-      current.filter(
+      current?.filter(
         (mapping) =>
           referenceIds.has(mapping.referenceColumnId) && inputIds.has(mapping.inputColumnId),
       ),
@@ -1328,7 +1333,7 @@ function MatchingPage() {
                       result={runResult}
                       error={runError}
                       onStart={() => setRunConfirmOpen(true)}
-                      onStop={handleStopMatching}
+                      onStop={() => setIsCancelConfirmOpen(true)}
                       onRetry={() => {
                         setRunState("idle");
                         setProgress(0);
@@ -1415,6 +1420,15 @@ function MatchingPage() {
           actionLabel={hasPreviousRun ? t("matching.run.rerunOverwrite") : t("matching.run.start")}
           onConfirm={startRun}
         />
+        <ConfirmationDialog
+          open={isCancelConfirmOpen}
+          setOpen={setIsCancelConfirmOpen}
+          title="Batalkan Proses Matching?"
+          description="Apakah Anda yakin ingin membatalkan proses matching ini? Progres data yang sudah selesai diproses akan tetap disimpan."
+          cancelLabel="Lanjutkan Matching"
+          actionLabel="Ya, Batalkan"
+          onConfirm={handleStopMatching}
+        />
         <PromptDialog
           open={isRenameDialogOpen}
           onOpenChange={setIsRenameDialogOpen}
@@ -1437,7 +1451,7 @@ function stepKey(id: number) {
 }
 
 function hasDuplicateReference(mappings: { referenceColumnName: string }[]) {
-  const references = mappings.map((mapping) => mapping.referenceColumnName).filter(Boolean);
+  const references = mappings?.map((mapping) => mapping.referenceColumnName).filter(Boolean);
   return new Set(references).size !== references.length;
 }
 
@@ -1832,7 +1846,7 @@ function DatasetProfileCard({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {result.columns.map((column) => (
+            {result.columns?.map((column) => (
               <tr key={column.id} className="hover:bg-secondary/20">
                 <td className="px-3.5 py-2.5 font-mono font-medium text-foreground">{column.name}</td>
                 <td className="px-3.5 py-2.5">
@@ -1889,7 +1903,7 @@ function StepDataPreview({
             title={t("matching.upload.reference")}
             subtitle={t("matching.preview.referenceSubtitle")}
             filename={reference.dataset.original_filename}
-            columns={reference.columns.map((c) => c.name)}
+            columns={reference.columns?.map((c) => c.name)}
             rows={reference.preview_rows}
             totalRows={reference.dataset.row_count}
             badgeColor="brand"
@@ -1903,7 +1917,7 @@ function StepDataPreview({
             title={t("matching.upload.input")}
             subtitle={t("matching.preview.inputSubtitle")}
             filename={input.dataset.original_filename}
-            columns={input.columns.map((c) => c.name)}
+            columns={input.columns?.map((c) => c.name)}
             rows={input.preview_rows}
             totalRows={input.dataset.row_count}
             badgeColor="secondary"
@@ -1935,7 +1949,7 @@ function StepStandardizedPreview({
 
     const cols: { key: string; label: string; isVirtual?: boolean; isStandardized?: boolean }[] = [];
     const mappedInputCols = mappings
-      .map((m) => input.columns.find((c) => c.id === m.inputColumnId))
+      .map((m) => input.columns?.find((c) => c.id === m.inputColumnId))
       .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
     const columnsToUse = mappedInputCols.length > 0 ? mappedInputCols : input.columns;
@@ -1968,7 +1982,7 @@ function StepStandardizedPreview({
       }
     });
 
-    const rows = input.preview_rows.map((rawRow) => {
+    const rows = input.preview_rows?.map((rawRow) => {
       const row: Record<string, unknown> = {};
       columnsToUse.forEach((col) => {
         const rawVal = rawRow[col.name];
@@ -2003,7 +2017,7 @@ function StepStandardizedPreview({
 
     const cols: { key: string; label: string; isVirtual?: boolean; isStandardized?: boolean }[] = [];
     const mappedRefCols = mappings
-      .map((m) => reference.columns.find((c) => c.id === m.referenceColumnId))
+      .map((m) => reference.columns?.find((c) => c.id === m.referenceColumnId))
       .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
     const columnsToUse = mappedRefCols.length > 0 ? mappedRefCols : reference.columns;
@@ -2036,7 +2050,7 @@ function StepStandardizedPreview({
       }
     });
 
-    const rows = reference.preview_rows.map((rawRow) => {
+    const rows = reference.preview_rows?.map((rawRow) => {
       const row: Record<string, unknown> = {};
       columnsToUse.forEach((col) => {
         const rawVal = rawRow[col.name];
@@ -2200,8 +2214,8 @@ function StepColumnMapping({
   const handleExtraction = (config: any) => {
     const { extractLegalForm, extractCoreName, applyTo, refSourceId, inpSourceId } = config;
 
-    const refColumn = effectiveReferenceColumns.find(c => c.id === refSourceId);
-    const inpColumn = effectiveInputColumns.find(c => c.id === inpSourceId);
+    const refColumn = effectiveReferenceColumns?.find(c => c.id === refSourceId);
+    const inpColumn = effectiveInputColumns?.find(c => c.id === inpSourceId);
 
     const newMappings: ColumnMappingDraft[] = [];
 
@@ -2248,7 +2262,7 @@ function StepColumnMapping({
     setMappings(current => [...current, ...newMappings]);
   };
 
-  const usedReferenceIds = new Set(mappings.map((mapping) => mapping.referenceColumnId));
+  const usedReferenceIds = new Set(mappings?.map((mapping) => mapping.referenceColumnId));
   const hasColumns = effectiveReferenceColumns.length > 0 && effectiveInputColumns.length > 0;
   const hasAvailableReference = effectiveReferenceColumns.some((column) => !usedReferenceIds.has(column.id));
   const selectClass =
@@ -2266,14 +2280,14 @@ function StepColumnMapping({
         return current;
       }
 
-      return current.map((mapping) => {
+      return current?.map((mapping) => {
         if (mapping.id !== id) return mapping;
 
         const next = { ...mapping, ...patch, suggested: false };
-        const referenceColumn = effectiveReferenceColumns.find(
+        const referenceColumn = effectiveReferenceColumns?.find(
           (column) => column.id === next.referenceColumnId,
         );
-        const inputColumn = effectiveInputColumns.find((column) => column.id === next.inputColumnId);
+        const inputColumn = effectiveInputColumns?.find((column) => column.id === next.inputColumnId);
 
         if (patch.referenceColumnId !== undefined || patch.inputColumnId !== undefined) {
           next.algorithm = next.required_match
@@ -2339,7 +2353,7 @@ function StepColumnMapping({
   };
 
   const removeMapping = (id: string) => {
-    setMappings((current) => current.filter((mapping) => mapping.id !== id));
+    setMappings((current) => current?.filter((mapping) => mapping.id !== id));
     toast.info(t("matching.mapping.removed"));
   };
 
@@ -2368,11 +2382,11 @@ function StepColumnMapping({
               </div>
             )}
 
-            {mappings.map((mapping, index) => {
-              const referenceColumn = effectiveReferenceColumns.find(
+            {mappings?.map((mapping, index) => {
+              const referenceColumn = effectiveReferenceColumns?.find(
                 (column) => column.id === mapping.referenceColumnId,
               );
-              const inputColumn = effectiveInputColumns.find(
+              const inputColumn = effectiveInputColumns?.find(
                 (column) => column.id === mapping.inputColumnId,
               );
               const usedByOtherRows = new Set(
@@ -2399,7 +2413,7 @@ function StepColumnMapping({
                       disabled={Boolean(mapping.transform && mapping.transform !== "NONE")}
                     >
                       <option value="">{t("matching.mapping.noInputSelected")}</option>
-                      {effectiveInputColumns.map((column) => (
+                      {effectiveInputColumns?.map((column) => (
                         <option key={column.id} value={column.id}>
                           {column.name}
                         </option>
@@ -2447,7 +2461,7 @@ function StepColumnMapping({
                       disabled={Boolean(mapping.transform && mapping.transform !== "NONE")}
                     >
                       <option value="">{t("matching.mapping.noReferenceSelected")}</option>
-                      {effectiveReferenceColumns.map((column) => (
+                      {effectiveReferenceColumns?.map((column) => (
                         <option
                           key={column.id}
                           value={column.id}
@@ -2548,8 +2562,8 @@ function StepColumnMapping({
         isOpen={isExtractModalOpen}
         onClose={() => setIsExtractModalOpen(false)}
         onConfirm={handleExtraction}
-        referenceColumns={referenceColumns.filter(c => !c.name.startsWith("[Generated]"))}
-        inputColumns={inputColumns.filter(c => !c.name.startsWith("[Generated]"))}
+        referenceColumns={referenceColumns?.filter(c => !c.name.startsWith("[Generated]"))}
+        inputColumns={inputColumns?.filter(c => !c.name.startsWith("[Generated]"))}
       />
     </>
   );
@@ -2805,16 +2819,16 @@ function normalizeIntegerWeights(
   source?: Record<string, number>,
 ) {
   if (fields.length === 0) return {};
-  const values = fields.map((field) => ({
+  const values = fields?.map((field) => ({
     ...field,
     raw: Math.max(0, source?.[field.id] ?? field.signal),
   }));
   const rawTotal = values.reduce((sum, field) => sum + field.raw, 0) || values.length;
-  const weighted = values.map((field) => ({
+  const weighted = values?.map((field) => ({
     ...field,
     exact: ((field.raw || 1) / rawTotal) * 100,
   }));
-  const result = Object.fromEntries(weighted.map((field) => [field.id, Math.floor(field.exact)]));
+  const result = Object.fromEntries(weighted?.map((field) => [field.id, Math.floor(field.exact)]));
   let remainder = 100 - Object.values(result).reduce((sum, value) => sum + value, 0);
   [...weighted]
     .sort(
@@ -2921,13 +2935,13 @@ function StepConfigV2({
         }),
     [mappings],
   );
-  const similarityFields = useMemo(() => fields.filter((field) => !field.strict), [fields]);
-  const strictFields = useMemo(() => fields.filter((field) => field.strict), [fields]);
+  const similarityFields = useMemo(() => fields?.filter((field) => !field.strict), [fields]);
+  const strictFields = useMemo(() => fields?.filter((field) => field.strict), [fields]);
   const verificationSteps = useMemo(
     () =>
       verificationOrder
         .map((id, index) => {
-          const field = fields.find((item) => item.id === id);
+          const field = fields?.find((item) => item.id === id);
           if (!field) return null;
           const method: ConfigureAlgorithm = field.strict
             ? "Exact"
@@ -2975,7 +2989,7 @@ function StepConfigV2({
     });
     setWeights((current) => {
       const usable = Object.fromEntries(
-        similarityFields.map((field) => [field.id, current[field.id]]),
+        similarityFields?.map((field) => [field.id, current[field.id]]),
       );
       const hasCompleteWeights = similarityFields.every((field) =>
         Number.isFinite(usable[field.id]),
@@ -2986,9 +3000,9 @@ function StepConfigV2({
 
   useEffect(() => {
     setVerificationOrder((current) => {
-      const fieldIds = fields.map((field) => field.id);
-      const currentValid = current.filter((id) => fieldIds.includes(id));
-      const missing = fieldIds.filter((id) => !currentValid.includes(id));
+      const fieldIds = fields?.map((field) => field.id);
+      const currentValid = current?.filter((id) => fieldIds.includes(id));
+      const missing = fieldIds?.filter((id) => !currentValid.includes(id));
       if (currentValid.length === 0) {
         return [...fields]
           .sort((a, b) => {
@@ -3044,7 +3058,7 @@ function StepConfigV2({
       mode,
       strategy: "Hybrid",
       isValid: configValid,
-      fields: fields.map((field) => {
+      fields: fields?.map((field) => {
         const method = methods[field.id] ?? field;
         return {
           mappingId: field.id,
@@ -3077,7 +3091,7 @@ function StepConfigV2({
       normalization: { mode: "auto", preset: "Automatic by field type" },
       weighting: {
         mode: "manual",
-        fields: fields.map((field) => {
+        fields: fields?.map((field) => {
           const method = methods[field.id] ?? field;
           return {
             mappingId: field.id,
@@ -3146,7 +3160,7 @@ function StepConfigV2({
   const reorderVerificationSteps = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
     setVerificationOrder((current) => {
-      const currentList = verificationSteps.map((s) => s.mappingId);
+      const currentList = verificationSteps?.map((s) => s.mappingId);
       const next = [...currentList];
       const [removed] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, removed);
@@ -3162,7 +3176,7 @@ function StepConfigV2({
       if (jobId) {
         const next = await fetchAiMatchingConfiguration(jobId, {
           locale: language,
-          mappings: fields.map((field) => ({
+          mappings: fields?.map((field) => ({
             mapping_id: field.id,
             reference_column: field.reference,
             input_column: field.input,
@@ -3174,7 +3188,7 @@ function StepConfigV2({
         if (!next.success) setAiError(next.error.message ?? t("matching.ai.unavailable"));
       } else {
         // Smart AI suggestion generated directly from mapped dataset schema
-        const recommended_fields = fields.map((f) => {
+        const recommended_fields = fields?.map((f) => {
           const colName = (f.reference || f.input || "").toLowerCase();
           const isIdentifier =
             colName.includes("id") ||
@@ -3225,7 +3239,7 @@ function StepConfigV2({
         });
 
         const totalW = recommended_fields.reduce((acc, curr) => acc + curr.suggested_weight, 0) || 1;
-        const normalized_fields = recommended_fields.map((rf) => ({
+        const normalized_fields = recommended_fields?.map((rf) => ({
           ...rf,
           suggested_weight: Math.round((rf.suggested_weight / totalW) * 100),
         }));
@@ -3272,7 +3286,7 @@ function StepConfigV2({
       .filter((item): item is { suggestion: AiConfigRecommendedField; field: ConfigFieldV2 } =>
         Boolean(item),
       );
-    const active = matches.filter(({ field }) => !field.strict);
+    const active = matches?.filter(({ field }) => !field.strict);
     if (active.length === 0) {
       setAiError(t("matching.ai.configNoMatchingFields"));
       return;
@@ -3282,7 +3296,7 @@ function StepConfigV2({
       normalizeIntegerWeights(
         similarityFields,
         Object.fromEntries(
-          active.map(({ field, suggestion }) => [
+          active?.map(({ field, suggestion }) => [
             field.id,
             Number(suggestion.suggested_weight ?? 0),
           ]),
@@ -3338,7 +3352,7 @@ function StepConfigV2({
               <p className="text-xs font-semibold">{t("matching.configV2.strictFields")}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {strictFields.length > 0
-                  ? strictFields.map((field) => field.label).join(", ")
+                  ? strictFields?.map((field) => field.label).join(", ")
                   : t("matching.configV2.none")}
               </p>
             </div>
@@ -3376,7 +3390,7 @@ function StepConfigV2({
           </div>
 
           <div className="mt-4 divide-y divide-border rounded-md border border-border">
-            {fields.map((field) => (
+            {fields?.map((field) => (
               <div
                 key={field.id}
                 className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_160px] md:items-center"
@@ -3466,7 +3480,7 @@ function StepConfigV2({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {fields.map((field) => {
+                    {fields?.map((field) => {
                       const method = methods[field.id] ?? field;
                       return (
                         <tr key={field.id}>
@@ -3505,7 +3519,7 @@ function StepConfigV2({
                 {t("matching.configV2.comparisonMethodDesc")}
               </p>
               <div className="mt-4 divide-y divide-border rounded-md border border-border">
-                {similarityFields.map((field) => {
+                {similarityFields?.map((field) => {
                   const method = methods[field.id] ?? field;
                   return (
                     <div
@@ -3654,8 +3668,8 @@ function StepConfigV2({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {verificationSteps.map((step, index) => {
-                        const field = fields.find((item) => item.id === step.mappingId);
+                      {verificationSteps?.map((step, index) => {
+                        const field = fields?.find((item) => item.id === step.mappingId);
                         const isDragging = draggedIndex === index;
                         const isDragOver = dragOverIndex === index;
                         return (
@@ -3842,7 +3856,7 @@ function StepConfigV2({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {aiSuggestion.data.recommended_fields.map((field, index) => (
+                    {aiSuggestion.data.recommended_fields?.map((field, index) => (
                       <tr key={`${field.field ?? field.mapping ?? "field"}-${index}`}>
                         <td className="px-3 py-2 font-medium">
                           {field.field ?? field.mapping ?? "-"}
@@ -3959,11 +3973,11 @@ function findMappingForSuggestion(
   if (!fieldName) return null;
 
   return (
-    mappedFields.find((field) => field.id === fieldName) ??
-    mappedFields.find((field) => field.label.toLowerCase() === fieldName) ??
-    mappedFields.find((field) => field.reference.toLowerCase() === fieldName) ??
-    mappedFields.find((field) => field.input.toLowerCase() === fieldName) ??
-    mappedFields.find(
+    mappedFields?.find((field) => field.id === fieldName) ??
+    mappedFields?.find((field) => field.label.toLowerCase() === fieldName) ??
+    mappedFields?.find((field) => field.reference.toLowerCase() === fieldName) ??
+    mappedFields?.find((field) => field.input.toLowerCase() === fieldName) ??
+    mappedFields?.find(
       (field) =>
         `${field.reference} ↔ ${field.input}`.toLowerCase() === fieldName ||
         `${field.reference} <-> ${field.input}`.toLowerCase() === fieldName,
@@ -3987,7 +4001,7 @@ function CompactListCard({
         <p className="mt-2 text-xs text-muted-foreground">{emptyLabel}</p>
       ) : (
         <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-          {items.map((item, index) => (
+          {items?.map((item, index) => (
             <li key={`${title}-${index}`}>{item}</li>
           ))}
         </ul>
@@ -4226,15 +4240,27 @@ function StepRunCard({
             />
           </div>
           <div className="flex justify-between items-center mt-2">
-            {onStop ? (
-              <button
-                type="button"
-                onClick={onStop}
-                className="text-xs font-medium text-destructive hover:text-destructive/80"
-              >
-                Batalkan / Rem Darurat
-              </button>
-            ) : <div />}
+            <div className="flex items-center gap-3">
+              {onStop && (
+                <button
+                  type="button"
+                  onClick={onStop}
+                  className="text-xs font-medium text-destructive hover:text-destructive/80"
+                >
+                  Batalkan Matching
+                </button>
+              )}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono hidden sm:flex">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
+                  <Sparkles className="w-3 h-3 text-emerald-500"/>
+                  Meilisearch Engine: Generating Candidates (MultiSearch Batch Mode)
+                </span>
+              </div>
+            </div>
             {result?.progress?.total ? (
               <p className="text-xs text-muted-foreground tabular-nums text-right">
                 {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
@@ -4382,10 +4408,10 @@ function StepRun({
   canRun: boolean;
 }) {
   const { t } = usePreferences();
-  const strictFields = configuration?.fields.filter((field) => field.strict) ?? [];
-  const similarityFields = configuration?.fields.filter((field) => !field.strict) ?? [];
+  const strictFields = configuration?.fields?.filter((field) => field.strict) ?? [];
+  const similarityFields = configuration?.fields?.filter((field) => !field.strict) ?? [];
   const configuredWeights = new Map(
-    configuration?.weighting.fields.map((field) => [field.mappingId, field.weight]) ?? [],
+    configuration?.weighting.fields?.map((field) => [field.mappingId, field.weight]) ?? [],
   );
   return (
     <>
@@ -4604,7 +4630,7 @@ function StepReview({
 
   const items = review?.items ?? [];
   const caseGroups = review?.case_groups ?? [];
-  const visibleCaseGroups = caseGroups.filter((group) => {
+  const visibleCaseGroups = caseGroups?.filter((group) => {
     if (caseGroupFilter !== "all" && (group.status ?? "open") !== caseGroupFilter) return false;
     if (!query) return true;
     const haystack = JSON.stringify([
@@ -4618,12 +4644,12 @@ function StepReview({
     return haystack.includes(query.toLowerCase());
   });
   const caseGroupCounts = {
-    open: caseGroups.filter((group) => (group.status ?? "open") === "open").length,
-    resolved: caseGroups.filter((group) => group.status === "resolved").length,
+    open: caseGroups?.filter((group) => (group.status ?? "open") === "open").length,
+    resolved: caseGroups?.filter((group) => group.status === "resolved").length,
     all: caseGroups.length,
   };
   const selectedCaseGroup =
-    (selectedGroupId ? caseGroups.find((group) => group.id === selectedGroupId) : null) ?? null;
+    (selectedGroupId ? caseGroups?.find((group) => group.id === selectedGroupId) : null) ?? null;
   const filtered = items
     .filter((item) => filter === "all" || item.status === filter)
     .filter((item) => {
@@ -4632,7 +4658,7 @@ function StepReview({
         item.input_record_key,
         item.status,
         item.input_record,
-        item.candidates.map((candidate) => candidate.reference_record),
+        item.candidates?.map((candidate) => candidate.reference_record),
       ]).toLowerCase();
       return haystack.includes(query.toLowerCase());
     })
@@ -4645,7 +4671,7 @@ function StepReview({
     });
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
   const selectedCandidate =
-    selected?.candidates.find((candidate) => candidate.id === selectedCandidateId) ??
+    selected?.candidates?.find((candidate) => candidate.id === selectedCandidateId) ??
     selected?.candidates[0] ??
     null;
   const selectedSummary = selected
@@ -4698,7 +4724,7 @@ function StepReview({
 
   const openRecord = useCallback((item: ReviewItem, candidateId?: string | null) => {
     const candidate =
-      item.candidates.find((entry) => entry.id === candidateId) ?? item.candidates[0] ?? null;
+      item.candidates?.find((entry) => entry.id === candidateId) ?? item.candidates[0] ?? null;
     setSelected(item);
     setSelectedCandidateId(candidate?.id ?? null);
   }, []);
@@ -4707,7 +4733,7 @@ function StepReview({
     setSelectedGroupKeys((current) => {
       const selectedKeys = current[group.id] ?? [];
       const nextKeys = selectedKeys.includes(key)
-        ? selectedKeys.filter((item) => item !== key)
+        ? selectedKeys?.filter((item) => item !== key)
         : [...selectedKeys, key];
 
       return {
@@ -4746,13 +4772,13 @@ function StepReview({
             null,
         ),
       );
-      const updated = next.review.items.find(
+      const updated = next.review.items?.find(
         (nextItem) => nextItem.input_record_key === item.input_record_key,
       );
       if (updated) {
         setSelected(updated);
         if (candidate?.id) {
-          const matchedCandidate = updated.candidates.find((entry) => entry.id === candidate.id);
+          const matchedCandidate = updated.candidates?.find((entry) => entry.id === candidate.id);
           setSelectedCandidateId(matchedCandidate?.id ?? updated.candidates[0]?.id ?? null);
         } else {
           setSelectedCandidateId(updated.candidates[0]?.id ?? null);
@@ -4807,7 +4833,7 @@ function StepReview({
       setSelected((current) => {
         if (!current || !keys.includes(current.input_record_key)) return current;
         return (
-          next.review.items.find((item) => item.input_record_key === current.input_record_key) ??
+          next.review.items?.find((item) => item.input_record_key === current.input_record_key) ??
           current
         );
       });
@@ -4847,7 +4873,7 @@ function StepReview({
         ),
       );
       if (selectedInputKey) {
-        const updated = next.items.find(
+        const updated = next.items?.find(
           (nextItem) => nextItem.input_record_key === selectedInputKey,
         );
         setSelected(updated ?? null);
@@ -5014,7 +5040,7 @@ function StepReview({
                     <span className="ml-2 tabular-nums text-muted-foreground">
                       {status === "all"
                         ? items.length
-                        : items.filter((item) => item.status === status).length}
+                        : items?.filter((item) => item.status === status).length}
                     </span>
                   </button>
                 ),
@@ -5063,7 +5089,7 @@ function StepReview({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {paged.map((item) => {
+                    {paged?.map((item) => {
                       const candidate = item.candidates[0] ?? null;
                       const hasReferenceCandidate = Boolean(candidate?.reference_record_key);
                       const summary = buildIdentitySummary(item, candidate, identityMappings);
@@ -5250,7 +5276,7 @@ function StepReview({
                     {t("matching.review.topCandidates")}
                   </summary>
                   <div className="mt-3 space-y-2">
-                    {selected.candidates.map((candidate) => (
+                    {selected.candidates?.map((candidate) => (
                       <button
                         key={candidate.id}
                         type="button"
@@ -5645,7 +5671,7 @@ function CaseGroupsReview({
           />
         </div>
       ) : (
-        groups.map((group) => {
+        groups?.map((group) => {
           const representative = group.representative;
           const candidate = representative.candidates[0] ?? null;
           const representativeSummary = buildIdentitySummary(
@@ -5868,7 +5894,7 @@ function GroupReviewSubview({
   const groupItems = useMemo(
     () =>
       group.item_keys
-        .map((key) => items.find((item) => item.input_record_key === key))
+        .map((key) => items?.find((item) => item.input_record_key === key))
         .filter((item): item is ReviewItem => Boolean(item)),
     [group.item_keys, items],
   );
@@ -5878,7 +5904,7 @@ function GroupReviewSubview({
     () => groupItems.slice((page - 1) * pageSize, page * pageSize),
     [groupItems, page, pageSize],
   );
-  const allSelectableKeys = groupItems.map((item) => item.input_record_key);
+  const allSelectableKeys = groupItems?.map((item) => item.input_record_key);
   const selectedSet = new Set(selectedKeys);
   const allSelected =
     allSelectableKeys.length > 0 && allSelectableKeys.every((key) => selectedSet.has(key));
@@ -6075,7 +6101,7 @@ function GroupReviewSubview({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {pagedGroupItems.map((item) => {
+              {pagedGroupItems?.map((item) => {
                 const candidate = item.candidates[0] ?? null;
                 const summary = buildIdentitySummary(item, candidate, identityMappings);
                 const inputIdentity = candidate
@@ -6224,7 +6250,7 @@ function RecordIdentityPanel({
           <p className="mt-2 text-sm font-semibold">{identity.headline}</p>
           <p className="mt-1 text-xs text-muted-foreground">{identity.meta}</p>
           <dl className="mt-3 space-y-1.5">
-            {entries.map((field) => (
+            {entries?.map((field) => (
               <div
                 key={`${field.semantic}-${field.column ?? field.label}`}
                 className="grid grid-cols-[120px_1fr] gap-2 text-xs"
@@ -6257,19 +6283,19 @@ function mergeReviewSnapshot(
     ...current,
     summary: next.summary,
     job: next.job,
-    items: current.items.map((item) =>
+    items: current.items?.map((item) =>
       affectedKeySet.has(item.input_record_key)
-        ? (next.items.find((nextItem) => nextItem.input_record_key === item.input_record_key) ??
+        ? (next.items?.find((nextItem) => nextItem.input_record_key === item.input_record_key) ??
           item)
         : item,
     ),
-    case_groups: current.case_groups.map((group) => {
+    case_groups: current.case_groups?.map((group) => {
       if (caseGroupId && group.id === caseGroupId) {
-        return next.case_groups.find((nextGroup) => nextGroup.id === group.id) ?? group;
+        return next.case_groups?.find((nextGroup) => nextGroup.id === group.id) ?? group;
       }
 
       if (affectedKeys.some((key) => group.item_keys.includes(key))) {
-        return next.case_groups.find((nextGroup) => nextGroup.id === group.id) ?? group;
+        return next.case_groups?.find((nextGroup) => nextGroup.id === group.id) ?? group;
       }
 
       return group;
@@ -6281,7 +6307,7 @@ function findDecisionGroupId(review: ReviewResults | null, decisionId: string) {
   if (!review) return null;
 
   return (
-    review.case_groups.find((group) =>
+    review.case_groups?.find((group) =>
       (group.decision_history ?? []).some((decision) => decision.id === decisionId),
     )?.id ?? null
   );
@@ -6454,7 +6480,7 @@ function DecisionHistory({ history }: { history: NonNullable<ReviewItem["decisio
         {t("matching.review.decisionHistory")}
       </summary>
       <div className="mt-3 space-y-2">
-        {history.map((item) => (
+        {history?.map((item) => (
           <div key={item.id} className="rounded-md bg-secondary/30 px-3 py-2 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-semibold">{reviewDecisionLabel(item.decision, t)}</p>

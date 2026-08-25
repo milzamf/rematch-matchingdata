@@ -103,28 +103,28 @@ class MatchingEngineService
                     'matching_job_id' => $job->id,
                     'reference_column_id' => Str::isUuid($mapping['reference_column_id'] ?? null) ? $mapping['reference_column_id'] : null,
                     'input_column_id' => Str::isUuid($mapping['input_column_id'] ?? null) ? $mapping['input_column_id'] : null,
-                    'reference_column_name' => $mapping['reference_column_name'],
-                    'input_column_name' => $mapping['input_column_name'],
-                    'algorithm' => $mapping['algorithm'],
-                    'weight' => $mapping['weight'],
-                    'required_match' => $mapping['required_match'],
+                    'reference_column_name' => ($mapping['reference_column_name'] ?? null),
+                    'input_column_name' => ($mapping['input_column_name'] ?? null),
+                    'algorithm' => ($mapping['algorithm'] ?? null),
+                    'weight' => ($mapping['weight'] ?? null),
+                    'required_match' => ($mapping['required_match'] ?? null),
                     'metadata' => $mapping['metadata'] ?? [],
                 ]);
             }
 
             MatchingConfiguration::create([
                 'matching_job_id' => $job->id,
-                'preset' => $configuration['preset'],
-                'strategy' => $configuration['strategy'],
-                'thresholds' => $configuration['thresholds'],
-                'normalization' => $configuration['normalization'],
-                'search_optimization' => $configuration['searchOptimization'],
-                'candidate_generation' => $configuration['candidateGeneration'],
-                'output_config' => $configuration['output'],
+                'preset' => ($configuration['preset'] ?? null),
+                'strategy' => ($configuration['strategy'] ?? null),
+                'thresholds' => ($configuration['thresholds'] ?? null),
+                'normalization' => ($configuration['normalization'] ?? null),
+                'search_optimization' => ($configuration['searchOptimization'] ?? null),
+                'candidate_generation' => ($configuration['candidateGeneration'] ?? null),
+                'output_config' => ($configuration['output'] ?? null),
                 'advanced_settings' => [
-                    'weighting' => $configuration['weighting'],
-                    'rules' => $configuration['rules'],
-                    'runOptions' => $configuration['runOptions'],
+                    'weighting' => ($configuration['weighting'] ?? null),
+                    'rules' => ($configuration['rules'] ?? null),
+                    'runOptions' => ($configuration['runOptions'] ?? null),
                 ],
                 'config_hash' => hash('sha256', json_encode($configuration, JSON_THROW_ON_ERROR)),
             ]);
@@ -306,7 +306,7 @@ class MatchingEngineService
                 'parent_input_column' => $parentInput !== '' ? $parentInput : null,
                 'parent_reference_column' => $parentRef !== '' ? $parentRef : null,
                 'transform' => $transform !== '' ? $transform : null,
-                'algorithm' => $this->resolveAlgorithm($configuration['strategy'], $configured['algorithm'] ?? $mapping['algorithm'] ?? null),
+                'algorithm' => $this->resolveAlgorithm(($configuration['strategy'] ?? null), $configured['algorithm'] ?? $mapping['algorithm'] ?? null),
                 'weight' => (float) ($weight['weight'] ?? $mapping['weight'] ?? $this->defaultWeight($index, count($rawMappings))),
                 'required_match' => (bool) ($mapping['required_match'] ?? $mapping['strict'] ?? $mapping['is_mandatory'] ?? false),
                 'metadata' => [
@@ -324,7 +324,7 @@ class MatchingEngineService
 
         if ($totalWeight > 0) {
             foreach ($validMappings as &$mapping) {
-                $mapping['weight'] = round(($mapping['weight'] / $totalWeight) * 100, 2);
+                $mapping['weight'] = round((($mapping['weight'] ?? 1) / $totalWeight) * 100, 2);
             }
         }
 
@@ -570,11 +570,12 @@ class MatchingEngineService
         }
 
         // Candidate Generation Index for Phase 3 via Meilisearch
-        $client = new \Meilisearch\Client(env('MEILISEARCH_HOST', 'http://127.0.0.1:7700'), env('MEILISEARCH_KEY', ''));
+        $httpClient = new \GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 10]);
+        $client = new \Meilisearch\Client(env('MEILISEARCH_HOST', 'http://127.0.0.1:7700'), env('MEILISEARCH_KEY', ''), $httpClient);
         $indexUid = 'job_' . str_replace('-', '_', $job->id) . '_reference';
         try {
             $client->deleteIndex($indexUid);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             // ignore if not exists
         }
         
@@ -600,14 +601,15 @@ class MatchingEngineService
         }
 
         $index = $client->index($indexUid);
-        $task = $index->addDocuments($searchableDocuments);
+        $task = $index->updateSearchableAttributes($searchableAttributes);
         $client->waitForTask($task['taskUid']);
         
-        $index->updateSearchableAttributes($searchableAttributes);
+        $task = $index->addDocuments($searchableDocuments);
+        $client->waitForTask($task['taskUid']);
         $indexes = ['uid' => $indexUid, 'client' => $client];
 
-        $chunkSize = $configuration['runOptions']['chunkSize'];
-        $workerCount = $configuration['runOptions']['workerCount'];
+        $chunkSize = max(500, (int) ($configuration['runOptions']['chunkSize'] ?? 500));
+        $workerCount = ($configuration['runOptions']['workerCount'] ?? 1);
         $topN = (int) data_get($configuration, 'candidateGeneration.topN', 3);
 
         $summary = [
@@ -622,6 +624,7 @@ class MatchingEngineService
         foreach (array_chunk($inputRows, $chunkSize) as $chunkIndex => $chunk) {
             $job->refresh();
             if ($job->status === 'cancelled' || $job->status === 'stopped') {
+                \Log::info("Matching job {$job->id} cancellation detected. Halting execution loop.");
                 break;
             }
 
@@ -640,7 +643,7 @@ class MatchingEngineService
                 // -------------------------------------------------------------
                 $signatureString = '';
                 foreach ($mappings as $mapping) {
-                    $col = $mapping['input_column_name'];
+                    $col = ($mapping['input_column_name'] ?? null);
                     // Use the RAW value from the row to ensure we only deduplicate exactly identical strings
                     // This prevents collisions where two different raw strings (e.g., 'CV Satu Data' and 'Satu Data')
                     // normalize to the same core name ('satu data') but have different identity metadata.
@@ -785,7 +788,7 @@ class MatchingEngineService
                         $originalIdx = $idxMap[$resultIndex];
                         $searchResultsByIndex[$originalIdx] = $searchResult['hits'] ?? [];
                     }
-                } catch (\Exception $e) {
+                } catch (\Throwable $e) {
                     \Illuminate\Support\Facades\Log::error('Meilisearch MultiSearch Error: ' . $e->getMessage());
                 }
             }
@@ -909,12 +912,14 @@ class MatchingEngineService
             });
 
             $processed += count($chunk);
+            unset($batchResults, $searchQueriesToExecute, $recordsToEvaluate, $searchResultsByIndex, $chunk);
+            gc_collect_cycles();
         }
 
         if (isset($indexes['client']) && isset($indexes['uid'])) {
             try {
                 $indexes['client']->deleteIndex($indexes['uid']);
-            } catch (\Exception $e) {}
+            } catch (\Throwable $e) {}
         }
 
         return $summary;
@@ -938,8 +943,8 @@ class MatchingEngineService
     ): array {
         $evaluated = [];
 
-        $autoMatchThreshold = (float) ($configuration['thresholds']['autoMatch'] ?? 90);
-        $reviewThreshold = (float) ($configuration['thresholds']['review'] ?? 75);
+        $autoMatchThreshold = (float) (($configuration['thresholds'] ?? null)['autoMatch'] ?? 90);
+        $reviewThreshold = (float) (($configuration['thresholds'] ?? null)['review'] ?? 75);
 
         // Verification rules list (ordered)
         $verificationRules = $this->resolveVerificationRules($configuration, $mappings, $reviewThreshold);
@@ -955,8 +960,8 @@ class MatchingEngineService
             $numericConflict = false;
 
             foreach ($mappings as $mapping) {
-                $refCol = $mapping['reference_column_name'];
-                $inpCol = $mapping['input_column_name'];
+                $refCol = ($mapping['reference_column_name'] ?? null);
+                $inpCol = ($mapping['input_column_name'] ?? null);
 
                 $left = $candidate['normalized'][$refCol] ?? '';
                 $right = $inputRecord['normalized'][$inpCol] ?? '';
@@ -974,7 +979,7 @@ class MatchingEngineService
                     $numericConflict = true;
                 }
 
-                $algorithm = $mapping['algorithm'];
+                $algorithm = ($mapping['algorithm'] ?? null);
                 $score = $this->scorer->score($algorithm, $left, $right);
 
                 $weight = max(0.0, (float) ($mapping['weight'] ?? 0));
@@ -1175,7 +1180,7 @@ class MatchingEngineService
 
         $rules = [];
         foreach ($sorted as $index => $mapping) {
-            $refCol = (string) $mapping['reference_column_name'];
+            $refCol = (string) ($mapping['reference_column_name'] ?? null);
             $isMandatory = (bool) ($mapping['required_match'] ?? false);
             $isName = $this->entityNameParser->isEntityNameColumn($refCol)
                 || str_contains(mb_strtolower($refCol), 'nama')
@@ -1187,8 +1192,8 @@ class MatchingEngineService
             $rules[] = [
                 'order' => $index + 1,
                 'mappingId' => $mapping['id'] ?? (string) $index,
-                'field' => "{$mapping['input_column_name']} ↔ {$mapping['reference_column_name']}",
-                'method' => $mapping['algorithm'],
+                'field' => ($mapping['input_column_name'] ?? null) . " <-> " . ($mapping['reference_column_name'] ?? null),
+                'method' => ($mapping['algorithm'] ?? null),
                 'threshold' => $threshold,
             ];
         }
@@ -1226,8 +1231,8 @@ class MatchingEngineService
         $ruleField = mb_strtolower(trim((string) ($rule['field'] ?? '')));
         if ($ruleField !== '') {
             foreach ($mappings as $mapping) {
-                $ref = mb_strtolower((string) $mapping['reference_column_name']);
-                $inp = mb_strtolower((string) $mapping['input_column_name']);
+                $ref = mb_strtolower((string) ($mapping['reference_column_name'] ?? null));
+                $inp = mb_strtolower((string) ($mapping['input_column_name'] ?? null));
                 $label = mb_strtolower("{$inp} ↔ {$ref}");
 
                 if ($ruleField === $label || $ruleField === $ref || $ruleField === $inp || str_contains($ruleField, $ref)) {
@@ -1250,8 +1255,8 @@ class MatchingEngineService
         $fieldScores = [];
 
         foreach ($mappings as $mapping) {
-            $refCol = $mapping['reference_column_name'];
-            $inpCol = $mapping['input_column_name'];
+            $refCol = ($mapping['reference_column_name'] ?? null);
+            $inpCol = ($mapping['input_column_name'] ?? null);
 
             $isMandatory = (bool) ($mapping['required_match'] ?? false);
             $left = $referenceRecord['normalized'][$refCol] ?? '';
@@ -1261,12 +1266,12 @@ class MatchingEngineService
             $inpIdentity = $inputRecord['identity'][$inpCol] ?? null;
             $fieldIdentityConflict = $this->entityNameParser->hasStrictLegalConflict($refIdentity, $inpIdentity);
 
-            $score = $isMandatory ? 100.0 : $this->scorer->score($mapping['algorithm'], $left, $right);
+            $score = $isMandatory ? 100.0 : $this->scorer->score(($mapping['algorithm'] ?? null), $left, $right);
 
             $fieldScores[] = [
                 'reference_column' => $refCol,
                 'input_column' => $inpCol,
-                'algorithm' => $mapping['algorithm'],
+                'algorithm' => ($mapping['algorithm'] ?? null),
                 'score' => $score,
                 'weight' => max(0.0, (float) ($mapping['weight'] ?? 0)),
                 'is_mandatory' => $isMandatory,

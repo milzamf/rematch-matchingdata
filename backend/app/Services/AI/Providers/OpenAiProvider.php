@@ -202,9 +202,9 @@ class OpenAiProvider implements AiProviderInterface
 
     private function timeout(): int
     {
-        $timeout = $this->config['timeout'] ?? 30;
+        $timeout = $this->config['timeout'] ?? 15;
 
-        return is_numeric($timeout) ? max(1, (int) $timeout) : 30;
+        return is_numeric($timeout) ? max(1, (int) $timeout) : 15;
     }
 
     private function latencyMs(float $startedAt): int

@@ -666,6 +666,7 @@ async function sendApiRequest(path: string, init: RequestInit = {}) {
   }
 
   return fetch(buildApiUrl(path), {
+    signal: init.signal ?? (typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(60000) : undefined),
     ...init,
     headers,
     credentials: "include",

@@ -9,4 +9,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('app:clean-temp-datasets')->daily();
+Schedule::command('queue:prune-failed', ['--hours=168'])->daily();
 
