@@ -628,7 +628,13 @@ class MatchingEngineService
             $workerSlot = $chunkIndex % $workerCount;
             $batchResults = [];
 
-            foreach ($chunk as $inputRecord) {
+            // -------------------------------------------------------------
+            // Phase 1.6: Batch Candidate Generation via Meilisearch
+            // -------------------------------------------------------------
+            $searchQueriesToExecute = [];
+            $recordsToEvaluate = [];
+            
+            foreach ($chunk as $idx => $inputRecord) {
                 // -------------------------------------------------------------
                 // Phase 1.5: Memoization (Intra-Job Deduplication)
                 // -------------------------------------------------------------
@@ -738,16 +744,76 @@ class MatchingEngineService
                     continue; // Bypass Phase 3 and Phase 4
                 }
 
+                // Needs fuzzy matching via Meilisearch!
+                $searchTerms = [];
+                foreach ($mappings as $mapping) {
+                    $colName = $mapping['input_column_name'] ?? '';
+                    if ($colName !== '') {
+                        $term = (string) ($inputRecord['normalized'][$colName] ?? '');
+                        if ($term !== '') {
+                            $searchTerms[] = $term;
+                        }
+                    }
+                }
+                usort($searchTerms, fn($a, $b) => strlen($b) <=> strlen($a));
+                
+                $searchQuery = implode(' ', $searchTerms);
+                $searchQueriesToExecute[$idx] = [
+                    'query' => $searchQuery,
+                    'cacheKey' => $cacheKey,
+                    'batchResultsCountBefore' => $batchResultsCountBefore
+                ];
+                $recordsToEvaluate[$idx] = $inputRecord;
+            }
+            
+            // Execute batch search
+            $searchResultsByIndex = [];
+            if (!empty($searchQueriesToExecute)) {
+                $queries = [];
+                $idxMap = [];
+                foreach ($searchQueriesToExecute as $idx => $meta) {
+                    $queries[] = (new \Meilisearch\Contracts\SearchQuery())
+                        ->setIndexUid($indexes['uid'])
+                        ->setQuery($meta['query'])
+                        ->setLimit(max($topN, 3));
+                    $idxMap[] = $idx;
+                }
+                
+                try {
+                    $multiResults = $indexes['client']->multiSearch($queries)['results'] ?? [];
+                    foreach ($multiResults as $resultIndex => $searchResult) {
+                        $originalIdx = $idxMap[$resultIndex];
+                        $searchResultsByIndex[$originalIdx] = $searchResult['hits'] ?? [];
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Meilisearch MultiSearch Error: ' . $e->getMessage());
+                }
+            }
+            
+            // Process evaluateCandidates for the fuzzy records
+            foreach ($recordsToEvaluate as $idx => $inputRecord) {
+                $meta = $searchQueriesToExecute[$idx];
+                $cacheKey = $meta['cacheKey'];
+                $batchResultsCountBefore = $meta['batchResultsCountBefore'];
+                $candidatesScoredForThisRecord = 0;
+                
+                $hits = $searchResultsByIndex[$idx] ?? [];
+                $candidates = [];
+                foreach ($hits as $hit) {
+                    $refKey = $hit['id'];
+                    if (isset($referenceByKey[$refKey])) {
+                        $candidates[] = $referenceByKey[$refKey];
+                    }
+                }
+
                 // -------------------------------------------------------------
                 // Phase 3 & Phase 4: Similarity Scoring & Verification Guardrails
                 // -------------------------------------------------------------
                 $scoredCandidates = $this->evaluateCandidates(
                     $inputRecord,
-                    $referenceByKey,
-                    $indexes,
+                    $candidates,
                     $mappings,
-                    $configuration,
-                    $topN,
+                    $configuration
                 );
 
                 $candidatesScoredForThisRecord += count($scoredCandidates);
@@ -866,37 +932,10 @@ class MatchingEngineService
      */
     private function evaluateCandidates(
         array $inputRecord,
-        array $referenceByKey,
-        array $indexes,
+        array $candidates,
         array $mappings,
-        array $configuration,
-        int $topN,
+        array $configuration
     ): array {
-        $searchTerms = [];
-        foreach ($mappings as $mapping) {
-            $colName = $mapping['input_column_name'] ?? '';
-            if ($colName !== '') {
-                $term = (string) ($inputRecord['normalized'][$colName] ?? '');
-                if ($term !== '') {
-                    $searchTerms[] = $term;
-                }
-            }
-        }
-        
-        // Sort by length descending so Meilisearch's 'last' matching strategy drops short IDs before long names
-        usort($searchTerms, fn($a, $b) => strlen($b) <=> strlen($a));
-        
-        $searchQuery = implode(' ', $searchTerms);
-
-        $searchResults = $indexes['client']->index($indexes['uid'])->search($searchQuery, ['limit' => max($topN, 3)])->getHits();
-
-        $candidates = [];
-        foreach ($searchResults as $hit) {
-            $refKey = $hit['id'];
-            if (isset($referenceByKey[$refKey])) {
-                $candidates[] = $referenceByKey[$refKey];
-            }
-        }
         $evaluated = [];
 
         $autoMatchThreshold = (float) ($configuration['thresholds']['autoMatch'] ?? 90);
@@ -1094,6 +1133,7 @@ class MatchingEngineService
         // Sort candidates by score descending
         usort($evaluated, fn (array $a, array $b) => $b['score'] <=> $a['score']);
 
+        $topN = (int) data_get($configuration, 'candidateGeneration.topN', 3);
         return array_slice($evaluated, 0, $topN);
     }
 
