@@ -404,6 +404,11 @@ class MatchingEngineTest extends TestCase
                     'inputColumnName' => '[Generated] Nama Inti',
                     'algorithm' => 'Jaro-Winkler',
                     'weight' => 70,
+                    'metadata' => [
+                        'transform' => 'EXTRACT_CORE_NAME',
+                        'parent_reference_column' => 'nama_perusahaan',
+                        'parent_input_column' => 'company_name',
+                    ],
                 ],
                 [
                     'referenceColumnName' => '[Generated] Badan Usaha',
@@ -411,6 +416,11 @@ class MatchingEngineTest extends TestCase
                     'algorithm' => 'Normalized Exact',
                     'required_match' => true,
                     'weight' => 30,
+                    'metadata' => [
+                        'transform' => 'EXTRACT_LEGAL_FORM',
+                        'parent_reference_column' => 'nama_perusahaan',
+                        'parent_input_column' => 'company_name',
+                    ],
                 ],
             ],
             'configuration' => [

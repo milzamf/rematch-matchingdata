@@ -405,6 +405,11 @@ class MatchingEnginePipelineTest extends TestCase
                     'algorithm' => 'Normalized Exact',
                     'required_match' => true,
                     'weight' => 50,
+                    'metadata' => [
+                        'transform' => 'EXTRACT_CORE_NAME',
+                        'parent_reference_column' => 'company_name',
+                        'parent_input_column' => 'company',
+                    ],
                 ],
                 [
                     'id' => 'map-legal-form',
@@ -415,6 +420,11 @@ class MatchingEnginePipelineTest extends TestCase
                     'algorithm' => 'Exact',
                     'required_match' => true,
                     'weight' => 50,
+                    'metadata' => [
+                        'transform' => 'EXTRACT_LEGAL_FORM',
+                        'parent_reference_column' => 'company_name',
+                        'parent_input_column' => 'company',
+                    ],
                 ],
             ],
             'configuration' => [
