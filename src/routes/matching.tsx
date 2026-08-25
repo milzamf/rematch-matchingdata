@@ -45,6 +45,7 @@ import {
   fetchWorkspace,
   inspectDataset,
   runMatching,
+  stopMatching,
   saveReviewDecision,
   type AiConfigRecommendedField,
   type AiEnvelope,
@@ -413,7 +414,7 @@ function MatchingPage() {
           const currentStatus = statusResult.job.status;
           const pct = statusResult.progress.percentage ?? 0;
 
-          if (currentStatus === "completed") {
+          if (currentStatus === "completed" || currentStatus === "cancelled" || currentStatus === "stopped") {
             setProgress(100);
             setRunState("success");
             setStep(3);
@@ -893,6 +894,23 @@ function MatchingPage() {
     }
   };
 
+  const [isStopping, setIsStopping] = useState(false);
+
+  const handleStopMatching = async () => {
+    if (!runResult?.job?.id) return;
+    if (!window.confirm("Apakah Anda yakin ingin membatalkan proses matching ini? Progres yang sudah berjalan akan disimpan.")) return;
+    
+    setIsStopping(true);
+    try {
+      await stopMatching(runResult.job.id);
+      toast.success("Sinyal pembatalan terkirim. Menunggu backend berhenti...");
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Gagal menghentikan matching.");
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
   const handleInspectFile = async (role: DatasetRole, file: File) => {
     if (!canCreateMatching) {
       toast.error(t("feedback.toast.accessDenied"));
@@ -1307,6 +1325,7 @@ function MatchingPage() {
                       result={runResult}
                       error={runError}
                       onStart={() => setRunConfirmOpen(true)}
+                      onStop={handleStopMatching}
                       onRetry={() => {
                         setRunState("idle");
                         setProgress(0);
@@ -4104,6 +4123,7 @@ function StepRunCard({
   onProceed,
   canRun,
   hasPreviousRun,
+  onStop,
 }: {
   state: RunState;
   progress: number;
@@ -4115,6 +4135,7 @@ function StepRunCard({
   onProceed: () => void;
   canRun: boolean;
   hasPreviousRun: boolean;
+  onStop?: () => void;
 }) {
   const { t } = usePreferences();
 
@@ -4201,11 +4222,22 @@ function StepRunCard({
               style={{ width: `${progress}%` }}
             />
           </div>
-          {result?.progress?.total ? (
-            <p className="text-xs text-muted-foreground tabular-nums text-right">
-              {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
-            </p>
-          ) : null}
+          <div className="flex justify-between items-center mt-2">
+            {onStop ? (
+              <button
+                type="button"
+                onClick={onStop}
+                className="text-xs font-medium text-destructive hover:text-destructive/80"
+              >
+                Batalkan / Rem Darurat
+              </button>
+            ) : <div />}
+            {result?.progress?.total ? (
+              <p className="text-xs text-muted-foreground tabular-nums text-right">
+                {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
+              </p>
+            ) : <div />}
+          </div>
         </div>
       )}
 

@@ -201,9 +201,13 @@ class MatchingEngineService
 
         try {
             $summary = $this->executePipeline($job, $reference, $input, $referenceRowsRaw, $inputRowsRaw, $mappings, $configuration);
+            
+            $job->refresh();
+            $finalStatus = in_array($job->status, ['cancelled', 'stopped']) ? $job->status : 'completed';
+
             $job->update([
-                'status' => 'completed',
-                'processed_count' => $totalInputCount,
+                'status' => $finalStatus,
+                'processed_count' => $job->processed_count, // Use the actual processed count rather than forcing total count
                 'record_counts' => $summary,
                 'finished_at' => Carbon::now(),
             ]);
@@ -616,6 +620,11 @@ class MatchingEngineService
         $memoizationCache = [];
 
         foreach (array_chunk($inputRows, $chunkSize) as $chunkIndex => $chunk) {
+            $job->refresh();
+            if ($job->status === 'cancelled' || $job->status === 'stopped') {
+                break;
+            }
+
             $workerSlot = $chunkIndex % $workerCount;
             $batchResults = [];
 

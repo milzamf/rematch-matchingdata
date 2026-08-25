@@ -46,6 +46,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::MATCHING_CREATE);
     Route::post('/matching-jobs/run', MatchingRunController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_RUN);
+    Route::post('/matching-jobs/{job}/stop', \App\Http\Controllers\Api\MatchingStopController::class)
+        ->middleware('permission:'.PermissionRegistry::MATCHING_RUN);
     Route::get('/matching-jobs/{job}/status', MatchingStatusController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_VIEW);
     Route::match(['GET', 'POST'], '/matching-jobs/{job}/ai-matching-configuration', AiMatchingConfigurationController::class)
