@@ -795,6 +795,7 @@ export async function fetchDatasetRows(
 export async function runMatching(input: RunMatchingInput): Promise<MatchingRunResult> {
   const response = await apiFetch("/matching-jobs/run", {
     method: "POST",
+    signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(300000) : undefined,
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",

@@ -414,7 +414,10 @@ function MatchingPage() {
           const currentStatus = statusResult.job.status;
           const pct = statusResult.progress.percentage ?? 0;
 
-          if (currentStatus === "completed" || currentStatus === "cancelled" || currentStatus === "stopped") {
+          if (currentStatus === "completed" || currentStatus === "cancelled" || currentStatus === "stopped" || pct >= 100) {
+            if (pollingTimeoutRef.current) {
+              clearTimeout(pollingTimeoutRef.current);
+            }
             setProgress(100);
             setRunState("success");
             setStep(3);
@@ -438,14 +441,14 @@ function MatchingPage() {
           setRunState("running");
 
           // Keep polling until the backend explicitly returns 'completed' or 'failed'
-          pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
+          pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
         } catch (error) {
           // On network errors, wait a bit longer and retry indefinitely
           pollingTimeoutRef.current = setTimeout(checkStatus, 3000);
         }
       };
 
-      pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
+      pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
     },
     [navigate, t],
   );
