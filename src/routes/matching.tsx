@@ -249,45 +249,6 @@ type MatchingConfiguration = {
 const ALLOWED = [".csv", ".xlsx"];
 const MAX_MB = 50;
 
-function injectVirtualColumns(
-  columns: DatasetInspectResult["columns"],
-  prefix: string,
-): DatasetInspectResult["columns"] {
-  if (columns.length === 0) return [];
-  const hasStringField = columns.some(
-    (c) =>
-      ["text", "string", "varchar"].includes((c.data_type || "").toLowerCase()) || !c.data_type,
-  );
-  if (!hasStringField) return columns;
-
-  const virtualCoreName: DatasetInspectResult["columns"][number] = {
-    id: `virtual-${prefix}-core-name`,
-    name: "[Generated] Nama Inti",
-    normalized_name: "nama_inti",
-    position: 998,
-    data_type: "text",
-    null_count: 0,
-    null_percentage: 0,
-    unique_count: 0,
-    duplicate_percentage: 0,
-    sample_values: ["Nama Inti Usaha"],
-  };
-
-  const virtualLegalForm: DatasetInspectResult["columns"][number] = {
-    id: `virtual-${prefix}-legal-form`,
-    name: "[Generated] Badan Usaha",
-    normalized_name: "badan_usaha",
-    position: 999,
-    data_type: "text",
-    null_count: 0,
-    null_percentage: 0,
-    unique_count: 0,
-    duplicate_percentage: 0,
-    sample_values: ["PT", "CV", "UD"],
-  };
-
-  return [...columns, virtualCoreName, virtualLegalForm];
-}
 
 
 function MatchingPage() {
@@ -974,8 +935,8 @@ function MatchingPage() {
       return;
     }
 
-    const effectiveReference = injectVirtualColumns(inspectedReferenceColumns, "ref");
-    const effectiveInput = injectVirtualColumns(inspectedInputColumns, "inp");
+    const effectiveReference = inspectedReferenceColumns;
+    const effectiveInput = inspectedInputColumns;
     const referenceIds = new Set(effectiveReference.map((column) => column.id));
     const inputIds = new Set(effectiveInput.map((column) => column.id));
     setColumnMappings((current) =>
@@ -1445,8 +1406,8 @@ function stepKey(id: number) {
   ] as "preparation" | "rules" | "results";
 }
 
-function hasDuplicateReference(mappings: { referenceColumnId: string }[]) {
-  const references = mappings.map((mapping) => mapping.referenceColumnId).filter(Boolean);
+function hasDuplicateReference(mappings: { referenceColumnName: string }[]) {
+  const references = mappings.map((mapping) => mapping.referenceColumnName).filter(Boolean);
   return new Set(references).size !== references.length;
 }
 
@@ -2202,14 +2163,8 @@ function StepColumnMapping({
   setMappings: Dispatch<SetStateAction<ColumnMappingDraft[]>>;
 }) {
   const { t } = usePreferences();
-  const effectiveReferenceColumns = useMemo(
-    () => injectVirtualColumns(referenceColumns, "ref"),
-    [referenceColumns],
-  );
-  const effectiveInputColumns = useMemo(
-    () => injectVirtualColumns(inputColumns, "inp"),
-    [inputColumns],
-  );
+  const effectiveReferenceColumns = referenceColumns;
+  const effectiveInputColumns = inputColumns;
   const [isExtractModalOpen, setIsExtractModalOpen] = useState(false);
 
   const handleExtraction = (config: any) => {
@@ -2230,8 +2185,8 @@ function StepColumnMapping({
         suggested: false,
         suggestionSource: "manual",
         suggestionScore: null,
-        referenceColumnName: applyTo === "input" ? "" : (refColumn?.name || ""),
-        inputColumnName: applyTo === "reference" ? "" : (inpColumn?.name || ""),
+        referenceColumnName: applyTo === "input" ? "" : "[Generated] Badan Usaha",
+        inputColumnName: applyTo === "reference" ? "" : "[Generated] Badan Usaha",
         referenceDataType: "text",
         inputDataType: "text",
         transform: "EXTRACT_LEGAL_FORM",
@@ -2250,8 +2205,8 @@ function StepColumnMapping({
         suggested: false,
         suggestionSource: "manual",
         suggestionScore: null,
-        referenceColumnName: applyTo === "input" ? "" : (refColumn?.name || ""),
-        inputColumnName: applyTo === "reference" ? "" : (inpColumn?.name || ""),
+        referenceColumnName: applyTo === "input" ? "" : "[Generated] Nama Inti",
+        inputColumnName: applyTo === "reference" ? "" : "[Generated] Nama Inti",
         referenceDataType: "text",
         inputDataType: "text",
         transform: "EXTRACT_CORE_NAME",
@@ -2274,7 +2229,7 @@ function StepColumnMapping({
       if (
         patch.referenceColumnId &&
         current.some(
-          (mapping) => mapping.id !== id && mapping.referenceColumnId === patch.referenceColumnId,
+          (mapping) => mapping.id !== id && mapping.referenceColumnId === patch.referenceColumnId && (!mapping.transform || mapping.transform === "NONE"),
         )
       ) {
         toast.error(t("matching.mapping.duplicateReference"));
@@ -2411,6 +2366,7 @@ function StepColumnMapping({
                         updateMapping(mapping.id, { inputColumnId: event.target.value })
                       }
                       className={selectClass}
+                      disabled={Boolean(mapping.transform && mapping.transform !== "NONE")}
                     >
                       <option value="">{t("matching.mapping.noInputSelected")}</option>
                       {effectiveInputColumns.map((column) => (
@@ -2421,7 +2377,19 @@ function StepColumnMapping({
                     </select>
                     <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
                       {inputColumn ? (
-                        <ColumnTypeBadge column={inputColumn} testId="mapping-input-type" />
+                        <>
+                          <ColumnTypeBadge column={inputColumn} testId="mapping-input-type" />
+                          {mapping.transform === "EXTRACT_LEGAL_FORM" && (
+                            <span className="rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                              [Extracted: Badan Usaha]
+                            </span>
+                          )}
+                          {mapping.transform === "EXTRACT_CORE_NAME" && (
+                            <span className="rounded-md bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
+                              [Extracted: Nama Inti]
+                            </span>
+                          )}
+                        </>
                       ) : (
                         <span className="text-[11px] text-muted-foreground">
                           {t("matching.mapping.noInputSelected")}
@@ -2446,13 +2414,13 @@ function StepColumnMapping({
                         updateMapping(mapping.id, { referenceColumnId: event.target.value })
                       }
                       className={selectClass}
+                      disabled={Boolean(mapping.transform && mapping.transform !== "NONE")}
                     >
                       <option value="">{t("matching.mapping.noReferenceSelected")}</option>
                       {effectiveReferenceColumns.map((column) => (
                         <option
                           key={column.id}
                           value={column.id}
-                          disabled={usedByOtherRows.has(column.id)}
                         >
                           {column.name}
                         </option>
@@ -2460,7 +2428,19 @@ function StepColumnMapping({
                     </select>
                     <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
                       {referenceColumn ? (
-                        <ColumnTypeBadge column={referenceColumn} testId="mapping-reference-type" />
+                        <>
+                          <ColumnTypeBadge column={referenceColumn} testId="mapping-reference-type" />
+                          {mapping.transform === "EXTRACT_LEGAL_FORM" && (
+                            <span className="rounded-md bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                              [Extracted: Badan Usaha]
+                            </span>
+                          )}
+                          {mapping.transform === "EXTRACT_CORE_NAME" && (
+                            <span className="rounded-md bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">
+                              [Extracted: Nama Inti]
+                            </span>
+                          )}
+                        </>
                       ) : (
                         <span className="text-[11px] text-muted-foreground">
                           {t("matching.mapping.noReferenceSelected")}
