@@ -1306,7 +1306,7 @@ export async function undoReviewDecision(
 }
 
 export async function stopMatching(jobId: string): Promise<void> {
-  await apiFetch(/matching-jobs/ + jobId + /stop, {
+  await apiFetch(`/matching-jobs/${jobId}/stop`, {
     method: "POST",
     headers: {
       Accept: "application/json",
