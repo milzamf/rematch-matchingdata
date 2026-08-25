@@ -109,6 +109,14 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
 import { ExtractionModal } from "@/components/extraction-modal";
 
 export const Route = createFileRoute("/matching")({
@@ -6090,44 +6098,49 @@ function GroupReviewSubview({
                       </span>
                     </td>
                     <td className="px-3 py-3">
-                      <div className="flex flex-wrap justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => onDecideRecord(item, "accept_match", candidate)}
-                          disabled={!rowCanAccept || Boolean(rowPending)}
-                          className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {rowPending === "accept_match"
-                            ? t("common.loading")
-                            : t("matching.review.accept")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDecideRecord(item, "reject_match", candidate)}
-                          disabled={!rowCanAccept || Boolean(rowPending)}
-                          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {rowPending === "reject_match"
-                            ? t("common.loading")
-                            : t("matching.review.reject")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDecideRecord(item, "mark_unmatched", null)}
-                          disabled={Boolean(rowPending)}
-                          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {rowPending === "mark_unmatched"
-                            ? t("common.loading")
-                            : t("matching.review.markUnmatched")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onOpenRecord(item, candidate?.id ?? null)}
-                          className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px"
-                        >
-                          {t("matching.review.reviewDetail")}
-                        </button>
+                      <div className="flex justify-end">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-background transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                              disabled={Boolean(rowPending)}
+                            >
+                              {Boolean(rowPending) ? (
+                                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                              ) : (
+                                <MoreHorizontal className="size-4 text-muted-foreground" />
+                              )}
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem
+                              onClick={() => onDecideRecord(item, "accept_match", candidate)}
+                              disabled={!rowCanAccept}
+                              className="font-medium text-brand focus:bg-brand/10 focus:text-brand"
+                            >
+                              {t("matching.review.accept")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => onDecideRecord(item, "reject_match", candidate)}
+                              disabled={!rowCanAccept}
+                              className="font-medium text-destructive focus:bg-destructive/10 focus:text-destructive"
+                            >
+                              {t("matching.review.reject")}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => onDecideRecord(item, "mark_unmatched", null)}
+                            >
+                              {t("matching.review.markUnmatched")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => onOpenRecord(item, candidate?.id ?? null)}
+                            >
+                              {t("matching.review.reviewDetail")}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </td>
                   </tr>
