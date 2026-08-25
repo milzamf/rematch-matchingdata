@@ -286,6 +286,14 @@ class MatchingEngineService
                 ?? ''
             );
 
+            \Illuminate\Support\Facades\Log::info("Resolving Mapping: ", [
+                'ref' => $refCol,
+                'inp' => $inpCol,
+                'transform' => $transform,
+                'parent_ref' => $parentRef,
+                'parent_inp' => $parentInput
+            ]);
+
             $validMappings[] = [
                 'id' => $mappingId,
                 'reference_column_id' => $mapping['referenceColumnId'] ?? $mapping['reference_column_id'] ?? null,
@@ -572,12 +580,47 @@ class MatchingEngineService
             'candidates_scored' => 0,
         ];
         $processed = 0;
+        $memoizationCache = [];
 
         foreach (array_chunk($inputRows, $chunkSize) as $chunkIndex => $chunk) {
             $workerSlot = $chunkIndex % $workerCount;
             $batchResults = [];
 
             foreach ($chunk as $inputRecord) {
+                // -------------------------------------------------------------
+                // Phase 1.5: Memoization (Intra-Job Deduplication)
+                // -------------------------------------------------------------
+                $signatureString = '';
+                foreach ($mappings as $mapping) {
+                    $col = $mapping['input_column_name'];
+                    // Use the RAW value from the row to ensure we only deduplicate exactly identical strings
+                    // This prevents collisions where two different raw strings (e.g., 'CV Satu Data' and 'Satu Data')
+                    // normalize to the same core name ('satu data') but have different identity metadata.
+                    $signatureString .= ($inputRecord['row'][$col] ?? '') . '|';
+                }
+                $cacheKey = md5(strtolower(trim($signatureString)));
+
+                if (isset($memoizationCache[$cacheKey])) {
+                    $cachedData = $memoizationCache[$cacheKey];
+                    $summary['candidates_scored'] += $cachedData['candidates_scored'];
+                    $summary[$cachedData['status']]++;
+
+                    foreach ($cachedData['results'] as $cachedRow) {
+                        $cachedRow['id'] = (string) Str::uuid();
+                        $cachedRow['input_record_key'] = $inputRecord['key'];
+
+                        $meta = json_decode($cachedRow['candidate_metadata'], true);
+                        $meta['input_record'] = $inputRecord['row'];
+                        $cachedRow['candidate_metadata'] = json_encode($meta, JSON_THROW_ON_ERROR);
+
+                        $batchResults[] = $cachedRow;
+                    }
+                    continue;
+                }
+
+                $batchResultsCountBefore = count($batchResults);
+                $candidatesScoredForThisRecord = 0;
+
                 // -------------------------------------------------------------
                 // Phase 2: Mandatory / Exact Phase
                 // -------------------------------------------------------------
@@ -599,6 +642,7 @@ class MatchingEngineService
                         if (! empty($mandatoryRefIndex[$compKey])) {
                             $exactMatchFound = true;
                             $exactRefs = array_slice($mandatoryRefIndex[$compKey], 0, $topN);
+                            $candidatesScoredForThisRecord += count($exactRefs);
                             $summary['candidates_scored'] += count($exactRefs);
                             // 1 input row = 1 matched status
                             $summary['matched']++;
@@ -643,6 +687,12 @@ class MatchingEngineService
                 }
 
                 if ($exactMatchFound) {
+                    $myResults = array_slice($batchResults, $batchResultsCountBefore);
+                    $memoizationCache[$cacheKey] = [
+                        'results' => $myResults,
+                        'status' => 'matched',
+                        'candidates_scored' => $candidatesScoredForThisRecord,
+                    ];
                     continue; // Bypass Phase 3 and Phase 4
                 }
 
@@ -658,6 +708,7 @@ class MatchingEngineService
                     $topN,
                 );
 
+                $candidatesScoredForThisRecord += count($scoredCandidates);
                 $summary['candidates_scored'] += count($scoredCandidates);
 
                 if ($scoredCandidates === []) {
@@ -691,6 +742,12 @@ class MatchingEngineService
                         ],
                     );
                     $summary['unmatched']++;
+                    $myResults = array_slice($batchResults, $batchResultsCountBefore);
+                    $memoizationCache[$cacheKey] = [
+                        'results' => $myResults,
+                        'status' => 'unmatched',
+                        'candidates_scored' => $candidatesScoredForThisRecord,
+                    ];
                     continue;
                 }
 
@@ -723,6 +780,13 @@ class MatchingEngineService
                         $candidate['verification_evidence'],
                     );
                 }
+
+                $myResults = array_slice($batchResults, $batchResultsCountBefore);
+                $memoizationCache[$cacheKey] = [
+                    'results' => $myResults,
+                    'status' => $rowOutcome,
+                    'candidates_scored' => $candidatesScoredForThisRecord,
+                ];
             }
 
             DB::transaction(function () use ($batchResults, $job, $processed, $chunk, $summary) {
