@@ -75,7 +75,8 @@ class MatchingEngineService
         }
 
         $refRowCount = $reference->row_count > 0 ? (int) $reference->row_count : count($this->loadDatasetRows($reference));
-        $inpRowCount = $input->row_count > 0 ? (int) $input->row_count : count($this->loadDatasetRows($input));
+        $inputRowsRaw = $this->deduplicateInputRows($this->loadDatasetRows($input));
+        $inpRowCount = count($inputRowsRaw);
 
         if ($refRowCount === 0 || $inpRowCount === 0) {
             throw new InvalidArgumentException('Reference and input datasets must contain data rows before matching.');
@@ -148,6 +149,8 @@ class MatchingEngineService
      */
     public function runJob(MatchingJob $job): array
     {
+        @ini_set('memory_limit', '1024M');
+
         $job->loadMissing(['referenceDataset.columns', 'inputDataset.columns', 'mappings', 'configuration', 'workspace']);
 
         $reference = $job->referenceDataset;
@@ -189,8 +192,10 @@ class MatchingEngineService
         $mappings = $this->resolveMappings($rawMappings, $configuration);
 
         $referenceRowsRaw = $this->loadDatasetRows($reference);
-        $inputRowsRaw = $this->loadDatasetRows($input);
+        $inputRowsRaw = $this->deduplicateInputRows($this->loadDatasetRows($input));
         $totalInputCount = count($inputRowsRaw);
+
+        MatchingResult::where('matching_job_id', $job->id)->delete();
 
         $job->update([
             'status' => 'processing',
@@ -213,16 +218,22 @@ class MatchingEngineService
             ]);
 
             if ($job->workspace !== null) {
-                $job->workspace->update([
-                    'matching_job_id' => $job->id,
-                    'status' => 'reviewing',
-                    'current_step' => 6,
-                ]);
+                if ($finalStatus === 'completed') {
+                    $job->workspace->update([
+                        'matching_job_id' => $job->id,
+                        'status' => 'reviewing',
+                        'current_step' => 6,
+                    ]);
+                } elseif (in_array($finalStatus, ['cancelled', 'stopped'])) {
+                    $job->workspace->update([
+                        'status' => 'configuring',
+                    ]);
+                }
             }
         } catch (Throwable $exception) {
             $job->update([
                 'status' => 'failed',
-                'error_message' => $exception->getMessage(),
+                'error_message' => substr($exception->getMessage(), 0, 1000),
                 'finished_at' => Carbon::now(),
             ]);
 
@@ -532,6 +543,16 @@ class MatchingEngineService
         array $mappings,
         array $configuration,
     ): array {
+        $totalWallClockStart = microtime(true);
+        $metrics = [
+            'INDEX_REUSED' => false,
+            'index_initialization_ms' => 0.0,
+            'multisearch_ms' => 0.0,
+            'scoring_ms' => 0.0,
+            'db_write_ms' => 0.0,
+            'total_wall_clock_ms' => 0.0,
+        ];
+
         $refColTypes = $reference->columns ? $reference->columns->pluck('data_type', 'name')->all() : [];
         $inpColTypes = $input->columns ? $input->columns->pluck('data_type', 'name')->all() : [];
 
@@ -570,43 +591,77 @@ class MatchingEngineService
         }
 
         // Candidate Generation Index for Phase 3 via Meilisearch
+        $indexInitStart = microtime(true);
         $httpClient = new \GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 10]);
         $client = new \Meilisearch\Client(env('MEILISEARCH_HOST', 'http://127.0.0.1:7700'), env('MEILISEARCH_KEY', ''), $httpClient);
-        $indexUid = 'job_' . str_replace('-', '_', $job->id) . '_reference';
+        $indexUid = 'matching_reference_' . str_replace('-', '_', $reference->id);
+        
+        $indexReused = false;
+        $isIndexValid = false;
         try {
-            $client->deleteIndex($indexUid);
-        } catch (\Throwable $e) {
-            // ignore if not exists
-        }
-        
-        // Extract just the exact mapped searchable fields for Meilisearch, plus the row key
-        $searchableDocuments = [];
-        $searchableAttributes = [];
-        foreach ($mappings as $mapping) {
-            $colName = $mapping['reference_column_name'] ?? '';
-            if ($colName !== '') {
-                $searchableAttributes[] = 'col_' . md5($colName);
+            $stats = $client->getIndex($indexUid)->stats();
+            if (isset($stats['numberOfDocuments']) && $stats['numberOfDocuments'] === count($referenceRows)) {
+                $isIndexValid = true;
             }
-        }
+        } catch (\Throwable $e) {}
         
-        foreach ($referenceRows as $refRecord) {
-            $doc = ['id' => $refRecord['key']];
-            foreach ($mappings as $mapping) {
-                $colName = $mapping['reference_column_name'] ?? '';
-                if ($colName !== '') {
-                    $doc['col_' . md5($colName)] = $refRecord['normalized'][$colName] ?? '';
-                }
-            }
-            $searchableDocuments[] = $doc;
-        }
+        if ($isIndexValid) {
+            $indexReused = true;
+        } else {
+            $lockKey = 'build_index_' . $indexUid;
+            $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 120);
+            try {
+                $lock->block(60); 
+                try {
+                    $stats = $client->getIndex($indexUid)->stats();
+                    if (isset($stats['numberOfDocuments']) && $stats['numberOfDocuments'] === count($referenceRows)) {
+                        $indexReused = true;
+                    }
+                } catch (\Throwable $e) {}
+                
+                if (!$indexReused) {
+                    try {
+                        $client->deleteIndex($indexUid);
+                    } catch (\Throwable $e) {}
+                    
+                    $searchableDocuments = [];
+                    $searchableAttributes = [];
+                    foreach ($mappings as $mapping) {
+                        $colName = $mapping['reference_column_name'] ?? '';
+                        if ($colName !== '') {
+                            $searchableAttributes[] = 'col_' . md5($colName);
+                        }
+                    }
+                    
+                    foreach ($referenceRows as $refRecord) {
+                        $doc = ['id' => $refRecord['key']];
+                        foreach ($mappings as $mapping) {
+                            $colName = $mapping['reference_column_name'] ?? '';
+                            if ($colName !== '') {
+                                $doc['col_' . md5($colName)] = $refRecord['normalized'][$colName] ?? '';
+                            }
+                        }
+                        $searchableDocuments[] = $doc;
+                    }
 
-        $index = $client->index($indexUid);
-        $task = $index->updateSearchableAttributes($searchableAttributes);
-        $client->waitForTask($task['taskUid']);
-        
-        $task = $index->addDocuments($searchableDocuments);
-        $client->waitForTask($task['taskUid']);
+                    $index = $client->index($indexUid);
+                    $task = $index->updateSearchableAttributes($searchableAttributes);
+                    $client->waitForTask($task['taskUid']);
+                    
+                    if (count($searchableDocuments) > 0) {
+                        foreach(array_chunk($searchableDocuments, 10000) as $chunkDocs) {
+                            $task = $index->addDocuments($chunkDocs);
+                            $client->waitForTask($task['taskUid']);
+                        }
+                    }
+                }
+            } finally {
+                $lock?->release();
+            }
+        }
         $indexes = ['uid' => $indexUid, 'client' => $client];
+        $metrics['INDEX_REUSED'] = $indexReused;
+        $metrics['index_initialization_ms'] = (microtime(true) - $indexInitStart) * 1000;
 
         $chunkSize = max(500, (int) ($configuration['runOptions']['chunkSize'] ?? 500));
         $workerCount = ($configuration['runOptions']['workerCount'] ?? 1);
@@ -622,6 +677,7 @@ class MatchingEngineService
         $memoizationCache = [];
 
         foreach (array_chunk($inputRows, $chunkSize) as $chunkIndex => $chunk) {
+            $scoringStart = microtime(true);
             $job->refresh();
             if ($job->status === 'cancelled' || $job->status === 'stopped') {
                 \Log::info("Matching job {$job->id} cancellation detected. Halting execution loop.");
@@ -669,13 +725,13 @@ class MatchingEngineService
                     continue;
                 }
 
-                $batchResultsCountBefore = count($batchResults);
                 $candidatesScoredForThisRecord = 0;
+                $exactMatchFound = false;
+                $exactMatchResults = [];
 
                 // -------------------------------------------------------------
                 // Phase 2: Mandatory / Exact Phase
                 // -------------------------------------------------------------
-                $exactMatchFound = false;
                 if ($hasMandatoryFields) {
                     $inpValues = [];
                     $allPresent = true;
@@ -720,7 +776,7 @@ class MatchingEngineService
                                     ],
                                 ];
 
-                                $batchResults[] = $this->resultRow(
+                                $resRow = $this->resultRow(
                                     $job,
                                     $inputRecord,
                                     $exactRef,
@@ -732,15 +788,19 @@ class MatchingEngineService
                                     $workerSlot,
                                     $evidence,
                                 );
+                                $batchResults[] = $resRow;
+                                $exactMatchResults[] = $resRow;
                             }
                         }
                     }
                 }
 
                 if ($exactMatchFound) {
-                    $myResults = array_slice($batchResults, $batchResultsCountBefore);
+                    if (count($memoizationCache) >= 1000) {
+                        $memoizationCache = array_slice($memoizationCache, -500, null, true);
+                    }
                     $memoizationCache[$cacheKey] = [
-                        'results' => $myResults,
+                        'results' => $exactMatchResults,
                         'status' => 'matched',
                         'candidates_scored' => $candidatesScoredForThisRecord,
                     ];
@@ -764,7 +824,6 @@ class MatchingEngineService
                 $searchQueriesToExecute[$idx] = [
                     'query' => $searchQuery,
                     'cacheKey' => $cacheKey,
-                    'batchResultsCountBefore' => $batchResultsCountBefore
                 ];
                 $recordsToEvaluate[$idx] = $inputRecord;
             }
@@ -783,7 +842,9 @@ class MatchingEngineService
                 }
                 
                 try {
+                    $msStart = microtime(true);
                     $multiResults = $indexes['client']->multiSearch($queries)['results'] ?? [];
+                    $metrics['multisearch_ms'] += (microtime(true) - $msStart) * 1000;
                     foreach ($multiResults as $resultIndex => $searchResult) {
                         $originalIdx = $idxMap[$resultIndex];
                         $searchResultsByIndex[$originalIdx] = $searchResult['hits'] ?? [];
@@ -797,8 +858,8 @@ class MatchingEngineService
             foreach ($recordsToEvaluate as $idx => $inputRecord) {
                 $meta = $searchQueriesToExecute[$idx];
                 $cacheKey = $meta['cacheKey'];
-                $batchResultsCountBefore = $meta['batchResultsCountBefore'];
                 $candidatesScoredForThisRecord = 0;
+                $recordFuzzyResults = [];
                 
                 $hits = $searchResultsByIndex[$idx] ?? [];
                 $candidates = [];
@@ -823,7 +884,7 @@ class MatchingEngineService
                 $summary['candidates_scored'] += count($scoredCandidates);
 
                 if ($scoredCandidates === []) {
-                    $batchResults[] = $this->resultRow(
+                    $unmatchedRow = $this->resultRow(
                         $job,
                         $inputRecord,
                         null,
@@ -852,10 +913,13 @@ class MatchingEngineService
                             ],
                         ],
                     );
+                    $batchResults[] = $unmatchedRow;
                     $summary['unmatched']++;
-                    $myResults = array_slice($batchResults, $batchResultsCountBefore);
+                    if (count($memoizationCache) >= 1000) {
+                        $memoizationCache = array_slice($memoizationCache, -500, null, true);
+                    }
                     $memoizationCache[$cacheKey] = [
-                        'results' => $myResults,
+                        'results' => [$unmatchedRow],
                         'status' => 'unmatched',
                         'candidates_scored' => $candidatesScoredForThisRecord,
                     ];
@@ -878,7 +942,7 @@ class MatchingEngineService
                 foreach ($scoredCandidates as $rank => $candidate) {
                     $classification = $candidate['classification'];
 
-                    $batchResults[] = $this->resultRow(
+                    $resRow = $this->resultRow(
                         $job,
                         $inputRecord,
                         $candidate['record'],
@@ -890,19 +954,27 @@ class MatchingEngineService
                         $workerSlot,
                         $candidate['verification_evidence'],
                     );
+                    $batchResults[] = $resRow;
+                    $recordFuzzyResults[] = $resRow;
                 }
 
-                $myResults = array_slice($batchResults, $batchResultsCountBefore);
+                if (count($memoizationCache) >= 1000) {
+                    $memoizationCache = array_slice($memoizationCache, -500, null, true);
+                }
                 $memoizationCache[$cacheKey] = [
-                    'results' => $myResults,
+                    'results' => $recordFuzzyResults,
                     'status' => $rowOutcome,
                     'candidates_scored' => $candidatesScoredForThisRecord,
                 ];
             }
 
+            $metrics['scoring_ms'] += (microtime(true) - $scoringStart) * 1000;
+            $dbStart = microtime(true);
             DB::transaction(function () use ($batchResults, $job, $processed, $chunk, $summary) {
                 if (! empty($batchResults)) {
-                    MatchingResult::insert($batchResults);
+                    foreach (array_chunk($batchResults, 50) as $insertBatch) {
+                        MatchingResult::insert($insertBatch);
+                    }
                 }
 
                 $job->update([
@@ -910,17 +982,15 @@ class MatchingEngineService
                     'record_counts' => $summary,
                 ]);
             });
+            $metrics['db_write_ms'] += (microtime(true) - $dbStart) * 1000;
 
             $processed += count($chunk);
             unset($batchResults, $searchQueriesToExecute, $recordsToEvaluate, $searchResultsByIndex, $chunk);
             gc_collect_cycles();
         }
 
-        if (isset($indexes['client']) && isset($indexes['uid'])) {
-            try {
-                $indexes['client']->deleteIndex($indexes['uid']);
-            } catch (\Throwable $e) {}
-        }
+        $metrics['total_wall_clock_ms'] = (microtime(true) - $totalWallClockStart) * 1000;
+        \Illuminate\Support\Facades\Log::info('MATCHING_METRICS', $metrics);
 
         return $summary;
     }
@@ -1459,5 +1529,36 @@ class MatchingEngineService
         }
 
         return $dataset->preview_rows ?? [];
+    }
+
+    /**
+     * Deduplicate input rows so identical company records appearing multiple times are only matched once.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    public function deduplicateInputRows(array $rows): array
+    {
+        $seen = [];
+        $unique = [];
+
+        foreach ($rows as $row) {
+            $normalizedRow = array_map(function ($val) {
+                if (is_string($val)) {
+                    return strtolower(trim($val));
+                }
+                return $val;
+            }, $row);
+            ksort($normalizedRow);
+
+            $sig = md5(json_encode($normalizedRow));
+
+            if (! isset($seen[$sig])) {
+                $seen[$sig] = true;
+                $unique[] = $row;
+            }
+        }
+
+        return $unique;
     }
 }

@@ -415,6 +415,25 @@ export type ReviewResults = {
     id: string;
     name: string | null;
     status: string;
+    thresholds?: {
+      autoMatch?: number;
+      review?: number;
+      noMatch?: number;
+      auto_match?: number;
+      needs_review?: number;
+      [key: string]: unknown;
+    } | null;
+    configuration?: {
+      thresholds?: {
+        autoMatch?: number;
+        review?: number;
+        noMatch?: number;
+        auto_match?: number;
+        needs_review?: number;
+        [key: string]: unknown;
+      } | null;
+      strategy?: string | null;
+    } | null;
   };
   summary: {
     matched: number;

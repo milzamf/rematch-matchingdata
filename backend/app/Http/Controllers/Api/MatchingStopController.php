@@ -11,13 +11,26 @@ class MatchingStopController extends Controller
 {
     public function __invoke(Request $request, MatchingJob $job): JsonResponse
     {
-        if (in_array($job->status, ['running', 'pending'])) {
-            $job->update(['status' => 'cancelled', 'error_message' => 'Matching stopped by user.']);
+        if (in_array($job->status, ['running', 'pending', 'processing', 'queued'])) {
+            $job->update([
+                'status' => 'cancelled',
+                'error_message' => 'Matching stopped by user.',
+                'finished_at' => \Illuminate\Support\Carbon::now(),
+            ]);
+
+            if ($job->workspace !== null) {
+                $job->workspace->update([
+                    'status' => 'configuring',
+                ]);
+            }
         }
         
         return response()->json([
             'success' => true,
             'message' => 'Job termination signal sent.',
+            'data' => [
+                'job' => $job->fresh(),
+            ],
         ]);
     }
 }

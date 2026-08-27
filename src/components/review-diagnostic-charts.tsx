@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
   ChevronDown,
   ChevronUp,
   Layers,
@@ -37,6 +36,16 @@ export interface ColumnMappingDraft {
 export interface ReviewDiagnosticChartsProps {
   items: ReviewItem[];
   columnMappings?: ColumnMappingDraft[];
+  thresholds?: {
+    autoMatch?: number;
+    review?: number;
+    noMatch?: number;
+    auto_match?: number;
+    needs_review?: number;
+    [key: string]: unknown;
+  } | null;
+  autoMatchThreshold?: number;
+  reviewThreshold?: number;
   defaultExpanded?: boolean;
 }
 
@@ -67,13 +76,49 @@ export interface ParetoStat {
 export function ReviewDiagnosticCharts({
   items,
   columnMappings = [],
+  thresholds,
+  autoMatchThreshold,
+  reviewThreshold,
   defaultExpanded = true,
 }: ReviewDiagnosticChartsProps) {
   const { t } = usePreferences();
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [activeTab, setActiveTab] = useState<"heatmap" | "pareto">("heatmap");
 
-  // 1. Compute Field Quality Heatmap Data across mapped comparison fields
+  // Dynamic thresholds resolution from active matching configuration
+  const autoMatch = Math.max(
+    1,
+    Math.min(
+      100,
+      Math.round(
+        typeof autoMatchThreshold === "number"
+          ? autoMatchThreshold
+          : typeof thresholds?.autoMatch === "number"
+            ? thresholds.autoMatch
+            : typeof thresholds?.auto_match === "number"
+              ? thresholds.auto_match
+              : 85,
+      ),
+    ),
+  );
+
+  const reviewMin = Math.max(
+    0,
+    Math.min(
+      autoMatch,
+      Math.round(
+        typeof reviewThreshold === "number"
+          ? reviewThreshold
+          : typeof thresholds?.review === "number"
+            ? thresholds.review
+            : typeof thresholds?.needs_review === "number"
+              ? thresholds.needs_review
+              : 70,
+      ),
+    ),
+  );
+
+  // 1. Compute Field Quality Summary Data across mapped comparison fields with dynamic thresholds
   const fieldQualityStats = useMemo<FieldQualityStat[]>(() => {
     if (!items || items.length === 0) return [];
 
@@ -144,9 +189,13 @@ export function ReviewDiagnosticCharts({
 
       for (const score of val.scores) {
         sumScore += score;
-        if (score >= 85) highCount++;
-        else if (score >= 70) medCount++;
-        else lowCount++;
+        if (score >= autoMatch) {
+          highCount++;
+        } else if (score >= reviewMin) {
+          medCount++;
+        } else {
+          lowCount++;
+        }
       }
 
       const avgScore = Math.round(sumScore / total);
@@ -166,7 +215,7 @@ export function ReviewDiagnosticCharts({
     }
 
     return result.sort((a, b) => b.totalEvaluated - a.totalEvaluated);
-  }, [items, columnMappings]);
+  }, [items, columnMappings, autoMatch, reviewMin]);
 
   // 2. Compute Pareto Root-Cause Distribution for Review/Unmatched records
   const paretoStats = useMemo<ParetoStat[]>(() => {
@@ -234,7 +283,7 @@ export function ReviewDiagnosticCharts({
         causeCounts["review.rootCause.similarName"]++;
       } else if (
         pattern === "LOW_CONFIDENCE_MATCH" ||
-        (topCandidate && topCandidate.score < 80)
+        (topCandidate && topCandidate.score < autoMatch)
       ) {
         causeCounts["review.rootCause.lowScore"]++;
       } else if (
@@ -273,7 +322,7 @@ export function ReviewDiagnosticCharts({
         isVitalFew,
       };
     });
-  }, [items]);
+  }, [items, autoMatch]);
 
   const paretoChartData = useMemo(() => {
     return paretoStats.map((stat) => ({
@@ -295,7 +344,7 @@ export function ReviewDiagnosticCharts({
   if (!items || items.length === 0) return null;
 
   return (
-    <Card className="overflow-hidden border-border bg-background shadow-sm transition-all">
+    <Card className="overflow-hidden border-border bg-background shadow-xs transition-all">
       {/* Collapsible Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-secondary/20 px-4 py-3 sm:px-5">
         <div className="flex items-center gap-2.5">
@@ -374,7 +423,7 @@ export function ReviewDiagnosticCharts({
         <div className="p-4 sm:p-5">
           {activeTab === "heatmap" ? (
             /* ============================================================ */
-            /* 1. COLUMN QUALITY HEATMAP                                     */
+            /* 1. QUALITY SUMMARY PER COLUMN (DYNAMIC THRESHOLDS)           */
             /* ============================================================ */
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -384,19 +433,24 @@ export function ReviewDiagnosticCharts({
                   </h4>
                   <p className="text-[11px] text-muted-foreground">{t("review.heatmap.desc")}</p>
                 </div>
-                {/* Heatmap Legend */}
+                {/* Dynamic Quality Legend */}
                 <div className="flex items-center gap-3 text-[11px] font-medium text-muted-foreground">
                   <div className="flex items-center gap-1.5">
                     <span className="size-2.5 rounded-xs bg-[#16a34a]" />
-                    <span>{t("review.heatmap.highTier")}</span>
+                    <span>{t("review.heatmap.highTier", { min: autoMatch })}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="size-2.5 rounded-xs bg-[#d97706]" />
-                    <span>{t("review.heatmap.medTier")}</span>
+                    <span>
+                      {t("review.heatmap.medTier", {
+                        min: reviewMin,
+                        max: autoMatch > reviewMin ? autoMatch - 1 : autoMatch,
+                      })}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="size-2.5 rounded-xs bg-[#dc2626]" />
-                    <span>{t("review.heatmap.lowTier")}</span>
+                    <span>{t("review.heatmap.lowTier", { max: reviewMin })}</span>
                   </div>
                 </div>
               </div>
@@ -409,56 +463,80 @@ export function ReviewDiagnosticCharts({
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {fieldQualityStats.map((stat) => {
                     const avgToneClass =
-                      stat.avgScore >= 85
-                        ? "text-emerald-600 bg-emerald-500/10 border-emerald-500/30"
-                        : stat.avgScore >= 70
-                          ? "text-amber-600 bg-amber-500/10 border-amber-500/30"
-                          : "text-rose-600 bg-rose-500/10 border-rose-500/30";
+                      stat.avgScore >= autoMatch
+                        ? "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                        : stat.avgScore >= reviewMin
+                          ? "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30"
+                          : "text-rose-700 dark:text-rose-400 bg-rose-500/10 border-rose-500/30";
 
                     return (
                       <div
                         key={stat.fieldKey}
-                        className="flex flex-col justify-between rounded-lg border border-border bg-secondary/15 p-3.5 transition-colors hover:bg-secondary/30"
+                        className="flex flex-col justify-between rounded-xl border border-border bg-card p-3.5 shadow-2xs transition-all hover:border-brand/30 hover:shadow-xs"
                       >
                         <div>
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-bold text-foreground">
-                                {stat.inputColumn}
-                              </p>
-                              <p className="truncate text-[11px] text-muted-foreground">
-                                ↔ {stat.referenceColumn}
-                              </p>
+                          {/* 1. Pasangan Kolom & Rata-rata Kemiripan */}
+                          <div className="flex items-start justify-between gap-2.5">
+                            <div className="min-w-0 flex-1 space-y-1">
+                              {/* Data Input */}
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
+                                  {t("review.heatmap.inputData")}
+                                </span>
+                                <p
+                                  className="truncate text-xs font-semibold text-foreground"
+                                  title={stat.inputColumn}
+                                >
+                                  {stat.inputColumn}
+                                </p>
+                              </div>
+
+                              {/* Data Acuan */}
+                              <div className="flex items-center gap-1.5 min-w-0 text-muted-foreground">
+                                <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                                  {t("review.heatmap.referenceData")}
+                                </span>
+                                <p
+                                  className="truncate text-[11px] font-medium"
+                                  title={stat.referenceColumn}
+                                >
+                                  {stat.referenceColumn}
+                                </p>
+                              </div>
                             </div>
-                            <span
-                              className={`rounded-md border px-2 py-0.5 text-xs font-bold tabular-nums ${avgToneClass}`}
-                            >
-                              {stat.avgScore}%
-                            </span>
+
+                            {/* 2. Rata-rata Kemiripan */}
+                            <div className="flex shrink-0 flex-col items-end">
+                              <span
+                                className={`rounded-lg border px-2 py-0.5 text-xs font-bold tabular-nums shadow-2xs ${avgToneClass}`}
+                              >
+                                {stat.avgScore}%
+                              </span>
+                            </div>
                           </div>
 
-                          {/* Segmented Tier Distribution Bar */}
-                          <div className="mt-3 space-y-1.5">
+                          {/* 3. Distribusi Tingkat Kemiripan */}
+                          <div className="mt-3.5 space-y-1.5">
                             <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-secondary/80">
                               {stat.highPct > 0 && (
                                 <div
                                   className="h-full bg-[#16a34a] transition-all"
                                   style={{ width: `${stat.highPct}%` }}
-                                  title={`${t("review.heatmap.highTier")}: ${stat.highCount} (${stat.highPct}%)`}
+                                  title={`${t("review.heatmap.highTier", { min: autoMatch })}: ${stat.highCount} (${stat.highPct}%)`}
                                 />
                               )}
                               {stat.medPct > 0 && (
                                 <div
                                   className="h-full bg-[#d97706] transition-all"
                                   style={{ width: `${stat.medPct}%` }}
-                                  title={`${t("review.heatmap.medTier")}: ${stat.medCount} (${stat.medPct}%)`}
+                                  title={`${t("review.heatmap.medTier", { min: reviewMin, max: autoMatch > reviewMin ? autoMatch - 1 : autoMatch })}: ${stat.medCount} (${stat.medPct}%)`}
                                 />
                               )}
                               {stat.lowPct > 0 && (
                                 <div
                                   className="h-full bg-[#dc2626] transition-all"
                                   style={{ width: `${stat.lowPct}%` }}
-                                  title={`${t("review.heatmap.lowTier")}: ${stat.lowCount} (${stat.lowPct}%)`}
+                                  title={`${t("review.heatmap.lowTier", { max: reviewMin })}: ${stat.lowCount} (${stat.lowPct}%)`}
                                 />
                               )}
                             </div>
@@ -466,21 +544,31 @@ export function ReviewDiagnosticCharts({
                             {/* Detailed Tier Count breakdown */}
                             <div className="flex items-center justify-between text-[10px] font-semibold tabular-nums">
                               <span className="text-emerald-600">
-                                {stat.highPct}% <span className="text-muted-foreground font-normal">({stat.highCount})</span>
+                                {stat.highPct}%{" "}
+                                <span className="font-normal text-muted-foreground">
+                                  ({stat.highCount})
+                                </span>
                               </span>
                               <span className="text-amber-600">
-                                {stat.medPct}% <span className="text-muted-foreground font-normal">({stat.medCount})</span>
+                                {stat.medPct}%{" "}
+                                <span className="font-normal text-muted-foreground">
+                                  ({stat.medCount})
+                                </span>
                               </span>
                               <span className="text-rose-600">
-                                {stat.lowPct}% <span className="text-muted-foreground font-normal">({stat.lowCount})</span>
+                                {stat.lowPct}%{" "}
+                                <span className="font-normal text-muted-foreground">
+                                  ({stat.lowCount})
+                                </span>
                               </span>
                             </div>
                           </div>
                         </div>
 
-                        <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
+                        {/* 4. Jumlah Record yang Dievaluasi */}
+                        <div className="mt-3.5 flex items-center justify-between border-t border-border/60 pt-2.5 text-[10px] text-muted-foreground">
                           <span>{t("review.heatmap.avgScore")}</span>
-                          <span className="font-medium text-foreground">
+                          <span className="font-semibold text-foreground">
                             {t("review.heatmap.comparisons", { count: stat.totalEvaluated })}
                           </span>
                         </div>

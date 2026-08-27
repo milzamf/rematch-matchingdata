@@ -3,12 +3,15 @@ import re
 with open('app/Services/Matching/MatchingEngineService.php', 'r') as f:
     code = f.read()
 
-ms_old = """$client = new \Meilisearch\Client(env('MEILISEARCH_HOST', 'http://127.0.0.1:7700'), env('MEILISEARCH_KEY', ''));"""
-ms_new = """$httpClient = new \GuzzleHttp\Client(['timeout' => 300, 'connect_timeout' => 10]);
-        $client = new \Meilisearch\Client(env('MEILISEARCH_HOST', 'http://127.0.0.1:7700'), env('MEILISEARCH_KEY', ''), $httpClient);"""
-
-code = code.replace(ms_old, ms_new)
+code = re.sub(
+    r'(\$multiResults = \$indexes\[\'client\'\]->multiSearch\(\$queries\)\[\'results\'\] \?\? \[\];)',
+    r'''\Log::info("MULTISEARCH_START");
+                    $msStart = microtime(true);
+                    \1
+                    \Log::info("MULTISEARCH_END");
+                    \Log::info("MULTISEARCH_DURATION_MS", ['duration' => (microtime(true) - $msStart) * 1000, 'query_count' => count($queries)]);
+''', code)
 
 with open('app/Services/Matching/MatchingEngineService.php', 'w') as f:
     f.write(code)
-print("PATCHED MEILISEARCH TIMEOUT")
+print("PATCHED MULTISEARCH")

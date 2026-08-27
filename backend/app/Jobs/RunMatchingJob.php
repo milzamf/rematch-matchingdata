@@ -17,9 +17,9 @@ class RunMatchingJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 3600;
+    public int $timeout = 600;
 
-    public int $tries = 1;
+    public int $tries = 3;
 
     public function __construct(public string $matchingJobId)
     {
@@ -27,6 +27,8 @@ class RunMatchingJob implements ShouldQueue
 
     public function handle(MatchingEngineService $engine): void
     {
+        @ini_set('memory_limit', '1024M');
+
         $job = MatchingJob::with(['workspace', 'referenceDataset', 'inputDataset'])->find($this->matchingJobId);
 
         if (! $job) {
@@ -43,7 +45,7 @@ class RunMatchingJob implements ShouldQueue
 
             $job->update([
                 'status' => 'failed',
-                'error_message' => $exception->getMessage(),
+                'error_message' => substr($exception->getMessage(), 0, 1000),
                 'finished_at' => Carbon::now(),
             ]);
 
@@ -55,5 +57,14 @@ class RunMatchingJob implements ShouldQueue
 
             throw $exception;
         }
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        \Log::error("RunMatchingJob permanent failure: " . $exception->getMessage());
+        MatchingJob::where('id', $this->matchingJobId)->update([
+            'status' => 'failed',
+            'error_message' => substr($exception->getMessage(), 0, 1000),
+        ]);
     }
 }

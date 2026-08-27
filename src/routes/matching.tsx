@@ -405,6 +405,7 @@ function MatchingPage() {
     (jobId: string, currentWorkspaceId: string | null) => {
       if (pollingTimeoutRef.current) {
         clearTimeout(pollingTimeoutRef.current);
+        pollingTimeoutRef.current = null;
       }
 
       const checkStatus = async () => {
@@ -415,9 +416,10 @@ function MatchingPage() {
           const currentStatus = statusResult.job.status;
           const pct = statusResult.progress.percentage ?? 0;
 
-          if (currentStatus === "completed" || currentStatus === "cancelled" || currentStatus === "stopped" || pct >= 100) {
+          if (currentStatus === "completed" || pct >= 100) {
             if (pollingTimeoutRef.current) {
               clearTimeout(pollingTimeoutRef.current);
+              pollingTimeoutRef.current = null;
             }
             setProgress(100);
             setRunState("success");
@@ -430,18 +432,41 @@ function MatchingPage() {
             return;
           }
 
+          if (currentStatus === "cancelled" || currentStatus === "stopped") {
+            if (pollingTimeoutRef.current) {
+              clearTimeout(pollingTimeoutRef.current);
+              pollingTimeoutRef.current = null;
+            }
+            setProgress(0);
+            setRunState("idle");
+            return;
+          }
+
           if (currentStatus === "failed") {
+            if (pollingTimeoutRef.current) {
+              clearTimeout(pollingTimeoutRef.current);
+              pollingTimeoutRef.current = null;
+            }
             setProgress(0);
             setRunState("failed");
             setRunError(statusResult.job.error_message ?? t("matching.run.failedGeneric"));
             return;
           }
 
+          if (currentStatus !== "processing" && currentStatus !== "queued") {
+            if (pollingTimeoutRef.current) {
+              clearTimeout(pollingTimeoutRef.current);
+              pollingTimeoutRef.current = null;
+            }
+            setRunState("idle");
+            return;
+          }
+
           // Job is still processing or queued
-          setProgress(Math.max(10, Math.min(95, pct)));
+          setProgress(pct);
           setRunState("running");
 
-          // Keep polling until the backend explicitly returns 'completed' or 'failed'
+          // Keep polling until the backend explicitly returns 'completed', 'cancelled', 'stopped', or 'failed'
           pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
         } catch (error) {
           // On network errors, wait a bit longer and retry indefinitely
@@ -483,22 +508,34 @@ function MatchingPage() {
         const restoredConfiguration =
           (snapshot?.matchingConfiguration as MatchingConfiguration | null | undefined) ?? null;
         const restoredRunResult = snapshot?.runResult ?? jobToRunResult(workspace);
-        const restoredRunState =
-          (snapshot?.runState as RunState | undefined) ??
-          (restoredRunResult
-            ? restoredRunResult.job.status === "completed"
-              ? "success"
-              : restoredRunResult.job.status === "failed"
-                ? "failed"
-                : "running"
-            : "idle");
+        const actualJobStatus = workspace.matching_job?.status ?? snapshot?.runResult?.job.status ?? null;
+        
+        let restoredRunState: RunState = "idle";
+        if (actualJobStatus === "completed") {
+          restoredRunState = "success";
+        } else if (actualJobStatus === "failed") {
+          restoredRunState = "failed";
+        } else if (actualJobStatus === "cancelled" || actualJobStatus === "stopped") {
+          restoredRunState = "idle";
+        } else if (actualJobStatus === "processing" || actualJobStatus === "queued") {
+          restoredRunState = (snapshot?.runState as RunState | undefined) === "running" ? "running" : "idle";
+        } else {
+          restoredRunState = (snapshot?.runState as RunState | undefined) ?? "idle";
+        }
+
         const restoredSyncState = normalizeSyncState(
           (snapshot?.syncState as SyncState | null | undefined) ??
             (workspace.sync_state as SyncState | null | undefined) ??
             null,
         );
-        const restoredProgress = snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0;
-        const restoredRunError = snapshot?.runError ?? restoredRunResult?.job.error_message ?? null;
+        const restoredProgress =
+          actualJobStatus === "cancelled" || actualJobStatus === "stopped"
+            ? 0
+            : (snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0);
+        const restoredRunError =
+          actualJobStatus === "cancelled" || actualJobStatus === "stopped"
+            ? null
+            : (snapshot?.runError ?? restoredRunResult?.job.error_message ?? null);
         const restoredHasCompletedMapping =
           restoredMappings?.filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
             .length > 0 && !hasDuplicateReference(restoredMappings);
@@ -549,9 +586,8 @@ function MatchingPage() {
 
         if (
           restoredRunResult?.job.id &&
-          (restoredRunResult.job.status === "processing" ||
-            restoredRunResult.job.status === "queued" ||
-            restoredRunState === "running")
+          (actualJobStatus === "processing" || actualJobStatus === "queued") &&
+          restoredRunState === "running"
         ) {
           pollMatchingJob(restoredRunResult.job.id, workspace.id);
         }
@@ -887,7 +923,7 @@ function MatchingPage() {
         setRunError(result.job.error_message ?? t("matching.run.failedGeneric"));
       } else {
         // "processing" | "queued"
-        setProgress(Math.max(10, result.progress.percentage || 10));
+        setProgress(result.progress.percentage || 0);
         setRunState("running");
         pollMatchingJob(result.job.id, workspaceId);
       }
@@ -905,14 +941,43 @@ function MatchingPage() {
     
     if (pollingTimeoutRef.current) {
       clearTimeout(pollingTimeoutRef.current);
+      pollingTimeoutRef.current = null;
     }
     
+    setIsCancelConfirmOpen(false);
     setRunState("idle");
     setProgress(0);
-    setIsCancelConfirmOpen(false);
+    
+    const jobId = runResult.job.id;
+    const cancelledRunResult: MatchingRunResult = {
+      ...runResult,
+      job: {
+        ...runResult.job,
+        status: "cancelled",
+        error_message: "Matching stopped by user.",
+      },
+      progress: {
+        ...runResult.progress,
+        status: "cancelled",
+        percentage: 0,
+      },
+    };
+    setRunResult(cancelledRunResult);
     
     try {
-      await stopMatching(runResult.job.id);
+      await stopMatching(jobId);
+      if (workspaceId && canUpdateWorkspace) {
+        void updateWorkspace(workspaceId, {
+          status: "configuring",
+          currentStep: 2,
+          workflowState: {
+            ...workspaceSnapshot,
+            runState: "idle",
+            progress: 0,
+            runResult: cancelledRunResult,
+          },
+        });
+      }
       toast.success("Proses matching berhasil dibatalkan.");
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : "Gagal menghentikan matching.");
@@ -4257,7 +4322,7 @@ function StepRunCard({
                 </span>
                 <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
                   <Sparkles className="w-3 h-3 text-emerald-500"/>
-                  Meilisearch Engine: Generating Candidates (MultiSearch Batch Mode)
+                  Engine: Meilisearch MultiSearch Active (Batch Mode)
                 </span>
               </div>
             </div>
@@ -4776,7 +4841,10 @@ function StepReview({
         (nextItem) => nextItem.input_record_key === item.input_record_key,
       );
       if (updated) {
-        setSelected(updated);
+        setSelected((current) => {
+          if (!current || current.input_record_key !== item.input_record_key) return current;
+          return updated;
+        });
         if (candidate?.id) {
           const matchedCandidate = updated.candidates?.find((entry) => entry.id === candidate.id);
           setSelectedCandidateId(matchedCandidate?.id ?? updated.candidates[0]?.id ?? null);
@@ -4876,7 +4944,10 @@ function StepReview({
         const updated = next.items?.find(
           (nextItem) => nextItem.input_record_key === selectedInputKey,
         );
-        setSelected(updated ?? null);
+        setSelected((current) => {
+          if (!current || current.input_record_key !== selectedInputKey) return current;
+          return updated ?? null;
+        });
       }
       toast.success(t("matching.review.undoSaved"));
     } catch (err) {
@@ -4936,9 +5007,13 @@ function StepReview({
     <>
       <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
 
-      {/* Review Diagnostic Charts (Field Quality Heatmap & Pareto Breakdown) */}
+      {/* Review Diagnostic Charts (Field Quality Summary & Pareto Breakdown) */}
       <div className="mb-6">
-        <ReviewDiagnosticCharts items={items} columnMappings={columnMappings} />
+        <ReviewDiagnosticCharts
+          items={items}
+          columnMappings={columnMappings}
+          thresholds={review?.job?.thresholds ?? review?.job?.configuration?.thresholds}
+        />
       </div>
 
       <div className="mb-4 grid gap-3 lg:grid-cols-[auto_1fr_auto] lg:items-center">
@@ -5059,14 +5134,14 @@ function StepReview({
           ) : (
             <div className="border border-border rounded-lg overflow-hidden">
               <div className="max-h-[520px] overflow-auto">
-                <table className="w-full min-w-[980px] text-sm" style={{ tableLayout: "fixed" }}>
+                <table className="w-full min-w-[1080px] text-sm" style={{ tableLayout: "fixed" }}>
                   <colgroup>
-                    <col />
-                    <col />
-                    <col style={{ width: "120px" }} />
-                    <col style={{ width: "150px" }} />
-                    <col style={{ width: "120px" }} />
-                    <col style={{ width: "210px" }} />
+                    <col style={{ width: "320px" }} />
+                    <col style={{ width: "320px" }} />
+                    <col style={{ width: "100px" }} />
+                    <col style={{ width: "140px" }} />
+                    <col style={{ width: "90px" }} />
+                    <col style={{ width: "200px" }} />
                   </colgroup>
                   <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
                     <tr>
@@ -5107,22 +5182,14 @@ function StepReview({
                           className="cursor-pointer hover:bg-secondary/40"
                         >
                           <td className="px-4 py-3 min-w-0">
-                            <p className="text-sm font-medium truncate">{inputIdentity.headline}</p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {inputIdentity.meta}
-                            </p>
+                            <IdentityCell identity={inputIdentity} />
                           </td>
                           <td className="px-4 py-3 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {hasReferenceCandidate
-                                ? (referenceIdentity?.headline ?? t("matching.review.noCandidate"))
-                                : t("matching.review.noCandidate")}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {hasReferenceCandidate
-                                ? (referenceIdentity?.meta ?? "-")
-                                : t("matching.review.noCandidateDesc")}
-                            </p>
+                            <IdentityCell
+                              identity={referenceIdentity}
+                              emptyHeadline={t("matching.review.noCandidate")}
+                              emptyMeta={t("matching.review.noCandidateDesc")}
+                            />
                           </td>
                           <td
                             className={`px-4 py-3 text-right tabular-nums font-semibold ${scoreTone(candidate?.score ?? 0)}`}
@@ -6075,7 +6142,7 @@ function GroupReviewSubview({
           <table className="w-full min-w-[1180px] text-sm">
             <thead className="sticky top-0 z-10 bg-secondary/60 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="w-12 px-3 py-2 text-left">
+                <th className="w-10 px-3 py-2 text-left">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -6084,20 +6151,22 @@ function GroupReviewSubview({
                     aria-label={t("matching.review.selectAll")}
                   />
                 </th>
-                <th className="px-3 py-2 text-left font-medium">{t("matching.review.input")}</th>
-                <th className="px-3 py-2 text-left font-medium">
+                <th className="w-[320px] min-w-[260px] px-3 py-2 text-left font-medium">
+                  {t("matching.review.input")}
+                </th>
+                <th className="w-[320px] min-w-[260px] px-3 py-2 text-left font-medium">
                   {t("matching.review.reference")}
                 </th>
-                <th className="w-28 px-3 py-2 text-right font-medium">
+                <th className="w-24 px-3 py-2 text-right font-medium">
                   {t("matching.review.similarity")}
                 </th>
-                <th className="px-3 py-2 text-left font-medium">
+                <th className="w-[280px] min-w-[240px] px-3 py-2 text-left font-medium">
                   {t("matching.review.differenceSummary")}
                 </th>
-                <th className="w-44 px-3 py-2 text-left font-medium">
+                <th className="w-36 px-3 py-2 text-left font-medium">
                   {t("matching.review.decisionStatus")}
                 </th>
-                <th className="w-[320px] px-3 py-2 text-right font-medium">{t("common.action")}</th>
+                <th className="w-20 px-3 py-2 text-right font-medium">{t("common.action")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -6125,26 +6194,22 @@ function GroupReviewSubview({
                       />
                     </td>
                     <td className="px-3 py-3 min-w-0">
-                      <p className="truncate font-medium">{inputIdentity.headline}</p>
-                      <p className="truncate text-xs text-muted-foreground">{inputIdentity.meta}</p>
+                      <IdentityCell identity={inputIdentity} />
                     </td>
                     <td className="px-3 py-3 min-w-0">
-                      <p className="truncate font-medium">
-                        {referenceIdentity?.headline ?? t("matching.review.noCandidate")}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {referenceIdentity?.meta ?? t("matching.review.noCandidateDesc")}
-                      </p>
+                      <IdentityCell
+                        identity={referenceIdentity}
+                        emptyHeadline={t("matching.review.noCandidate")}
+                        emptyMeta={t("matching.review.noCandidateDesc")}
+                      />
                     </td>
                     <td
                       className={`px-3 py-3 text-right font-semibold tabular-nums ${scoreTone(candidate?.score ?? 0)}`}
                     >
                       {candidate ? `${candidate.score}%` : "-"}
                     </td>
-                    <td className="px-3 py-3">
-                      <p className="text-xs text-muted-foreground">
-                        {buildDifferenceSummary(candidate?.field_scores ?? [], t)}
-                      </p>
+                    <td className="px-3 py-3 min-w-0">
+                      <DifferenceSummaryCell scores={candidate?.field_scores ?? []} t={t} />
                     </td>
                     <td className="px-3 py-3">
                       <span
@@ -6224,6 +6289,145 @@ function GroupReviewSubview({
       </div>
 
       <DecisionHistory history={group.decision_history ?? []} />
+    </div>
+  );
+}
+
+function IdentityCell({
+  identity,
+  emptyHeadline = "-",
+  emptyMeta = "-",
+  className = "",
+}: {
+  identity: ReturnType<typeof buildSideIdentity> | null;
+  emptyHeadline?: string;
+  emptyMeta?: string;
+  className?: string;
+}) {
+  if (!identity || !identity.headline || identity.headline === "-") {
+    return (
+      <div className={`space-y-0.5 ${className}`}>
+        <p className="text-xs font-semibold text-muted-foreground">{emptyHeadline}</p>
+        <p className="text-[11px] text-muted-foreground/70">{emptyMeta}</p>
+      </div>
+    );
+  }
+
+  const headline = identity.headline;
+
+  // 1. Identifiers (NPWP, etc.) & contacts
+  const identifiers = identity.fields
+    .filter((f) => f.semantic === "strong_identifier" && f.value !== headline)
+    .map((f) => (f.label ? `${f.label}: ${f.value}` : f.value));
+
+  const contacts = identity.fields
+    .filter(
+      (f) =>
+        (f.semantic === "email" || f.semantic === "phone") &&
+        f.value !== headline &&
+        f.value !== "-" &&
+        f.value !== "Telepon -" &&
+        f.value !== "Email -",
+    )
+    .map((f) => (f.label ? `${f.label}: ${f.value}` : f.value));
+
+  const secondLineParts = [...identifiers, ...contacts].filter(Boolean);
+  const secondLine = secondLineParts.join(" • ") || null;
+
+  // 2. Address and City / Province
+  const addressField = identity.fields.find(
+    (f) => f.semantic === "address" && f.value !== headline,
+  );
+  const cityField = identity.fields.find((f) => f.semantic === "city" && f.value !== headline);
+  const provField = identity.fields.find((f) => f.semantic === "province" && f.value !== headline);
+
+  const locParts: string[] = [];
+  if (addressField?.value && addressField.value !== "-") {
+    locParts.push(addressField.value);
+  }
+  const cityProv = [cityField?.value, provField?.value].filter(Boolean).join(", ");
+  if (cityProv && !locParts.some((p) => p.includes(cityProv))) {
+    locParts.push(cityProv);
+  }
+
+  // Fallback: If secondLine or thirdLine are empty, use parts of identity.meta
+  let thirdLine = locParts.join(" — ") || null;
+  if (!secondLine && !thirdLine && identity.meta && identity.meta !== "-") {
+    thirdLine = identity.meta;
+  }
+
+  return (
+    <div className={`flex flex-col gap-0.5 max-w-[340px] min-w-0 ${className}`}>
+      {/* Baris 1: Nama Entitas */}
+      <p className="truncate text-xs font-bold text-foreground" title={headline}>
+        {headline}
+      </p>
+
+      {/* Baris 2: Identifier / NPWP / Kontak */}
+      {secondLine && (
+        <p className="truncate text-[11px] font-medium text-muted-foreground" title={secondLine}>
+          {secondLine}
+        </p>
+      )}
+
+      {/* Baris 3: Alamat / Wilayah */}
+      {thirdLine && (
+        <p
+          className="line-clamp-2 text-[11px] leading-tight text-muted-foreground/80"
+          title={thirdLine}
+        >
+          {thirdLine}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function DifferenceSummaryCell({
+  scores,
+  t,
+}: {
+  scores: ReviewCandidate["field_scores"];
+  t: ReturnType<typeof usePreferences>["t"];
+}) {
+  const meaningful = sortFieldScores(scores).filter((field) => field.comparison !== "same");
+
+  if (meaningful.length === 0) {
+    if (scores && scores.length > 0) {
+      return (
+        <span className="inline-flex items-center rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+          {t("matching.review.same")}
+        </span>
+      );
+    }
+    return <span className="text-xs text-muted-foreground">-</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5 max-w-[280px]">
+      {meaningful.slice(0, 3).map((field) => {
+        const label = humanizeFieldLabel(field.input_column);
+        const compLabel = comparisonLabel(field.comparison, t);
+        const isDifferent = field.comparison === "different";
+        const isSimilar = field.comparison === "similar";
+
+        const badgeColor = isDifferent
+          ? "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20"
+          : isSimilar
+            ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+            : "bg-secondary text-muted-foreground border-border";
+
+        return (
+          <span
+            key={`${field.reference_column}-${field.input_column}`}
+            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium leading-normal ${badgeColor}`}
+            title={`${label}: ${compLabel}`}
+          >
+            <span className="font-semibold">{label}:</span>
+            <span>{compLabel}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }

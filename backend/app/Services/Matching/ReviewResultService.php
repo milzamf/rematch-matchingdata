@@ -69,6 +69,11 @@ class ReviewResultService
                 'id' => $job->id,
                 'name' => $job->name,
                 'status' => $job->status,
+                'thresholds' => $job->configuration?->thresholds ?? null,
+                'configuration' => [
+                    'thresholds' => $job->configuration?->thresholds ?? null,
+                    'strategy' => $job->configuration?->strategy ?? null,
+                ],
             ],
             'summary' => [
                 'matched' => $items->where('status', 'matched')->count(),
