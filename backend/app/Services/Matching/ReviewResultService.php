@@ -29,15 +29,14 @@ class ReviewResultService
             ->orderBy('input_record_key')
             ->orderBy('candidate_rank')
             ->get();
-        $latestDecisions = $job->reviewDecisions()
-            ->whereNull('undone_at')
+        $allDecisions = $job->reviewDecisions()
             ->latest()
-            ->get()
+            ->get();
+        $latestDecisions = $allDecisions
+            ->whereNull('undone_at')
             ->unique('input_record_key')
             ->keyBy('input_record_key');
-        $decisionHistory = $job->reviewDecisions()
-            ->latest()
-            ->get()
+        $decisionHistory = $allDecisions
             ->groupBy('input_record_key');
 
         $items = $results->groupBy('input_record_key')->map(function ($group, string $inputKey) use ($latestDecisions, $decisionHistory) {
@@ -64,6 +63,32 @@ class ReviewResultService
             ];
         })->values();
 
+        $recordCounts = $job->record_counts ?? [];
+        $totalRawInput = (int) ($recordCounts['total_raw_input'] ?? $job->inputDataset?->row_count ?? count($items));
+        $totalUniqueInput = (int) ($recordCounts['total_unique_input'] ?? count($items));
+        $totalDuplicates = (int) ($recordCounts['total_duplicates'] ?? max(0, $totalRawInput - $totalUniqueInput));
+        $duplicateDetails = $recordCounts['duplicate_details'] ?? [];
+
+        if (empty($duplicateDetails) && $totalDuplicates > 0 && $job->inputDataset) {
+            try {
+                $engine = app(\App\Services\Matching\MatchingEngineService::class);
+                $rawRows = $engine->loadDatasetRows($job->inputDataset);
+                $analysis = $engine->analyzeAndDeduplicateInputRows($rawRows);
+                $totalRawInput = $analysis['raw_count'];
+                $totalUniqueInput = $analysis['unique_count'];
+                $totalDuplicates = $analysis['duplicate_count'];
+                $duplicateDetails = array_slice($analysis['duplicate_details'], 0, 100);
+
+                $recordCounts['total_raw_input'] = $totalRawInput;
+                $recordCounts['total_unique_input'] = $totalUniqueInput;
+                $recordCounts['total_duplicates'] = $totalDuplicates;
+                $recordCounts['duplicate_details'] = $duplicateDetails;
+                $job->update(['record_counts' => $recordCounts]);
+            } catch (\Throwable $e) {
+                // Graceful fallback
+            }
+        }
+
         return [
             'job' => [
                 'id' => $job->id,
@@ -80,6 +105,10 @@ class ReviewResultService
                 'possible_match' => $items->where('status', 'possible_match')->count(),
                 'unmatched' => $items->where('status', 'unmatched')->count(),
                 'reviewed' => $items->filter(fn (array $item) => $item['decision'] !== null)->count(),
+                'total_raw_input' => $totalRawInput,
+                'total_unique_input' => $totalUniqueInput,
+                'total_duplicates' => $totalDuplicates,
+                'duplicate_details' => $duplicateDetails,
             ],
             'items' => $items->all(),
             'case_groups' => $this->caseGroups($items),

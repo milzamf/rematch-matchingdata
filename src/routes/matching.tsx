@@ -29,6 +29,10 @@ import {
   VerificationEvidenceBreakdown,
 } from "@/components/verification-evidence";
 import { ReviewDiagnosticCharts } from "@/components/review-diagnostic-charts";
+import {
+  DuplicateSummaryBanner,
+  DuplicateRecordsDialog,
+} from "@/components/duplicate-records-dialog";
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { DataPreviewTable } from "@/components/data-preview-table";
 import { TablePagination } from "@/components/ui/table-pagination";
@@ -388,18 +392,50 @@ function MatchingPage() {
       syncState,
     }),
     [
-      columnMappings,
-      input,
-      matchingConfiguration,
-      progress,
       reference,
-      runError,
-      runResult,
-      runState,
-      syncState,
+      input,
+      columnMappings,
+      matchingConfiguration,
       workspaceNameEdited,
+      runState,
+      progress,
+      runResult,
+      runError,
+      syncState,
     ],
   );
+
+  const referenceRef = useRef<UploadedFile | null>(reference);
+  const inputRef = useRef<UploadedFile | null>(input);
+  const workspaceMutexRef = useRef<Promise<void>>(Promise.resolve());
+  const workspaceNameRef = useRef(workspaceName);
+  const workspaceNameEditedRef = useRef(workspaceNameEdited);
+  const workspaceStatusRef = useRef(workspaceStatus);
+  const activeStepRef = useRef(activeStep);
+
+  useEffect(() => {
+    referenceRef.current = reference;
+  }, [reference]);
+
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+
+  useEffect(() => {
+    workspaceNameRef.current = workspaceName;
+  }, [workspaceName]);
+
+  useEffect(() => {
+    workspaceNameEditedRef.current = workspaceNameEdited;
+  }, [workspaceNameEdited]);
+
+  useEffect(() => {
+    workspaceStatusRef.current = workspaceStatus;
+  }, [workspaceStatus]);
+
+  useEffect(() => {
+    activeStepRef.current = activeStep;
+  }, [activeStep]);
 
   const pollMatchingJob = useCallback(
     (jobId: string, currentWorkspaceId: string | null) => {
@@ -742,7 +778,9 @@ function MatchingPage() {
       isHydratingWorkspace ||
       restoringWorkspaceRef.current ||
       !canUpdateWorkspace ||
-      runState === "running"
+      runState === "running" ||
+      reference?.status === "loading" ||
+      input?.status === "loading"
     ) {
       return;
     }
@@ -805,44 +843,67 @@ function MatchingPage() {
     isHydratingWorkspace,
   ]);
 
-  const ensureWorkspace = async (role: DatasetRole, result: DatasetInspectResult) => {
-    const existingWorkspaceId = workspaceIdRef.current;
-    const nextName = workspaceNameEdited
-      ? workspaceName
-      : buildWorkspaceName(role, result, reference, input, t("workspace.untitled"));
-    const nextReferenceDatasetId =
-      role === "reference" ? result.dataset.id : (reference?.result?.dataset.id ?? null);
-    const nextInputDatasetId =
-      role === "input" ? result.dataset.id : (input?.result?.dataset.id ?? null);
+  const ensureWorkspace = (role: DatasetRole, result: DatasetInspectResult) => {
+    const operation = async () => {
+      const existingWorkspaceId = workspaceIdRef.current;
+      const currentRef = role === "reference" ? result : referenceRef.current?.result;
+      const currentInp = role === "input" ? result : inputRef.current?.result;
+      const nextReferenceDatasetId = currentRef?.dataset?.id ?? null;
+      const nextInputDatasetId = currentInp?.dataset?.id ?? null;
 
-    try {
-      if (existingWorkspaceId) {
-        if (!canUpdateWorkspace) return;
-        await updateWorkspace(existingWorkspaceId, {
-          name: workspaceName,
-          status: workspaceStatus,
+      try {
+        if (existingWorkspaceId) {
+          if (!canUpdateWorkspace) return;
+          await updateWorkspace(existingWorkspaceId, {
+            name: workspaceNameRef.current,
+            status: workspaceStatusRef.current,
+            referenceDatasetId: nextReferenceDatasetId,
+            inputDatasetId: nextInputDatasetId,
+            currentStep: activeStepRef.current,
+          });
+          setWorkspaceSaveState("saved");
+          setWorkspaceError(null);
+          return;
+        }
+
+        if (!canCreateMatching) return;
+        setWorkspaceSaveState("saving");
+        const nextName = workspaceNameEditedRef.current
+          ? workspaceNameRef.current
+          : buildWorkspaceName(
+              role,
+              result,
+              referenceRef.current,
+              inputRef.current,
+              t("workspace.untitled"),
+            );
+
+        const workspace = await createWorkspace({
+          name: nextName,
+          status: "draft",
+          currentStep: activeStepRef.current,
           referenceDatasetId: nextReferenceDatasetId,
           inputDatasetId: nextInputDatasetId,
-          currentStep: activeStep,
         });
-        await hydrateWorkspace(existingWorkspaceId, { replaceUrl: true });
-        return;
-      }
 
-      if (!canCreateMatching) return;
-      setWorkspaceSaveState("saving");
-      const workspace = await createWorkspace({
-        name: nextName,
-        status: "draft",
-        currentStep: activeStep,
-        referenceDatasetId: nextReferenceDatasetId,
-        inputDatasetId: nextInputDatasetId,
-      });
-      await hydrateWorkspace(workspace.id, { replaceUrl: true });
-    } catch (error) {
-      setWorkspaceSaveState("error");
-      setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.saveFailed"));
-    }
+        workspaceIdRef.current = workspace.id;
+        setWorkspaceId(workspace.id);
+        setWorkspaceName(workspace.name);
+        setWorkspaceSaveState("saved");
+        setWorkspaceError(null);
+
+        navigate({
+          search: (prev: Record<string, unknown>) => ({ ...prev, workspace: workspace.id }),
+          replace: true,
+        });
+      } catch (error) {
+        setWorkspaceSaveState("error");
+        setWorkspaceError(error instanceof ApiError ? error.message : t("workspace.saveFailed"));
+      }
+    };
+
+    workspaceMutexRef.current = workspaceMutexRef.current.then(operation, operation);
+    return workspaceMutexRef.current;
   };
 
   const startRun = async () => {
@@ -991,30 +1052,59 @@ function MatchingPage() {
     }
 
     const err = validateFile(file, t);
-    const setFile = role === "reference" ? setReference : setInput;
 
     if (err) {
       setUploadError(err);
-      setFile({ name: file.name, size: file.size, status: "error", error: err });
+      const errorState: UploadedFile = { name: file.name, size: file.size, status: "error", error: err };
+      if (role === "reference") {
+        referenceRef.current = errorState;
+        setReference(errorState);
+      } else {
+        inputRef.current = errorState;
+        setInput(errorState);
+      }
       toast.error(t("feedback.toast.invalidFile"));
       return;
     }
 
     setUploadError(null);
-    setFile({ name: file.name, size: file.size, status: "loading" });
+    const loadingState: UploadedFile = { name: file.name, size: file.size, status: "loading" };
+    if (role === "reference") {
+      referenceRef.current = loadingState;
+      setReference(loadingState);
+    } else {
+      inputRef.current = loadingState;
+      setInput(loadingState);
+    }
 
     try {
       const result = await inspectDataset({ file, datasetRole: role });
+      const successState: UploadedFile = { name: file.name, size: file.size, status: "success", result };
+      if (role === "reference") {
+        referenceRef.current = successState;
+        setReference(successState);
+      } else {
+        inputRef.current = successState;
+        setInput(successState);
+      }
+
       setColumnMappings([]);
       setMatchingConfiguration(null);
       setSyncState(null);
-      setFile({ name: file.name, size: file.size, status: "success", result });
+
       await ensureWorkspace(role, result);
       toast.success(t("feedback.toast.uploaded", { name: file.name }));
     } catch (error) {
       const message =
         error instanceof ApiError ? error.message : t("matching.upload.inspectFailed");
-      setFile({ name: file.name, size: file.size, status: "error", error: message });
+      const failState: UploadedFile = { name: file.name, size: file.size, status: "error", error: message };
+      if (role === "reference") {
+        referenceRef.current = failState;
+        setReference(failState);
+      } else {
+        inputRef.current = failState;
+        setInput(failState);
+      }
       setUploadError(message);
       toast.error(t("feedback.toast.invalidFile"));
     }
@@ -1336,12 +1426,14 @@ function MatchingPage() {
                     input={input}
                     onInspectFile={handleInspectFile}
                     onClearReference={() => {
-                      if (reference)
-                        toast.info(t("feedback.toast.removed", { name: reference.name }));
+                      if (referenceRef.current)
+                        toast.info(t("feedback.toast.removed", { name: referenceRef.current.name }));
+                      referenceRef.current = null;
                       setReference(null);
                     }}
                     onClearInput={() => {
-                      if (input) toast.info(t("feedback.toast.removed", { name: input.name }));
+                      if (inputRef.current) toast.info(t("feedback.toast.removed", { name: inputRef.current.name }));
+                      inputRef.current = null;
                       setInput(null);
                     }}
                     error={uploadError}
@@ -2938,6 +3030,16 @@ function StepConfigV2({
   const [verificationOrder, setVerificationOrder] = useState<string[]>(
     () => configuration?.rules?.verificationOrder?.map((step) => step.mappingId) ?? [],
   );
+  const [enabledVerificationIds, setEnabledVerificationIds] = useState<Record<string, boolean>>(() => {
+    const existingOrder = configuration?.rules?.verificationOrder ?? [];
+    if (existingOrder.length > 0) {
+      const enabledSet = new Set(existingOrder.map((step) => step.mappingId));
+      return Object.fromEntries(
+        (configuration?.fields ?? []).map((field) => [field.mappingId, enabledSet.has(field.mappingId)]),
+      );
+    }
+    return {};
+  });
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [verificationThresholds, setVerificationThresholds] = useState<Record<string, number>>(() =>
@@ -3002,9 +3104,22 @@ function StepConfigV2({
   );
   const similarityFields = useMemo(() => fields?.filter((field) => !field.strict), [fields]);
   const strictFields = useMemo(() => fields?.filter((field) => field.strict), [fields]);
+
+  const toggleVerificationField = (mappingId: string) => {
+    setEnabledVerificationIds((current) => ({
+      ...current,
+      [mappingId]: current[mappingId] === false ? true : false,
+    }));
+  };
+
+  const activeVerificationFields = useMemo(
+    () => verificationOrder.filter((id) => enabledVerificationIds[id] !== false),
+    [verificationOrder, enabledVerificationIds],
+  );
+
   const verificationSteps = useMemo(
     () =>
-      verificationOrder
+      activeVerificationFields
         .map((id, index) => {
           const field = fields?.find((item) => item.id === id);
           if (!field) return null;
@@ -3030,7 +3145,7 @@ function StepConfigV2({
             threshold: number;
           } => Boolean(step),
         ),
-    [fields, methods, reviewThreshold, verificationOrder, verificationThresholds],
+    [activeVerificationFields, fields, methods, reviewThreshold, verificationThresholds],
   );
 
   useEffect(() => {
@@ -3225,8 +3340,7 @@ function StepConfigV2({
   const reorderVerificationSteps = (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
     setVerificationOrder((current) => {
-      const currentList = verificationSteps?.map((s) => s.mappingId);
-      const next = [...currentList];
+      const next = [...current];
       const [removed] = next.splice(fromIndex, 1);
       next.splice(toIndex, 0, removed);
       return next;
@@ -3630,26 +3744,6 @@ function StepConfigV2({
                   );
                 })}
               </div>
-              <details className="mt-3 rounded-md bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-                <summary className="cursor-pointer font-semibold text-foreground">
-                  {t("matching.configV2.standardizationInfo")}
-                </summary>
-                <p className="mt-2 leading-relaxed">{t("matching.configV2.standardizationDesc")}</p>
-              </details>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-md border border-border px-3 py-3">
-                  <p className="text-xs font-semibold">{t("matching.configV2.composite")}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t("matching.configV2.compositeDesc")}
-                  </p>
-                </div>
-                <div className="rounded-md border border-border px-3 py-3">
-                  <p className="text-xs font-semibold">{t("matching.configV2.ruleBased")}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {t("matching.configV2.ruleBasedDesc")}
-                  </p>
-                </div>
-              </div>
             </section>
 
             <section className="border-b border-border pb-5">
@@ -3723,7 +3817,12 @@ function StepConfigV2({
                   <table className="w-full min-w-[760px] text-left text-xs">
                     <thead className="bg-secondary/40 text-muted-foreground">
                       <tr>
-                        <th className="w-24 px-3 py-2 font-semibold">{t("matching.configV2.order")}</th>
+                        <th className="w-36 px-3 py-2 font-semibold">
+                          {t("matching.configV2.status")}
+                        </th>
+                        <th className="w-20 px-3 py-2 font-semibold">
+                          {t("matching.configV2.order")}
+                        </th>
                         <th className="px-3 py-2 font-semibold">{t("matching.configV2.field")}</th>
                         <th className="px-3 py-2 font-semibold">{t("matching.configV2.method")}</th>
                         <th className="px-3 py-2 text-right font-semibold">
@@ -3733,20 +3832,33 @@ function StepConfigV2({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {verificationSteps?.map((step, index) => {
-                        const field = fields?.find((item) => item.id === step.mappingId);
+                      {verificationOrder?.map((mappingId, index) => {
+                        const field = fields?.find((item) => item.id === mappingId);
+                        if (!field) return null;
+                        const isEnabled = enabledVerificationIds[mappingId] !== false;
+                        const activeIndex = activeVerificationFields.indexOf(mappingId);
+                        const orderNumber = isEnabled && activeIndex >= 0 ? activeIndex + 1 : null;
                         const isDragging = draggedIndex === index;
                         const isDragOver = dragOverIndex === index;
+                        const method: ConfigureAlgorithm = field.strict
+                          ? "Exact"
+                          : (methods[field.id]?.algorithm ?? field.algorithm);
+                        const threshold = field.strict
+                          ? 100
+                          : (verificationThresholds[field.id] ?? reviewThreshold);
+
                         return (
                           <tr
-                            key={step.mappingId}
-                            draggable
+                            key={mappingId}
+                            draggable={isEnabled}
                             onDragStart={(e) => {
+                              if (!isEnabled) return;
                               e.dataTransfer.setData("text/plain", String(index));
                               e.dataTransfer.effectAllowed = "move";
                               setDraggedIndex(index);
                             }}
                             onDragOver={(e) => {
+                              if (!isEnabled) return;
                               e.preventDefault();
                               e.dataTransfer.dropEffect = "move";
                               if (dragOverIndex !== index) {
@@ -3759,6 +3871,7 @@ function StepConfigV2({
                               }
                             }}
                             onDrop={(e) => {
+                              if (!isEnabled) return;
                               e.preventDefault();
                               if (draggedIndex !== null) {
                                 reorderVerificationSteps(draggedIndex, index);
@@ -3771,25 +3884,58 @@ function StepConfigV2({
                               setDragOverIndex(null);
                             }}
                             className={`transition-colors ${
-                              isDragging ? "bg-secondary/40 opacity-50" : ""
-                            } ${
-                              isDragOver ? "border-t-2 border-brand bg-brand/10" : "hover:bg-secondary/20"
+                              !isEnabled
+                                ? "bg-muted/10 text-muted-foreground opacity-60"
+                                : isDragging
+                                  ? "bg-secondary/40 opacity-50"
+                                  : isDragOver
+                                    ? "border-t-2 border-brand bg-brand/10"
+                                    : "hover:bg-secondary/20"
                             }`}
                           >
-                            <td className="px-3 py-2 tabular-nums">
-                              <div className="flex items-center gap-2">
+                            <td className="px-3 py-2">
+                              <label className="inline-flex cursor-pointer items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isEnabled}
+                                  onChange={() => toggleVerificationField(mappingId)}
+                                  className="size-4 rounded border-border accent-brand"
+                                />
                                 <span
-                                  className="inline-flex cursor-grab items-center text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
-                                  title="Drag to reorder"
+                                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                                    isEnabled
+                                      ? "bg-brand/10 text-brand dark:bg-brand/20"
+                                      : "bg-muted text-muted-foreground"
+                                  }`}
                                 >
-                                  <GripVertical className="size-3.5" />
+                                  {isEnabled
+                                    ? t("matching.configV2.includeRule")
+                                    : t("matching.configV2.skipRule")}
                                 </span>
-                                <span>{step.order}</span>
-                              </div>
+                              </label>
                             </td>
-                            <td className="px-3 py-2 font-medium">{step.field}</td>
+                            <td className="px-3 py-2 tabular-nums">
+                              {isEnabled ? (
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="inline-flex cursor-grab items-center text-muted-foreground/60 hover:text-foreground active:cursor-grabbing"
+                                    title="Drag to reorder"
+                                  >
+                                    <GripVertical className="size-3.5" />
+                                  </span>
+                                  <span className="font-semibold">{orderNumber}</span>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 font-medium">
+                              <span className={!isEnabled ? "text-muted-foreground" : ""}>
+                                {field.label}
+                              </span>
+                            </td>
                             <td className="px-3 py-2 text-muted-foreground">
-                              {field?.strict ? t("matching.mapping.strict") : step.method}
+                              {field?.strict ? t("matching.mapping.strict") : method}
                             </td>
                             <td className="px-3 py-2">
                               {field?.strict ? (
@@ -3801,17 +3947,18 @@ function StepConfigV2({
                                     type="number"
                                     min={0}
                                     max={100}
-                                    value={step.threshold}
+                                    disabled={!isEnabled}
+                                    value={threshold}
                                     onChange={(event) =>
                                       setVerificationThresholds((current) => ({
                                         ...current,
-                                        [step.mappingId]: Math.max(
+                                        [field.id]: Math.max(
                                           0,
                                           Math.min(100, Number(event.target.value) || 0),
                                         ),
                                       }))
                                     }
-                                    className="h-8 w-16 rounded-md border border-border bg-background px-2 text-right tabular-nums"
+                                    className="h-8 w-16 rounded-md border border-border bg-background px-2 text-right tabular-nums disabled:cursor-not-allowed disabled:opacity-40"
                                   />
                                   <span>%</span>
                                 </label>
@@ -3821,8 +3968,8 @@ function StepConfigV2({
                               <div className="flex justify-end gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => moveVerificationStep(step.mappingId, -1)}
-                                  disabled={step.order === 1}
+                                  onClick={() => moveVerificationStep(mappingId, -1)}
+                                  disabled={!isEnabled || index === 0}
                                   className="inline-flex size-7 items-center justify-center rounded border border-border bg-background text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-30"
                                   aria-label={t("matching.configV2.moveUp")}
                                   title={t("matching.configV2.moveUp")}
@@ -3831,8 +3978,8 @@ function StepConfigV2({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => moveVerificationStep(step.mappingId, 1)}
-                                  disabled={step.order === verificationSteps.length}
+                                  onClick={() => moveVerificationStep(mappingId, 1)}
+                                  disabled={!isEnabled || index === verificationOrder.length - 1}
                                   className="inline-flex size-7 items-center justify-center rounded border border-border bg-background text-foreground transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-30"
                                   aria-label={t("matching.configV2.moveDown")}
                                   title={t("matching.configV2.moveDown")}
@@ -4346,6 +4493,11 @@ function StepRunCard({
           <div className="rounded-md bg-secondary/30 p-2.5">
             <p className="text-[10px] text-muted-foreground uppercase">{t("results.totalRecords")}</p>
             <p className="mt-1 text-sm font-bold">{result.progress.total.toLocaleString()}</p>
+            {(result.summary.total_duplicates ?? 0) > 0 && (
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                +{result.summary.total_duplicates?.toLocaleString()} duplikat diabaikan
+              </p>
+            )}
           </div>
           <div className="rounded-md bg-secondary/30 p-2.5">
             <p className="text-[10px] text-muted-foreground uppercase">{t("results.matchedRecords")}</p>
@@ -4659,6 +4811,7 @@ function StepReview({
   >({});
   const [aiLoadingByKey, setAiLoadingByKey] = useState<Record<string, boolean>>({});
   const [aiErrorByKey, setAiErrorByKey] = useState<Record<string, string | null>>({});
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const identityMappings = useMemo(
@@ -4855,7 +5008,7 @@ function StepReview({
       toast.success(
         decision === "accept_match" || decision === "select_candidate"
           ? t("feedback.toast.approved")
-          : t("feedback.toast.rejected"),
+          : t("feedback.toast.unmatched"),
       );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
@@ -4905,6 +5058,9 @@ function StepReview({
           current
         );
       });
+      // Auto-navigate back to open case groups view
+      setSelectedGroupId(null);
+      setCaseGroupFilter("open");
       toast.success(
         t("matching.review.groupDecisionSaved", {
           count: next.decision.affected_records,
@@ -5003,9 +5159,28 @@ function StepReview({
     );
   }
 
+  const totalRawInput = review?.summary?.total_raw_input ?? items.length;
+  const totalUniqueInput = review?.summary?.total_unique_input ?? items.length;
+  const totalDuplicates =
+    review?.summary?.total_duplicates ?? Math.max(0, totalRawInput - totalUniqueInput);
+  const duplicateDetails = review?.summary?.duplicate_details ?? [];
+
   return (
     <>
       <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
+
+      {/* Deduplication Summary Banner */}
+      {totalDuplicates > 0 && (
+        <div className="mb-6">
+          <DuplicateSummaryBanner
+            totalRaw={totalRawInput}
+            totalUnique={totalUniqueInput}
+            totalDuplicates={totalDuplicates}
+            duplicateDetails={duplicateDetails}
+            onViewDetails={() => setShowDuplicateModal(true)}
+          />
+        </div>
+      )}
 
       {/* Review Diagnostic Charts (Field Quality Summary & Pareto Breakdown) */}
       <div className="mb-6">
@@ -5630,23 +5805,6 @@ function StepReview({
                       )}
                     </button>
                     <button
-                      onClick={() => decide(selected, "reject_match", selectedCandidate)}
-                      disabled={
-                        !selectedCandidate?.reference_record_key ||
-                        Boolean(pendingRecords[selected.input_record_key])
-                      }
-                      className="flex-1 cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {pendingRecords[selected.input_record_key] === "reject_match" ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2 className="size-4 animate-spin" />
-                          {t("common.loading")}
-                        </span>
-                      ) : (
-                        t("matching.review.reject")
-                      )}
-                    </button>
-                    <button
                       onClick={() => decide(selected, "mark_unmatched", null)}
                       disabled={Boolean(pendingRecords[selected.input_record_key])}
                       className="flex-1 cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
@@ -5673,6 +5831,15 @@ function StepReview({
           )}
         </SheetContent>
       </Sheet>
+
+      <DuplicateRecordsDialog
+        open={showDuplicateModal}
+        onOpenChange={setShowDuplicateModal}
+        totalRaw={totalRawInput}
+        totalUnique={totalUniqueInput}
+        totalDuplicates={totalDuplicates}
+        duplicateDetails={duplicateDetails}
+      />
     </>
   );
 }
@@ -5868,23 +6035,6 @@ function CaseGroupsReview({
                           </button>
                           <button
                             type="button"
-                            onClick={() => onDecide(group, "reject_match", "group")}
-                            disabled={
-                              !group.eligible_for_bulk || !canAccept || Boolean(groupPending)
-                            }
-                            className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {groupPending === "reject_match" ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <Loader2 className="size-3 animate-spin" />
-                                {t("common.loading")}
-                              </span>
-                            ) : (
-                              t("matching.review.applyGroupReject")
-                            )}
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => onDecide(group, "mark_unmatched", "group")}
                             disabled={!group.eligible_for_bulk || Boolean(groupPending)}
                             className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
@@ -6052,16 +6202,6 @@ function GroupReviewSubview({
             </button>
             <button
               type="button"
-              onClick={() => onDecideGroup(group, "reject_match", "group")}
-              disabled={!group.eligible_for_bulk || !canAcceptGroup || Boolean(groupPending)}
-              className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {groupPending === "reject_match"
-                ? t("common.loading")
-                : t("matching.review.applyGroupReject")}
-            </button>
-            <button
-              type="button"
               onClick={() => onDecideGroup(group, "mark_unmatched", "group")}
               disabled={!group.eligible_for_bulk || Boolean(groupPending)}
               className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
@@ -6105,16 +6245,6 @@ function GroupReviewSubview({
                   {groupPending === "accept_match"
                     ? t("common.loading")
                     : t("matching.review.applySelectedAccept")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDecideGroup(group, "reject_match", "selected")}
-                  disabled={!canDecide || !canAcceptGroup || Boolean(groupPending)}
-                  className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {groupPending === "reject_match"
-                    ? t("common.loading")
-                    : t("matching.review.applySelectedReject")}
                 </button>
                 <button
                   type="button"
@@ -6248,18 +6378,11 @@ function GroupReviewSubview({
                               {t("matching.review.accept")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => onDecideRecord(item, "reject_match", candidate)}
-                              disabled={!rowCanAccept}
-                              className="font-medium text-destructive focus:bg-destructive/10 focus:text-destructive"
-                            >
-                              {t("matching.review.reject")}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
                               onClick={() => onDecideRecord(item, "mark_unmatched", null)}
                             >
                               {t("matching.review.markUnmatched")}
                             </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => onOpenRecord(item, candidate?.id ?? null)}
                             >
@@ -6940,6 +7063,9 @@ function StepExport({
           jobName={review.job.name}
           canExecute={canExecute}
           onExportHistoryChange={onExportHistoryChange}
+          totalRaw={review.summary.total_raw_input}
+          totalUnique={review.summary.total_unique_input}
+          totalDuplicates={review.summary.total_duplicates}
         />
       )}
     </>

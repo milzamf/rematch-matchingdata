@@ -75,14 +75,16 @@ class MatchingEngineService
         }
 
         $refRowCount = $reference->row_count > 0 ? (int) $reference->row_count : count($this->loadDatasetRows($reference));
-        $inputRowsRaw = $this->deduplicateInputRows($this->loadDatasetRows($input));
+        $rawInputRows = $this->loadDatasetRows($input);
+        $dedupAnalysis = $this->analyzeAndDeduplicateInputRows($rawInputRows);
+        $inputRowsRaw = $dedupAnalysis['unique_rows'];
         $inpRowCount = count($inputRowsRaw);
 
         if ($refRowCount === 0 || $inpRowCount === 0) {
             throw new InvalidArgumentException('Reference and input datasets must contain data rows before matching.');
         }
 
-        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $workspace, $inpRowCount) {
+        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $workspace, $inpRowCount, $dedupAnalysis) {
             $job = MatchingJob::create([
                 'reference_dataset_id' => $reference->id,
                 'input_dataset_id' => $input->id,
@@ -95,6 +97,10 @@ class MatchingEngineService
                     'possible_match' => 0,
                     'unmatched' => 0,
                     'candidates_scored' => 0,
+                    'total_raw_input' => $dedupAnalysis['raw_count'],
+                    'total_unique_input' => $dedupAnalysis['unique_count'],
+                    'total_duplicates' => $dedupAnalysis['duplicate_count'],
+                    'duplicate_details' => array_slice($dedupAnalysis['duplicate_details'], 0, 100),
                 ],
                 'started_at' => Carbon::now(),
             ]);
@@ -192,7 +198,9 @@ class MatchingEngineService
         $mappings = $this->resolveMappings($rawMappings, $configuration);
 
         $referenceRowsRaw = $this->loadDatasetRows($reference);
-        $inputRowsRaw = $this->deduplicateInputRows($this->loadDatasetRows($input));
+        $rawInputRows = $this->loadDatasetRows($input);
+        $dedupAnalysis = $this->analyzeAndDeduplicateInputRows($rawInputRows);
+        $inputRowsRaw = $dedupAnalysis['unique_rows'];
         $totalInputCount = count($inputRowsRaw);
 
         MatchingResult::where('matching_job_id', $job->id)->delete();
@@ -205,7 +213,7 @@ class MatchingEngineService
         ]);
 
         try {
-            $summary = $this->executePipeline($job, $reference, $input, $referenceRowsRaw, $inputRowsRaw, $mappings, $configuration);
+            $summary = $this->executePipeline($job, $reference, $input, $referenceRowsRaw, $inputRowsRaw, $mappings, $configuration, $dedupAnalysis);
             
             $job->refresh();
             $finalStatus = in_array($job->status, ['cancelled', 'stopped']) ? $job->status : 'completed';
@@ -542,6 +550,7 @@ class MatchingEngineService
         array $inputRowsRaw,
         array $mappings,
         array $configuration,
+        array $dedupAnalysis = [],
     ): array {
         $totalWallClockStart = microtime(true);
         $metrics = [
@@ -672,6 +681,10 @@ class MatchingEngineService
             'possible_match' => 0,
             'unmatched' => 0,
             'candidates_scored' => 0,
+            'total_raw_input' => $dedupAnalysis['raw_count'] ?? count($inputRowsRaw),
+            'total_unique_input' => $dedupAnalysis['unique_count'] ?? count($inputRowsRaw),
+            'total_duplicates' => $dedupAnalysis['duplicate_count'] ?? 0,
+            'duplicate_details' => array_slice($dedupAnalysis['duplicate_details'] ?? [], 0, 100),
         ];
         $processed = 0;
         $memoizationCache = [];
@@ -1408,6 +1421,23 @@ class MatchingEngineService
 
         $progress = $job->total_count > 0 ? round(($job->processed_count / $job->total_count) * 100, 2) : 0;
 
+        $rawInput = (int) ($counts['total_raw_input'] ?? $job->inputDataset?->row_count ?? $job->total_count);
+        $uniqueInput = (int) ($counts['total_unique_input'] ?? $job->total_count);
+        $duplicates = (int) ($counts['total_duplicates'] ?? max(0, $rawInput - $uniqueInput));
+        $duplicateDetails = $counts['duplicate_details'] ?? [];
+
+        if (empty($duplicateDetails) && $duplicates > 0 && $job->inputDataset) {
+            try {
+                $rawRows = $this->loadDatasetRows($job->inputDataset);
+                $analysis = $this->analyzeAndDeduplicateInputRows($rawRows);
+                $rawInput = $analysis['raw_count'];
+                $uniqueInput = $analysis['unique_count'];
+                $duplicates = $analysis['duplicate_count'];
+                $duplicateDetails = array_slice($analysis['duplicate_details'], 0, 100);
+            } catch (\Throwable $e) {
+            }
+        }
+
         return [
             'job' => [
                 'id' => $job->id,
@@ -1432,6 +1462,10 @@ class MatchingEngineService
                 'possible_match' => (int) ($counts['possible_match'] ?? 0),
                 'unmatched' => (int) ($counts['unmatched'] ?? 0),
                 'candidates_scored' => (int) ($counts['candidates_scored'] ?? 0),
+                'total_raw_input' => $rawInput,
+                'total_unique_input' => $uniqueInput,
+                'total_duplicates' => $duplicates,
+                'duplicate_details' => $duplicateDetails,
             ],
             'top_results' => $job->results()
                 ->orderByDesc('overall_score')
@@ -1532,17 +1566,25 @@ class MatchingEngineService
     }
 
     /**
-     * Deduplicate input rows so identical company records appearing multiple times are only matched once.
+     * Analyze and deduplicate input rows, returning unique rows and comprehensive duplicate metadata.
      *
      * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
+     * @return array{
+     *     unique_rows: array<int, array<string, mixed>>,
+     *     raw_count: int,
+     *     unique_count: int,
+     *     duplicate_count: int,
+     *     duplicate_details: array<int, array<string, mixed>>
+     * }
      */
-    public function deduplicateInputRows(array $rows): array
+    public function analyzeAndDeduplicateInputRows(array $rows): array
     {
         $seen = [];
         $unique = [];
+        $duplicateCounts = [];
+        $duplicateSamples = [];
 
-        foreach ($rows as $row) {
+        foreach ($rows as $index => $row) {
             $normalizedRow = array_map(function ($val) {
                 if (is_string($val)) {
                     return strtolower(trim($val));
@@ -1556,9 +1598,48 @@ class MatchingEngineService
             if (! isset($seen[$sig])) {
                 $seen[$sig] = true;
                 $unique[] = $row;
+                $duplicateCounts[$sig] = 1;
+                $duplicateSamples[$sig] = [
+                    'sample_row' => $row,
+                    'first_row_index' => $index + 1,
+                ];
+            } else {
+                $duplicateCounts[$sig]++;
             }
         }
 
-        return $unique;
+        $duplicateDetails = [];
+        foreach ($duplicateCounts as $sig => $count) {
+            if ($count > 1) {
+                $sample = $duplicateSamples[$sig];
+                $duplicateDetails[] = [
+                    'sample_row' => $sample['sample_row'],
+                    'first_row_index' => $sample['first_row_index'],
+                    'duplicate_count' => $count - 1,
+                    'total_occurrences' => $count,
+                ];
+            }
+        }
+
+        usort($duplicateDetails, fn ($a, $b) => $b['total_occurrences'] <=> $a['total_occurrences']);
+
+        return [
+            'unique_rows' => $unique,
+            'raw_count' => count($rows),
+            'unique_count' => count($unique),
+            'duplicate_count' => count($rows) - count($unique),
+            'duplicate_details' => $duplicateDetails,
+        ];
+    }
+
+    /**
+     * Deduplicate input rows so identical company records appearing multiple times are only matched once.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    public function deduplicateInputRows(array $rows): array
+    {
+        return $this->analyzeAndDeduplicateInputRows($rows)['unique_rows'];
     }
 }

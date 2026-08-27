@@ -242,6 +242,10 @@ export type MatchingRunResult = {
     possible_match: number;
     unmatched: number;
     candidates_scored: number;
+    total_raw_input?: number;
+    total_unique_input?: number;
+    total_duplicates?: number;
+    duplicate_details?: DuplicateDetail[];
   };
   top_results: {
     id: string;
@@ -410,6 +414,13 @@ export type ReviewDecisionResult = {
   review: ReviewResults;
 };
 
+export type DuplicateDetail = {
+  sample_row: Record<string, string | number | boolean | null>;
+  first_row_index: number;
+  duplicate_count: number;
+  total_occurrences: number;
+};
+
 export type ReviewResults = {
   job: {
     id: string;
@@ -440,6 +451,10 @@ export type ReviewResults = {
     possible_match: number;
     unmatched: number;
     reviewed: number;
+    total_raw_input?: number;
+    total_unique_input?: number;
+    total_duplicates?: number;
+    duplicate_details?: DuplicateDetail[];
   };
   items: ReviewItem[];
   case_groups: ReviewCaseGroup[];

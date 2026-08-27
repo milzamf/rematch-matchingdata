@@ -165,7 +165,7 @@ function MonitoringPage() {
                             <Link
                               to="/matching"
                               search={buildMatchingSearch(workspace.id)}
-                              className="inline-flex items-center rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary"
+                              className="inline-flex items-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary cursor-pointer"
                             >
                               {t("monitoring.openWorkspace")}
                             </Link>

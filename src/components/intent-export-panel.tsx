@@ -34,6 +34,10 @@ export interface IntentExportPanelProps {
   onExportHistoryChange?: (
     updater: (prev: StoredExportHistoryEntry[]) => StoredExportHistoryEntry[],
   ) => void;
+  workspaceId?: string | null;
+  totalRaw?: number;
+  totalUnique?: number;
+  totalDuplicates?: number;
 }
 
 export function IntentExportPanel({
@@ -42,6 +46,10 @@ export function IntentExportPanel({
   jobName,
   canExecute = true,
   onExportHistoryChange,
+  workspaceId,
+  totalRaw,
+  totalUnique,
+  totalDuplicates,
 }: IntentExportPanelProps) {
   const { t } = usePreferences();
   const [preset, setPreset] = useState<ExportPreset>("master_update");
@@ -174,13 +182,20 @@ export function IntentExportPanel({
 
       {/* SECTION 2: Intent-Based Export Presets */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-foreground">
             {t("matching.export.presetsTitle")}
           </h4>
-          <span className="text-xs text-muted-foreground">
-            {t("matching.export.totalProcessed", { count: metrics.totalCount })}
-          </span>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {t("matching.export.totalProcessed", { count: metrics.totalCount })}
+            </span>
+            {(totalDuplicates ?? 0) > 0 && (
+              <span className="rounded bg-secondary/80 px-2 py-0.5 font-medium text-[11px] text-muted-foreground">
+                {(totalDuplicates ?? 0).toLocaleString()} baris duplikat diabaikan dari {(totalRaw ?? metrics.totalCount).toLocaleString()} total baris input
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">

@@ -202,11 +202,17 @@ function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
             {t("dashboard.real.continueTitle")}
           </p>
           <h2 className="mt-2 text-xl font-semibold tracking-tight">{workspace.name}</h2>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-            <span>{stepLabel(workspace.current_step, t)}</span>
-            <span>{statusLabel(workspace.status, t)}</span>
-            <span>{recordCountLabel(workspace.record_count, t)}</span>
-            <span>{updatedLabel(workspace.updated_at, t)}</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="inline-flex rounded-full bg-secondary px-2.5 py-1 font-medium text-foreground">
+              {stepLabel(workspace.current_step, t)}
+            </span>
+            <span className="inline-flex rounded-full bg-secondary/70 px-2.5 py-1 font-medium text-muted-foreground">
+              {statusLabel(workspace.status, t)}
+            </span>
+            <span className="inline-flex rounded-full bg-secondary/70 px-2.5 py-1 font-medium text-muted-foreground tabular-nums">
+              {recordCountLabel(workspace.record_count, t)}
+            </span>
+            <span className="text-muted-foreground pl-1">{updatedLabel(workspace.updated_at, t)}</span>
           </div>
         </div>
         <Link
@@ -392,7 +398,7 @@ function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
                   {t("dashboard.real.needReviewCount", { count: needReviewCount(workspace) })}
                 </p>
               </div>
-              <span className="text-xs font-semibold text-accent">
+              <span className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-secondary">
                 {t("dashboard.real.reviewCases")}
               </span>
             </Link>

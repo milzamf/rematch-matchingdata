@@ -33,6 +33,10 @@ import {
   VerificationEvidenceBreakdown,
   VerificationRuleChecklist,
 } from "@/components/verification-evidence";
+import {
+  DuplicateSummaryBanner,
+  DuplicateRecordsDialog,
+} from "@/components/duplicate-records-dialog";
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { useAuth } from "@/lib/auth";
@@ -209,6 +213,11 @@ function ResultsPage() {
   );
   const hasResults = Boolean(workspace && (workspace.matching_job_id ?? workspace.matching_job?.id) && items.length > 0);
   const activeStatuses = useMemo(() => countFinalStatuses(items), [items]);
+  const rawInputTotal = reviewQuery.data?.summary?.total_raw_input ?? inputRecordCount;
+  const uniqueInputTotal = reviewQuery.data?.summary?.total_unique_input ?? activeStatuses.total;
+  const duplicateTotal = reviewQuery.data?.summary?.total_duplicates ?? Math.max(0, rawInputTotal - uniqueInputTotal);
+  const duplicateDetails = reviewQuery.data?.summary?.duplicate_details ?? [];
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const nextAction = useMemo(
     () =>
       buildNextAction({
@@ -363,7 +372,15 @@ function ResultsPage() {
             <ResultsContextHeader workspace={workspace} />
 
             <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <StatCard label={t("results.metric.input")} value={formatNumber(inputRecordCount)} />
+              <StatCard
+                label={t("results.metric.input")}
+                value={formatNumber(uniqueInputTotal)}
+                sublabel={
+                  duplicateTotal > 0
+                    ? `${formatNumber(rawInputTotal)} total · ${formatNumber(duplicateTotal)} duplikat diabaikan`
+                    : undefined
+                }
+              />
               <StatCard
                 label={t("results.metric.match")}
                 value={formatNumber(activeStatuses.matched)}
@@ -449,6 +466,11 @@ function ResultsPage() {
                   workspace={workspace}
                   activeStatuses={activeStatuses}
                   inputRecordCount={inputRecordCount}
+                  totalRaw={rawInputTotal}
+                  totalUnique={uniqueInputTotal}
+                  totalDuplicates={duplicateTotal}
+                  duplicateDetails={duplicateDetails}
+                  onViewDuplicateDetails={() => setShowDuplicateModal(true)}
                   matchingPreset={matchingPreset}
                   matchingStrategy={matchingStrategy}
                   syncSummary={syncSummary}
@@ -460,6 +482,15 @@ function ResultsPage() {
                   selectedRuleFilter={selectedRuleFilter}
                 />
               </div>
+
+              <DuplicateRecordsDialog
+                open={showDuplicateModal}
+                onOpenChange={setShowDuplicateModal}
+                totalRaw={rawInputTotal}
+                totalUnique={uniqueInputTotal}
+                totalDuplicates={duplicateTotal}
+                duplicateDetails={duplicateDetails}
+              />
 
               <div className={tab === "cases" ? "block" : "hidden"}>
                 <CasesTab
@@ -529,6 +560,9 @@ function ResultsPage() {
                   downloadingId={downloadingId}
                   exportHistory={exportHistory}
                   items={items}
+                  totalRaw={rawInputTotal}
+                  totalUnique={uniqueInputTotal}
+                  totalDuplicates={duplicateTotal}
                   jobId={workspace.matching_job_id}
                   jobName={workspace.matching_job?.name ?? workspace.name}
                   onExportHistoryChange={setLocalExportHistory}
@@ -599,6 +633,11 @@ function OverviewTab({
   workspace,
   activeStatuses,
   inputRecordCount,
+  totalRaw,
+  totalUnique,
+  totalDuplicates,
+  duplicateDetails = [],
+  onViewDuplicateDetails,
   matchingPreset,
   matchingStrategy,
   syncSummary,
@@ -609,6 +648,11 @@ function OverviewTab({
   workspace: WorkspaceSummary;
   activeStatuses: FinalStatusCounts;
   inputRecordCount: number;
+  totalRaw?: number;
+  totalUnique?: number;
+  totalDuplicates?: number;
+  duplicateDetails?: import("@/lib/api").DuplicateDetail[];
+  onViewDuplicateDetails?: () => void;
   matchingPreset: string | null;
   matchingStrategy: string | null;
   syncSummary: SyncSummary | null;
@@ -627,6 +671,17 @@ function OverviewTab({
 
   return (
     <div className="space-y-6 p-6">
+      {/* Deduplication Summary Banner */}
+      {(totalDuplicates ?? 0) > 0 && (
+        <DuplicateSummaryBanner
+          totalRaw={totalRaw ?? inputRecordCount}
+          totalUnique={totalUnique ?? activeStatuses.total}
+          totalDuplicates={totalDuplicates ?? 0}
+          duplicateDetails={duplicateDetails}
+          onViewDetails={onViewDuplicateDetails}
+        />
+      )}
+
       {/* Top Level Aggregate Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-lg border border-border bg-card p-4">
@@ -1807,6 +1862,9 @@ function ExportTab({
   downloadingId,
   exportHistory,
   items,
+  totalRaw,
+  totalUnique,
+  totalDuplicates,
   onDownload,
   jobId,
   jobName,
@@ -1816,6 +1874,9 @@ function ExportTab({
   downloadingId: string | null;
   exportHistory: StoredExportHistoryEntry[];
   items: ReviewItem[];
+  totalRaw?: number;
+  totalUnique?: number;
+  totalDuplicates?: number;
   onDownload: (entry: StoredExportHistoryEntry) => Promise<void>;
   workspaceId: string;
   jobId?: string | null;
@@ -1834,6 +1895,9 @@ function ExportTab({
         items={items}
         jobName={jobName}
         canExecute={canOpenExport}
+        totalRaw={totalRaw}
+        totalUnique={totalUnique}
+        totalDuplicates={totalDuplicates}
         onExportHistoryChange={onExportHistoryChange}
       />
 
@@ -2028,10 +2092,12 @@ function SimpleTabEmpty({
 function StatCard({
   label,
   value,
+  sublabel,
   tone = "muted",
 }: {
   label: string;
   value: string;
+  sublabel?: string;
   tone?: "success" | "warning" | "destructive" | "muted";
 }) {
   const toneClass =
@@ -2049,6 +2115,7 @@ function StatCard({
         {label}
       </div>
       <p className="mt-3 text-2xl font-semibold tabular-nums">{value}</p>
+      {sublabel && <p className="mt-1 text-xs text-muted-foreground">{sublabel}</p>}
     </Card>
   );
 }

@@ -49,7 +49,10 @@ class IndexReuseTest extends TestCase
         
         \App\Models\MatchingConfiguration::create([
             'matching_job_id' => $job->id,
-            'configuration' => ['runOptions' => ['chunkSize' => 500, 'workerCount' => 1], 'candidateGeneration' => ['topN' => 3]],
+            'preset' => 'balanced',
+            'strategy' => 'balanced',
+            'config_hash' => hash('sha256', 'test'),
+            'candidate_generation' => ['topN' => 3],
         ]);
 
         $this->postJson('/api/matching-jobs/' . $job->id . '/run');
