@@ -36,6 +36,7 @@ backend/.env.*
 *.sqlite-journal
 backend/database/*.sqlite
 backend/database/*.sqlite-journal
+data.ms/
 
 # Backend storage & vendor
 backend/vendor/

@@ -1,0 +1,16 @@
+vendor/
+.env
+.env.backup
+.env.production
+.phpunit.result.cache
+storage/*.key
+storage/logs/*.log
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+node_modules/
+npm-debug.log
+.git/
+.github/
+.vscode/
+.idea/
