@@ -102,6 +102,10 @@ import {
   Trash2,
   X,
   Sparkles,
+  Building2,
+  Sliders,
+  Settings2,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   GripVertical,
@@ -3042,13 +3046,20 @@ function StepConfigV2({
   onValidityChange: (valid: boolean) => void;
 }) {
   const { t, language } = usePreferences();
-  const initialMode = configuration?.mode === "custom" ? "custom" : "default";
-  const [mode, setMode] = useState<"default" | "custom">(initialMode);
+  const initialMode: "default" | "construction" | "custom" =
+    configuration?.preset === "Konstruksi" || configuration?.mode === ("construction" as any)
+      ? "construction"
+      : configuration?.mode === "custom"
+        ? "custom"
+        : "default";
+  const [mode, setMode] = useState<"default" | "construction" | "custom">(initialMode);
   const [showDetails, setShowDetails] = useState(false);
   const [autoMatchThreshold, setAutoMatchThreshold] = useState(
-    configuration?.thresholds?.autoMatch ?? 90,
+    configuration?.thresholds?.autoMatch ?? (initialMode === "construction" ? 90 : 90),
   );
-  const [reviewThreshold, setReviewThreshold] = useState(configuration?.thresholds?.review ?? 75);
+  const [reviewThreshold, setReviewThreshold] = useState(
+    configuration?.thresholds?.review ?? (initialMode === "construction" ? 80 : 75),
+  );
   const [verificationEnabled, setVerificationEnabled] = useState(
     configuration?.rules?.verificationEnabled ?? true,
   );
@@ -3251,16 +3262,15 @@ function StepConfigV2({
     fields.length > 0 &&
     methodsValid &&
     (similarityFields.length === 0 || totalWeight === 100) &&
-    (mode === "default" ||
-      (autoMatchThreshold > reviewThreshold &&
-        autoMatchThreshold <= 100 &&
-        reviewThreshold >= 0)) &&
+    (autoMatchThreshold > reviewThreshold &&
+      autoMatchThreshold <= 100 &&
+      reviewThreshold >= 0) &&
     (!verificationEnabled || verificationSteps.length > 0);
 
   const configurationSnapshot = useMemo<MatchingConfiguration>(
     () => ({
-      preset: mode === "default" ? "Default" : "Custom",
-      mode,
+      preset: mode === "construction" ? "Konstruksi" : mode === "default" ? "Default" : "Custom",
+      mode: mode === "custom" ? "custom" : "default",
       strategy: "Hybrid",
       isValid: configValid,
       fields: fields?.map((field) => {
@@ -3281,11 +3291,13 @@ function StepConfigV2({
       thresholds:
         mode === "default"
           ? { autoMatch: 90, review: 75, noMatch: 75 }
-          : {
-              autoMatch: autoMatchThreshold,
-              review: reviewThreshold,
-              noMatch: reviewThreshold,
-            },
+          : mode === "construction"
+            ? { autoMatch: 90, review: 80, noMatch: 80 }
+            : {
+                autoMatch: autoMatchThreshold,
+                review: reviewThreshold,
+                noMatch: reviewThreshold,
+              },
       candidateGeneration: { topN: 3 },
       searchOptimization: {
         enabled: true,
@@ -3530,23 +3542,194 @@ function StepConfigV2({
     toast.success(t("feedback.toast.recommendationApplied"));
   };
 
+  const applyPreset = (presetKey: "default" | "construction" | "custom") => {
+    setMode(presetKey);
+
+    if (presetKey === "default") {
+      setAutoMatchThreshold(90);
+      setReviewThreshold(75);
+      setVerificationEnabled(true);
+      setWeights(normalizeIntegerWeights(similarityFields, {}));
+      toast.success("Preset Standar aktif: Ambang Auto-Match 90%, Reviu 75%");
+    } else if (presetKey === "construction") {
+      setAutoMatchThreshold(90);
+      setReviewThreshold(80);
+      setVerificationEnabled(true);
+
+      const newWeights: Record<string, number> = {};
+      const newThresholds: Record<string, number> = {};
+      const newOrder: string[] = [];
+
+      const locationFields = fields.filter((f) => isLocationField(f.reference + " " + f.input));
+      const entityFields = fields.filter((f) => isEntityNameField(f.reference + " " + f.input));
+      const addressFields = fields.filter(
+        (f) =>
+          !isLocationField(f.reference + " " + f.input) &&
+          !isEntityNameField(f.reference + " " + f.input) &&
+          (f.reference.toLowerCase().includes("alamat") ||
+            f.reference.toLowerCase().includes("address") ||
+            f.input.toLowerCase().includes("alamat") ||
+            f.input.toLowerCase().includes("address")),
+      );
+      const otherFields = fields.filter(
+        (f) =>
+          !locationFields.includes(f) &&
+          !entityFields.includes(f) &&
+          !addressFields.includes(f),
+      );
+
+      similarityFields.forEach((f) => {
+        const names = (f.reference + " " + f.input).toLowerCase();
+        if (isEntityNameField(names)) {
+          newWeights[f.id] = 45;
+        } else if (names.includes("alamat") || names.includes("address")) {
+          newWeights[f.id] = 45;
+        } else if (isLocationField(names)) {
+          newWeights[f.id] = 10;
+        } else {
+          newWeights[f.id] = 10;
+        }
+      });
+      setWeights(normalizeIntegerWeights(similarityFields, newWeights));
+
+      fields.forEach((f) => {
+        const names = (f.reference + " " + f.input).toLowerCase();
+        if (isLocationField(names)) {
+          newThresholds[f.id] = 100;
+        } else if (isEntityNameField(names)) {
+          newThresholds[f.id] = 90;
+        } else if (names.includes("alamat") || names.includes("address")) {
+          newThresholds[f.id] = 90;
+        } else {
+          newThresholds[f.id] = f.strict ? 100 : 80;
+        }
+      });
+      setVerificationThresholds(newThresholds);
+
+      [...locationFields, ...entityFields, ...addressFields, ...otherFields].forEach((f) => {
+        if (!newOrder.includes(f.id)) newOrder.push(f.id);
+      });
+      setVerificationOrder(newOrder);
+
+      toast.success("Preset Konstruksi & LPSE aktif: Nama 90%, Alamat 90%, Kode Kab 100%");
+    } else if (presetKey === "custom") {
+      toast.info("Mode Kustom Penuh aktif: Silakan sesuaikan parameter");
+    }
+  };
+
   return (
     <>
       <SectionTitle title={t("matching.config.title")} desc={t("matching.configV2.desc")} />
 
-      <div className="inline-flex w-full rounded-md border border-border bg-secondary/30 p-1 sm:w-auto">
-        {(["default", "custom"] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => setMode(option)}
-            className={`flex-1 rounded px-4 py-2 text-sm font-semibold transition-colors sm:flex-none ${mode === option ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            {option === "default"
-              ? t("matching.configV2.defaultMatch")
-              : t("matching.configV2.customMatch")}
-          </button>
-        ))}
+      {/* PRESET CARDS SELECTOR */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {/* Preset 1: Standar (Default) */}
+        <button
+          type="button"
+          onClick={() => applyPreset("default")}
+          className={`relative flex flex-col rounded-lg border p-3.5 text-left transition-all cursor-pointer ${
+            mode === "default"
+              ? "border-brand bg-brand/5 ring-2 ring-brand/20 shadow-xs"
+              : "border-border bg-card hover:border-foreground/30 hover:bg-secondary/20"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex size-8 items-center justify-center rounded-md ${
+                  mode === "default" ? "bg-brand text-brand-foreground" : "bg-secondary text-foreground"
+                }`}
+              >
+                <Sliders className="size-4" />
+              </div>
+              <p className="text-xs font-bold text-foreground">Standar (Default)</p>
+            </div>
+            {mode === "default" && <CheckCircle2 className="size-4 text-brand" />}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            Konfigurasi umum seimbang. Ambang auto-match 90%, review 75%, pembobotan proporsional.
+          </p>
+          <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
+              Ambang 90% / 75%
+            </span>
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
+              Bobot Proporsional
+            </span>
+          </div>
+        </button>
+
+        {/* Preset 2: Konstruksi & LPSE */}
+        <button
+          type="button"
+          onClick={() => applyPreset("construction")}
+          className={`relative flex flex-col rounded-lg border p-3.5 text-left transition-all cursor-pointer ${
+            mode === "construction"
+              ? "border-brand bg-brand/5 ring-2 ring-brand/20 shadow-xs"
+              : "border-border bg-card hover:border-foreground/30 hover:bg-secondary/20"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex size-8 items-center justify-center rounded-md ${
+                  mode === "construction" ? "bg-brand text-brand-foreground" : "bg-secondary text-foreground"
+                }`}
+              >
+                <Building2 className="size-4" />
+              </div>
+              <p className="text-xs font-bold text-foreground">Konstruksi & LPSE</p>
+            </div>
+            {mode === "construction" && <CheckCircle2 className="size-4 text-brand" />}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            Khusus penyedia jasa konstruksi. Nama & Alamat min 90%, Kode Kab/Kota wajib 100% verifikasi.
+          </p>
+          <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
+            <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[9px] font-semibold text-brand">
+              Ambang 90% / 80%
+            </span>
+            <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[9px] font-semibold text-brand">
+              Kode Kab 100%
+            </span>
+          </div>
+        </button>
+
+        {/* Preset 3: Kustom Penuh */}
+        <button
+          type="button"
+          onClick={() => applyPreset("custom")}
+          className={`relative flex flex-col rounded-lg border p-3.5 text-left transition-all cursor-pointer ${
+            mode === "custom"
+              ? "border-brand bg-brand/5 ring-2 ring-brand/20 shadow-xs"
+              : "border-border bg-card hover:border-foreground/30 hover:bg-secondary/20"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex size-8 items-center justify-center rounded-md ${
+                  mode === "custom" ? "bg-brand text-brand-foreground" : "bg-secondary text-foreground"
+                }`}
+              >
+                <Settings2 className="size-4" />
+              </div>
+              <p className="text-xs font-bold text-foreground">Kustom Penuh</p>
+            </div>
+            {mode === "custom" && <CheckCircle2 className="size-4 text-brand" />}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+            Sesuaikan seluruh bobot variabel, ambang batas auto-match/reviu, dan algoritma secara bebas.
+          </p>
+          <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
+              Parameter Manual
+            </span>
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
+              Multi-Algoritma
+            </span>
+          </div>
+        </button>
       </div>
 
       <div className="mt-5 space-y-5">
@@ -6859,6 +7042,7 @@ function candidateScore(item: ReviewItem) {
 function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
   const pattern = (group.pattern ?? "").toUpperCase();
   if (pattern === "LEGAL_FORM_CONFLICT") return t("review.group.legalConflict");
+  if (pattern === "GEO_LOCATION_CONFLICT") return t("review.group.locationConflict");
   if (pattern === "FIELD_CONFLICT") return t("review.group.fieldConflict");
   if (pattern === "SIMILAR_NAME_REVIEW") return t("review.group.similarName");
   if (pattern === "LOW_CONFIDENCE_MATCH") return t("review.group.lowConfidence");
@@ -6870,6 +7054,7 @@ function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof useP
 function caseGroupReason(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
   const pattern = (group.pattern ?? "").toUpperCase();
   if (pattern === "LEGAL_FORM_CONFLICT") return t("review.reason.legalConflict");
+  if (pattern === "GEO_LOCATION_CONFLICT") return t("review.reason.locationConflict");
   if (pattern === "FIELD_CONFLICT") return t("review.reason.fieldConflict");
   if (pattern === "SIMILAR_NAME_REVIEW") return t("review.reason.similarName");
   if (pattern === "LOW_CONFIDENCE_MATCH") return t("review.reason.lowConfidence");

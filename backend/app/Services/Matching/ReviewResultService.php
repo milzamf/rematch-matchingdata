@@ -464,9 +464,17 @@ class ReviewResultService
             ->values()
             ->all();
 
+        $locationConflict = collect($differentFields)->contains(function (string $col) {
+            $c = strtolower($col);
+            return Str::contains($c, ['kab', 'kota', 'city', 'wilayah', 'district', 'lokasi', 'prov', 'kd_kab', 'kode_kab', 'regency']);
+        });
+
         if ($identityConflict) {
             $pattern = 'LEGAL_FORM_CONFLICT';
-            $reason = 'Legal form differs even though the core entity name is highly similar.';
+            $reason = 'Bentuk badan usaha berbeda meskipun nama inti perusahaan sangat mirip';
+        } elseif ($locationConflict) {
+            $pattern = 'GEO_LOCATION_CONFLICT';
+            $reason = 'Nama dan alamat memiliki kemiripan tinggi, namun Kode Kabupaten/Kota berbeda';
         } elseif ($differentFields !== []) {
             $pattern = 'FIELD_CONFLICT';
             $reason = 'Some supporting fields differ and need a reviewer decision.';
@@ -491,6 +499,7 @@ class ReviewResultService
                 'score_band' => $scoreBand,
                 'core_name_similarity_min' => round($score / 100, 2),
                 'legal_form_conflict' => $identityConflict,
+                'location_conflict' => $locationConflict,
                 'different_fields' => $differentFields,
                 'similar_fields' => $similarFields,
             ],
@@ -527,6 +536,7 @@ class ReviewResultService
     {
         return match ($pattern) {
             'LEGAL_FORM_CONFLICT' => 'Legal form conflict',
+            'GEO_LOCATION_CONFLICT' => 'Konflik Wilayah (Beda Kode Kab/Kota)',
             'FIELD_CONFLICT' => 'Supporting field conflict',
             'SIMILAR_NAME_REVIEW' => 'Similar name review',
             'NO_CANDIDATE' => 'No candidate',
