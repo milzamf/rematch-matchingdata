@@ -77,6 +77,7 @@ class MatchingConfigResolver
         return match ($preset) {
             'Strict' => ['autoMatch' => 95, 'review' => 85, 'noMatch' => 70],
             'Exploratory' => ['autoMatch' => 85, 'review' => 65, 'noMatch' => 50],
+            'Konstruksi' => ['autoMatch' => 90, 'review' => 80, 'noMatch' => 80],
             default => ['autoMatch' => 90, 'review' => 75, 'noMatch' => 75],
         };
     }

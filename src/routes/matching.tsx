@@ -3560,45 +3560,91 @@ function StepConfigV2({
       const newThresholds: Record<string, number> = {};
       const newOrder: string[] = [];
 
-      const locationFields = fields.filter((f) => isLocationField(f.reference + " " + f.input));
-      const entityFields = fields.filter((f) => isEntityNameField(f.reference + " " + f.input));
-      const addressFields = fields.filter(
-        (f) =>
-          !isLocationField(f.reference + " " + f.input) &&
-          !isEntityNameField(f.reference + " " + f.input) &&
-          (f.reference.toLowerCase().includes("alamat") ||
-            f.reference.toLowerCase().includes("address") ||
-            f.input.toLowerCase().includes("alamat") ||
-            f.input.toLowerCase().includes("address")),
-      );
+      // Categorize fields specifically for construction
+      const legalFormFields = fields.filter((f) => {
+        const names = `${f.reference} ${f.input} ${f.label}`.toLowerCase();
+        return names.includes("badan") || names.includes("bentuk") || names.includes("legal");
+      });
+      const locationFields = fields.filter((f) => {
+        const names = `${f.reference} ${f.input} ${f.label}`.toLowerCase();
+        return (
+          !legalFormFields.includes(f) &&
+          (isLocationField(names) || names.includes("kab") || names.includes("kota") || names.includes("wilayah"))
+        );
+      });
+      const addressFields = fields.filter((f) => {
+        const names = `${f.reference} ${f.input} ${f.label}`.toLowerCase();
+        return (
+          !legalFormFields.includes(f) &&
+          !locationFields.includes(f) &&
+          (names.includes("alamat") || names.includes("address") || names.includes("jalan"))
+        );
+      });
+      const coreNameFields = fields.filter((f) => {
+        const names = `${f.reference} ${f.input} ${f.label}`.toLowerCase();
+        return (
+          !legalFormFields.includes(f) &&
+          !locationFields.includes(f) &&
+          !addressFields.includes(f) &&
+          (isEntityNameField(names) ||
+            names.includes("nama") ||
+            names.includes("perusahaan") ||
+            names.includes("vendor") ||
+            names.includes("penyedia") ||
+            names.includes("inti"))
+        );
+      });
       const otherFields = fields.filter(
         (f) =>
+          !legalFormFields.includes(f) &&
           !locationFields.includes(f) &&
-          !entityFields.includes(f) &&
-          !addressFields.includes(f),
+          !addressFields.includes(f) &&
+          !coreNameFields.includes(f),
       );
 
+      // 1. Assign algorithms and comparison families
+      setMethods((current) => {
+        const next = { ...current };
+        coreNameFields.forEach((f) => {
+          next[f.id] = { family: "Character Similarity", algorithm: "Jaro-Winkler", normalization: f.normalization };
+        });
+        addressFields.forEach((f) => {
+          next[f.id] = { family: "Character Similarity", algorithm: "Levenshtein", normalization: f.normalization };
+        });
+        legalFormFields.forEach((f) => {
+          next[f.id] = { family: "Exact", algorithm: "Exact", normalization: f.normalization };
+        });
+        locationFields.forEach((f) => {
+          next[f.id] = { family: "Exact", algorithm: "Exact", normalization: f.normalization };
+        });
+        return next;
+      });
+
+      // 2. Assign weights: Nama Inti (55%), Alamat (30%), Badan Usaha (10%), Kode Kab/Kota (5%)
       similarityFields.forEach((f) => {
-        const names = (f.reference + " " + f.input).toLowerCase();
-        if (isEntityNameField(names)) {
-          newWeights[f.id] = 45;
-        } else if (names.includes("alamat") || names.includes("address")) {
-          newWeights[f.id] = 45;
-        } else if (isLocationField(names)) {
+        if (coreNameFields.some((item) => item.id === f.id)) {
+          newWeights[f.id] = 55;
+        } else if (addressFields.some((item) => item.id === f.id)) {
+          newWeights[f.id] = 30;
+        } else if (legalFormFields.some((item) => item.id === f.id)) {
           newWeights[f.id] = 10;
+        } else if (locationFields.some((item) => item.id === f.id)) {
+          newWeights[f.id] = 5;
         } else {
-          newWeights[f.id] = 10;
+          newWeights[f.id] = 5;
         }
       });
       setWeights(normalizeIntegerWeights(similarityFields, newWeights));
 
+      // 3. Verification thresholds: Kode Kab (100%), Badan Usaha (100%), Nama Inti (90%), Alamat (90%)
       fields.forEach((f) => {
-        const names = (f.reference + " " + f.input).toLowerCase();
-        if (isLocationField(names)) {
+        if (locationFields.some((item) => item.id === f.id)) {
           newThresholds[f.id] = 100;
-        } else if (isEntityNameField(names)) {
+        } else if (legalFormFields.some((item) => item.id === f.id)) {
+          newThresholds[f.id] = 100;
+        } else if (coreNameFields.some((item) => item.id === f.id)) {
           newThresholds[f.id] = 90;
-        } else if (names.includes("alamat") || names.includes("address")) {
+        } else if (addressFields.some((item) => item.id === f.id)) {
           newThresholds[f.id] = 90;
         } else {
           newThresholds[f.id] = f.strict ? 100 : 80;
@@ -3606,12 +3652,13 @@ function StepConfigV2({
       });
       setVerificationThresholds(newThresholds);
 
-      [...locationFields, ...entityFields, ...addressFields, ...otherFields].forEach((f) => {
+      // 4. Verification order: Location -> Legal Form -> Core Name -> Address -> Others
+      [...locationFields, ...legalFormFields, ...coreNameFields, ...addressFields, ...otherFields].forEach((f) => {
         if (!newOrder.includes(f.id)) newOrder.push(f.id);
       });
       setVerificationOrder(newOrder);
 
-      toast.success("Preset Konstruksi aktif: Nama 90%, Alamat 90%, Kode Kab 100%");
+      toast.success("Preset Konstruksi aktif: Nama Inti 55%, Alamat 30%, Badan Usaha 10%, Kode Kab 5%");
     } else if (presetKey === "custom") {
       toast.info("Mode Kustom Penuh aktif: Silakan sesuaikan parameter");
     }
@@ -3683,14 +3730,17 @@ function StepConfigV2({
             {mode === "construction" && <CheckCircle2 className="size-4 text-brand" />}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Khusus penyedia jasa konstruksi. Nama & Alamat min 90%, Kode Kab/Kota wajib 100% verifikasi
+            WLS: Nama Inti 55%, Alamat 30%, Badan Usaha 10%, Kode Kab 5%. Ambang 90% / 80%
           </p>
           <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
             <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[9px] font-semibold text-brand">
-              Ambang 90% / 80%
+              Nama 55% • Alamat 30%
             </span>
             <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[9px] font-semibold text-brand">
-              Kode Kab 100%
+              Badan 10% • Kab 5%
+            </span>
+            <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[9px] font-semibold text-brand">
+              Ambang 90% / 80%
             </span>
           </div>
         </button>
