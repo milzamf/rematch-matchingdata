@@ -1349,7 +1349,7 @@ const translations = {
 
     // Preview & Standardization i18n
     "preview.title": "Standardized Data Preview",
-    "preview.description": "See how text is cleaned, address abbreviations expanded, and legal entity tokens extracted prior to similarity scoring.",
+    "preview.description": "Review the spelling normalization and attribute extraction results before proceeding",
     "preview.tabInput": "Input Dataset",
     "preview.tabReference": "Reference Dataset",
     "preview.input_result": "Standardization Results: Input Dataset",
@@ -2774,7 +2774,7 @@ const translations = {
 
     // Preview & Standardization i18n
     "preview.title": "Pratinjau Data Terstandardisasi",
-    "preview.description": "Lihat bagaimana teks dibersihkan, singkatan alamat diperluas, dan token badan usaha diekstrak sebelum pembobotan pencocokan.",
+    "preview.description": "Tinjau kembali hasil pembersihan ejaan dan ekstraksi atribut data sebelum dijalankan",
     "preview.tabInput": "Dataset Input",
     "preview.tabReference": "Dataset Referensi",
     "preview.input_result": "Hasil Standardisasi: Dataset Input",

@@ -166,27 +166,27 @@ export function DataPreviewTable({
     };
   }, [isModalOpen, datasetId, currentPage, pageSize, searchQuery]);
 
-  // Normalize column definitions
+  // Normalize and deduplicate column definitions
   const columns: DataPreviewColumn[] = useMemo(() => {
-    return rawColumns.map((col) =>
-      typeof col === "string"
-        ? {
-            key: col,
-            label: col,
-            isVirtual: col.startsWith("[Generated]") || col.startsWith("enriched."),
-            isStandardized: col.includes("Standardized") || col.includes("terstandardisasi"),
-          }
-        : {
-            ...col,
-            label: col.label ?? col.key,
-            isVirtual:
-              col.isVirtual ??
-              (col.key.startsWith("[Generated]") || col.key.startsWith("enriched.")),
-            isStandardized:
-              col.isStandardized ??
-              (col.key.includes("Standardized") || col.key.includes("terstandardisasi")),
-          },
-    );
+    const seenKeys = new Set<string>();
+    const uniqueCols: DataPreviewColumn[] = [];
+    for (const rawCol of rawColumns) {
+      const col = typeof rawCol === "string" ? { key: rawCol, label: rawCol } : rawCol;
+      if (!seenKeys.has(col.key)) {
+        seenKeys.add(col.key);
+        uniqueCols.push({
+          ...col,
+          label: col.label ?? col.key,
+          isVirtual:
+            col.isVirtual ??
+            (col.key.startsWith("[Generated]") || col.key.startsWith("enriched.") || col.key.startsWith("gen_")),
+          isStandardized:
+            col.isStandardized ??
+            (col.key.includes("Standardized") || col.key.includes("terstandardisasi") || col.key.startsWith("std_")),
+        });
+      }
+    }
+    return uniqueCols;
   }, [rawColumns]);
 
   // Base preview rows (First 3-5 rows)

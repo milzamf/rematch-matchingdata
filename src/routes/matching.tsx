@@ -36,6 +36,7 @@ import {
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { DataPreviewTable } from "@/components/data-preview-table";
 import { TablePagination } from "@/components/ui/table-pagination";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
 import {
   fetchAiMatchingConfiguration,
@@ -2109,7 +2110,13 @@ function StepStandardizedPreview({
       .map((m) => input.columns?.find((c) => c.id === m.inputColumnId))
       .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
-    const columnsToUse = mappedInputCols.length > 0 ? mappedInputCols : input.columns;
+    const rawCols = mappedInputCols.length > 0 ? mappedInputCols : (input.columns ?? []);
+    const seenColIds = new Set<string>();
+    const columnsToUse = rawCols.filter((col) => {
+      if (seenColIds.has(col.id)) return false;
+      seenColIds.add(col.id);
+      return true;
+    });
 
     columnsToUse.forEach((col) => {
       cols.push({ key: `raw_${col.name}`, label: t("preview.rawColumn", { name: col.name }) });
@@ -2177,7 +2184,13 @@ function StepStandardizedPreview({
       .map((m) => reference.columns?.find((c) => c.id === m.referenceColumnId))
       .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
-    const columnsToUse = mappedRefCols.length > 0 ? mappedRefCols : reference.columns;
+    const rawCols = mappedRefCols.length > 0 ? mappedRefCols : (reference.columns ?? []);
+    const seenColIds = new Set<string>();
+    const columnsToUse = rawCols.filter((col) => {
+      if (seenColIds.has(col.id)) return false;
+      seenColIds.add(col.id);
+      return true;
+    });
 
     columnsToUse.forEach((col) => {
       cols.push({ key: `raw_${col.name}`, label: t("preview.rawColumn", { name: col.name }) });
@@ -2559,23 +2572,25 @@ function StepColumnMapping({
                   className="grid min-w-[840px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_150px_44px] items-center gap-4 rounded-lg border border-border px-4 py-3"
                 >
                   <div className="min-w-0">
-                    <select
+                    <SearchableSelect
                       aria-label={t("matching.mapping.inputSelect", { row: index + 1 })}
                       data-testid="mapping-input-select"
                       value={mapping.inputColumnId}
-                      onChange={(event) =>
-                        updateMapping(mapping.id, { inputColumnId: event.target.value })
+                      onChange={(value) =>
+                        updateMapping(mapping.id, { inputColumnId: value })
                       }
-                      className={selectClass}
+                      options={[
+                        { value: "", label: t("matching.mapping.noInputSelected") },
+                        ...effectiveInputColumns.map((column) => ({
+                          value: column.id,
+                          label: column.name,
+                          badge: <ColumnTypeBadge column={column} testId={`mapping-type-${column.id}`} />,
+                        })),
+                      ]}
+                      placeholder={t("matching.mapping.noInputSelected")}
+                      searchPlaceholder="Cari kolom input..."
                       disabled={Boolean(mapping.transform && mapping.transform !== "NONE")}
-                    >
-                      <option value="">{t("matching.mapping.noInputSelected")}</option>
-                      {effectiveInputColumns?.map((column) => (
-                        <option key={column.id} value={column.id}>
-                          {column.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                     <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
                       {inputColumn ? (
                         <>
@@ -2607,26 +2622,25 @@ function StepColumnMapping({
                   </span>
 
                   <div className="min-w-0">
-                    <select
+                    <SearchableSelect
                       aria-label={t("matching.mapping.referenceSelect", { row: index + 1 })}
                       data-testid="mapping-reference-select"
                       value={mapping.referenceColumnId}
-                      onChange={(event) =>
-                        updateMapping(mapping.id, { referenceColumnId: event.target.value })
+                      onChange={(value) =>
+                        updateMapping(mapping.id, { referenceColumnId: value })
                       }
-                      className={selectClass}
+                      options={[
+                        { value: "", label: t("matching.mapping.noReferenceSelected") },
+                        ...effectiveReferenceColumns.map((column) => ({
+                          value: column.id,
+                          label: column.name,
+                          badge: <ColumnTypeBadge column={column} testId={`mapping-type-${column.id}`} />,
+                        })),
+                      ]}
+                      placeholder={t("matching.mapping.noReferenceSelected")}
+                      searchPlaceholder="Cari kolom referensi..."
                       disabled={Boolean(mapping.transform && mapping.transform !== "NONE")}
-                    >
-                      <option value="">{t("matching.mapping.noReferenceSelected")}</option>
-                      {effectiveReferenceColumns?.map((column) => (
-                        <option
-                          key={column.id}
-                          value={column.id}
-                        >
-                          {column.name}
-                        </option>
-                      ))}
-                    </select>
+                    />
                     <div className="mt-1 flex min-h-5 flex-wrap items-center gap-2">
                       {referenceColumn ? (
                         <>
@@ -2689,26 +2703,37 @@ function StepColumnMapping({
               </div>
             )}
 
-            <div className="flex gap-2">
+            <button
+              type="button"
+              data-testid="mapping-add-button"
+              onClick={addMapping}
+              disabled={!hasAvailableReference}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-xs font-semibold text-foreground hover:border-brand hover:text-brand hover:bg-brand/5 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Plus className="size-4" />
+              {t("matching.mapping.add")}
+            </button>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-secondary/20 p-3.5">
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <Sparkles className="size-4.5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-foreground">Ekstraksi Bentuk Badan Usaha & Nama Inti</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Opsi cerdas untuk memisahkan token badan usaha (PT, CV, UD) dan nama inti perusahaan secara otomatis
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsExtractModalOpen(true)}
                 disabled={!hasColumns}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs"
               >
-                <Plus className="size-4" />
-                Ekstrak Entitas & Nama Inti
-              </button>
-
-              <button
-                type="button"
-                data-testid="mapping-add-button"
-                onClick={addMapping}
-                disabled={!hasAvailableReference}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Plus className="size-4" />
-                {t("matching.mapping.add")}
+                <Sparkles className="size-3.5 text-brand" />
+                <span>Ekstrak Entitas</span>
               </button>
             </div>
           </div>
@@ -3706,40 +3731,38 @@ function StepConfigV2({
                       className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_220px_220px] lg:items-center"
                     >
                       <p className="text-sm font-medium">{field.label}</p>
-                      <select
+                      <SearchableSelect
                         value={method.family}
-                        onChange={(event) =>
-                          changeFamily(field, event.target.value as ComparisonFamily)
+                        onChange={(val) =>
+                          changeFamily(field, val as ComparisonFamily)
                         }
-                        className="h-9 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand"
-                      >
-                        {(["Exact", "Character Similarity", "Token Similarity"] as ComparisonFamily[]).map(
-                          (family) => (
-                            <option key={family} value={family}>
-                              {comparisonFamilyLabel(family, t)}
-                            </option>
-                          ),
+                        options={(["Exact", "Character Similarity", "Token Similarity"] as ComparisonFamily[]).map(
+                          (family) => ({
+                            value: family,
+                            label: comparisonFamilyLabel(family, t),
+                          }),
                         )}
-                      </select>
-                      <select
+                        searchPlaceholder="Cari famili algoritma..."
+                        className="h-9 text-xs"
+                      />
+                      <SearchableSelect
                         value={method.algorithm}
-                        onChange={(event) =>
+                        onChange={(val) =>
                           setMethods((current) => ({
                             ...current,
                             [field.id]: {
                               ...method,
-                              algorithm: event.target.value as ConfigureAlgorithm,
+                              algorithm: val as ConfigureAlgorithm,
                             },
                           }))
                         }
-                        className="h-9 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-brand"
-                      >
-                        {algorithmsForField(method.family, field.type).map((algorithm) => (
-                          <option key={algorithm} value={algorithm}>
-                            {algorithm === "Exact" ? "Raw Exact" : algorithm}
-                          </option>
-                        ))}
-                      </select>
+                        options={algorithmsForField(method.family, field.type).map((algorithm) => ({
+                          value: algorithm,
+                          label: algorithm === "Exact" ? "Raw Exact" : algorithm,
+                        }))}
+                        searchPlaceholder="Cari metode algoritma..."
+                        className="h-9 text-xs"
+                      />
                     </div>
                   );
                 })}
@@ -5028,7 +5051,7 @@ function StepReview({
   ) => {
     if (!jobId) return;
 
-    if (!group.eligible_for_bulk) {
+    if (scope === "group" && !group.eligible_for_bulk) {
       toast.error(t("matching.review.bulkBlocked"));
       return;
     }
@@ -6239,7 +6262,7 @@ function GroupReviewSubview({
                 <button
                   type="button"
                   onClick={() => onDecideGroup(group, "accept_match", "selected")}
-                  disabled={!canDecide || !canAcceptGroup || Boolean(groupPending)}
+                  disabled={!canDecide || selectedKeys.length === 0 || Boolean(groupPending)}
                   className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {groupPending === "accept_match"

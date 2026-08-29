@@ -1,8 +1,9 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function ExtractionModal({
@@ -71,36 +72,26 @@ export function ExtractionModal({
           {(applyTo === "both" || applyTo === "reference") && (
             <div className="space-y-2">
               <Label>Kolom Sumber (Reference)</Label>
-              <Select value={refSourceId} onValueChange={setRefSourceId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih Kolom..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {referenceColumns.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={refSourceId}
+                onChange={setRefSourceId}
+                options={referenceColumns.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Pilih Kolom..."
+                searchPlaceholder="Cari kolom referensi..."
+              />
             </div>
           )}
 
           {(applyTo === "both" || applyTo === "input") && (
             <div className="space-y-2">
               <Label>Kolom Sumber (Input)</Label>
-              <Select value={inpSourceId} onValueChange={setInpSourceId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih Kolom..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {inputColumns.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={inpSourceId}
+                onChange={setInpSourceId}
+                options={inputColumns.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Pilih Kolom..."
+                searchPlaceholder="Cari kolom input..."
+              />
             </div>
           )}
         </div>
