@@ -3611,7 +3611,7 @@ function StepConfigV2({
       });
       setVerificationOrder(newOrder);
 
-      toast.success("Preset Konstruksi & LPSE aktif: Nama 90%, Alamat 90%, Kode Kab 100%");
+      toast.success("Preset Konstruksi aktif: Nama 90%, Alamat 90%, Kode Kab 100%");
     } else if (presetKey === "custom") {
       toast.info("Mode Kustom Penuh aktif: Silakan sesuaikan parameter");
     }
@@ -3647,7 +3647,7 @@ function StepConfigV2({
             {mode === "default" && <CheckCircle2 className="size-4 text-brand" />}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Konfigurasi umum seimbang. Ambang auto-match 90%, review 75%, pembobotan proporsional.
+            Konfigurasi umum seimbang. Ambang auto-match 90%, review 75%, pembobotan proporsional
           </p>
           <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
             <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
@@ -3659,7 +3659,7 @@ function StepConfigV2({
           </div>
         </button>
 
-        {/* Preset 2: Konstruksi & LPSE */}
+        {/* Preset 2: Konstruksi */}
         <button
           type="button"
           onClick={() => applyPreset("construction")}
@@ -3678,12 +3678,12 @@ function StepConfigV2({
               >
                 <Building2 className="size-4" />
               </div>
-              <p className="text-xs font-bold text-foreground">Konstruksi & LPSE</p>
+              <p className="text-xs font-bold text-foreground">Konstruksi</p>
             </div>
             {mode === "construction" && <CheckCircle2 className="size-4 text-brand" />}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Khusus penyedia jasa konstruksi. Nama & Alamat min 90%, Kode Kab/Kota wajib 100% verifikasi.
+            Khusus penyedia jasa konstruksi. Nama & Alamat min 90%, Kode Kab/Kota wajib 100% verifikasi
           </p>
           <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
             <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[9px] font-semibold text-brand">
@@ -3719,7 +3719,7 @@ function StepConfigV2({
             {mode === "custom" && <CheckCircle2 className="size-4 text-brand" />}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-            Sesuaikan seluruh bobot variabel, ambang batas auto-match/reviu, dan algoritma secara bebas.
+            Sesuaikan seluruh bobot variabel, ambang batas auto-match/reviu, dan algoritma secara bebas
           </p>
           <div className="mt-2.5 flex flex-wrap gap-1.5 pt-1 border-t border-border/50">
             <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
