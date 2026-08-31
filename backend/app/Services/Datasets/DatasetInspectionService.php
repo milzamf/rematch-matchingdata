@@ -112,8 +112,11 @@ class DatasetInspectionService
         if (! empty($storagePath)) {
             $candidates = [
                 Storage::disk('local')->path($storagePath),
+                Storage::disk('public')->path($storagePath),
                 storage_path('app/' . $storagePath),
                 storage_path('app/private/' . $storagePath),
+                storage_path('app/public/' . $storagePath),
+                base_path($storagePath),
                 $storagePath,
             ];
 

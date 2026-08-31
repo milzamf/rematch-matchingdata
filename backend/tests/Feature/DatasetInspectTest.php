@@ -173,6 +173,73 @@ class DatasetInspectTest extends TestCase
             ->assertJsonPath('data.data.0.city', 'Surabaya');
     }
 
+    public function test_it_returns_250_rows_per_page_and_paginates_properly(): void
+    {
+        $csvContent = "id,company_name,address\n";
+        for ($i = 1; $i <= 350; $i++) {
+            $csvContent .= "{$i},PT Perusahaan {$i},Jalan Kebon {$i}\n";
+        }
+
+        $file = UploadedFile::fake()->createWithContent('large_dataset.csv', $csvContent);
+
+        $inspectRes = $this->postJson('/api/datasets/inspect', [
+            'file' => $file,
+            'dataset_role' => 'reference',
+        ])->assertOk();
+
+        $datasetId = $inspectRes->json('data.dataset.id');
+
+        // Page 1 with 250 rows
+        $page1 = $this->getJson("/api/datasets/{$datasetId}/rows?page=1&per_page=250")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 350)
+            ->assertJsonPath('data.current_page', 1)
+            ->assertJsonPath('data.per_page', 250)
+            ->assertJsonPath('data.last_page', 2)
+            ->assertJsonCount(250, 'data.data');
+
+        $this->assertSame('1', (string) $page1->json('data.data.0.id'));
+        $this->assertSame('250', (string) $page1->json('data.data.249.id'));
+
+        // Page 2 with remaining 100 rows
+        $page2 = $this->getJson("/api/datasets/{$datasetId}/rows?page=2&per_page=250")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 350)
+            ->assertJsonPath('data.current_page', 2)
+            ->assertJsonPath('data.per_page', 250)
+            ->assertJsonPath('data.last_page', 2)
+            ->assertJsonCount(100, 'data.data');
+
+        $this->assertSame('251', (string) $page2->json('data.data.0.id'));
+        $this->assertSame('350', (string) $page2->json('data.data.99.id'));
+    }
+
+    public function test_operator_can_fetch_paginated_rows_for_unassigned_dataset(): void
+    {
+        $operator = \App\Models\User::factory()->create([
+            'role' => \App\Support\Auth\UserRole::User->value,
+        ]);
+        $this->actingAs($operator);
+
+        $csvContent = "id,name\n1,Alpha\n2,Beta\n3,Gamma\n";
+        $file = UploadedFile::fake()->createWithContent('op_dataset.csv', $csvContent);
+
+        $inspectRes = $this->postJson('/api/datasets/inspect', [
+            'file' => $file,
+            'dataset_role' => 'reference',
+        ])->assertOk();
+
+        $datasetId = $inspectRes->json('data.dataset.id');
+
+        $this->getJson("/api/datasets/{$datasetId}/rows?page=1&per_page=50")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 3)
+            ->assertJsonCount(3, 'data.data');
+    }
+
     private function fakeXlsx(string $name): UploadedFile
     {
         $path = tempnam(sys_get_temp_dir(), 'batchmatch-xlsx-');

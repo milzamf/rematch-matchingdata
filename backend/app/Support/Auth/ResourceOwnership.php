@@ -61,7 +61,8 @@ class ResourceOwnership
                                             ->whereNotNull('input_dataset_id'),
                                     );
                             });
-                    });
+                    })
+                    ->orWhereNull('workspace_id');
             });
     }
 

@@ -17,7 +17,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { parseEntityName } from "@/lib/data-normalizer";
+import { parseEntityName, standardizeColumnValue } from "@/lib/data-normalizer";
 import { usePreferences } from "@/lib/preferences";
 import { fetchDatasetRows } from "@/lib/api";
 
@@ -27,6 +27,8 @@ function findCompanyValueInRow(row: Record<string, unknown>): string | null {
   for (const [key, val] of Object.entries(row)) {
     if (
       !key.startsWith("[Generated]") &&
+      !key.startsWith("gen_") &&
+      !key.startsWith("std_") &&
       companyKeyRegex.test(key) &&
       val !== null &&
       val !== undefined &&
@@ -38,6 +40,8 @@ function findCompanyValueInRow(row: Record<string, unknown>): string | null {
   for (const [key, val] of Object.entries(row)) {
     if (
       !key.startsWith("[Generated]") &&
+      !key.startsWith("gen_") &&
+      !key.startsWith("std_") &&
       val !== null &&
       val !== undefined &&
       typeof val === "string" &&
@@ -49,12 +53,75 @@ function findCompanyValueInRow(row: Record<string, unknown>): string | null {
   return null;
 }
 
+function getRowValueCaseInsensitive(row: Record<string, unknown>, key: string): unknown {
+  if (row[key] !== undefined && row[key] !== null) {
+    return row[key];
+  }
+  const targetLower = key.toLowerCase();
+  for (const [k, v] of Object.entries(row)) {
+    if (k.toLowerCase() === targetLower && v !== undefined && v !== null) {
+      return v;
+    }
+  }
+  return undefined;
+}
+
 function resolveRowCellValue(row: Record<string, unknown>, colKey: string): unknown {
   if (row[colKey] !== undefined && row[colKey] !== null) {
     return row[colKey];
   }
 
-  if (colKey.includes("[Generated] Nama Inti") || colKey.includes("Core Name")) {
+  // Direct case-insensitive match
+  const directVal = getRowValueCaseInsensitive(row, colKey);
+  if (directVal !== undefined) {
+    return directVal;
+  }
+
+  // Handle raw_ prefix (e.g. raw_nama_perusahaan -> nama_perusahaan)
+  if (colKey.startsWith("raw_")) {
+    const baseKey = colKey.slice(4);
+    const rawVal = getRowValueCaseInsensitive(row, baseKey);
+    if (rawVal !== undefined && rawVal !== null) {
+      return rawVal;
+    }
+  }
+
+  // Handle std_ prefix (e.g. std_nama_perusahaan -> standardize(nama_perusahaan))
+  if (colKey.startsWith("std_")) {
+    const baseKey = colKey.slice(4);
+    const rawVal = getRowValueCaseInsensitive(row, baseKey) ?? getRowValueCaseInsensitive(row, `raw_${baseKey}`);
+    if (rawVal !== undefined && rawVal !== null) {
+      return standardizeColumnValue(rawVal, baseKey);
+    }
+  }
+
+  // Handle gen_core_ prefix (e.g. gen_core_nama_perusahaan -> core_name)
+  if (colKey.startsWith("gen_core_")) {
+    const baseKey = colKey.slice(9);
+    const rawVal =
+      getRowValueCaseInsensitive(row, baseKey) ??
+      getRowValueCaseInsensitive(row, `raw_${baseKey}`) ??
+      findCompanyValueInRow(row);
+    if (rawVal !== null && rawVal !== undefined && String(rawVal).trim() !== "") {
+      const parsed = parseEntityName(rawVal);
+      return parsed.core_name || rawVal;
+    }
+  }
+
+  // Handle gen_legal_ prefix (e.g. gen_legal_nama_perusahaan -> legal_form)
+  if (colKey.startsWith("gen_legal_")) {
+    const baseKey = colKey.slice(10);
+    const rawVal =
+      getRowValueCaseInsensitive(row, baseKey) ??
+      getRowValueCaseInsensitive(row, `raw_${baseKey}`) ??
+      findCompanyValueInRow(row);
+    if (rawVal !== null && rawVal !== undefined && String(rawVal).trim() !== "") {
+      const parsed = parseEntityName(rawVal);
+      return parsed.legal_form || "-";
+    }
+  }
+
+  if (colKey.includes("[Generated] Nama Inti") || colKey.includes("Core Name") || colKey.includes("nama_inti")) {
     const rawVal = findCompanyValueInRow(row);
     if (rawVal) {
       const parsed = parseEntityName(rawVal);
@@ -62,7 +129,7 @@ function resolveRowCellValue(row: Record<string, unknown>, colKey: string): unkn
     }
   }
 
-  if (colKey.includes("[Generated] Badan Usaha") || colKey.includes("Legal Form")) {
+  if (colKey.includes("[Generated] Badan Usaha") || colKey.includes("Legal Form") || colKey.includes("badan_usaha")) {
     const rawVal = findCompanyValueInRow(row);
     if (rawVal) {
       const parsed = parseEntityName(rawVal);
@@ -151,6 +218,7 @@ export function DataPreviewTable({
         }
       } catch (err) {
         if (!isCancelled) {
+          console.error("fetchDatasetRows error:", err);
           setServerError(err instanceof Error ? err.message : "Gagal memuat baris dataset.");
         }
       } finally {
@@ -209,7 +277,9 @@ export function DataPreviewTable({
   }, [rows, columns, searchQuery]);
 
   // Dynamic row counts & pagination bounds
-  const activeTotalRows = serverData !== null ? serverData.total : (searchQuery.trim() ? filteredClientRows.length : totalRows);
+  const activeTotalRows = serverData !== null
+    ? serverData.total
+    : (searchQuery.trim() ? filteredClientRows.length : (datasetId ? totalRows : filteredClientRows.length));
   const totalPages = Math.max(1, Math.ceil(activeTotalRows / pageSize));
 
   // Paginated rows for expanded modal
@@ -335,7 +405,7 @@ export function DataPreviewTable({
 
           <div className="flex items-center gap-2">
             <span className="rounded bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground hidden sm:inline-block">
-              {t("preview.row_count", { count: rows.length, total: totalRows.toLocaleString() })}
+              {t("preview.filteredRowsBadge", { count: totalRows.toLocaleString() })}
             </span>
 
             {headerAction}
@@ -483,6 +553,12 @@ export function DataPreviewTable({
               </div>
             </div>
           </DialogHeader>
+
+          {serverError && (
+            <div className="rounded-md bg-destructive/10 border border-destructive/20 p-2.5 text-xs text-destructive flex items-center justify-between">
+              <span>{serverError}</span>
+            </div>
+          )}
 
           {/* MODAL TABLE CONTENT */}
           <div className="relative flex-1 overflow-auto rounded-md border border-border">

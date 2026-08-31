@@ -935,6 +935,16 @@ function MatchingPage() {
       const inspectedRef = reference.result.columns ?? [];
       const inspectedInp = input.result.columns ?? [];
 
+      const configuredFields = (matchingConfiguration?.fields ?? []).reduce<
+        Record<string, { algorithm?: string; strict?: boolean }>
+      >((acc, f) => {
+        if (f.mappingId) acc[f.mappingId] = f;
+        if (f.referenceColumnName && f.inputColumnName) {
+          acc[`${f.referenceColumnName}|${f.inputColumnName}`] = f;
+        }
+        return acc;
+      }, {});
+
       const result = await runMatching({
         workspaceId: workspaceId ?? undefined,
         name: `${reference.result.dataset.name} vs ${input.result.dataset.name}`,
@@ -947,13 +957,18 @@ function MatchingPage() {
             const parentInp = mapping.parent_input_column;
             const transform = mapping.transform;
 
+            const configured =
+              configuredFields[mapping.id] ||
+              configuredFields[`${mapping.referenceColumnName}|${mapping.inputColumnName}`];
+            const currentAlgorithm = configured?.algorithm || mapping.algorithm;
+
             return {
               id: mapping.id,
               referenceColumnId: mapping.referenceColumnId,
               inputColumnId: mapping.inputColumnId,
               referenceColumnName: mapping.referenceColumnName,
               inputColumnName: mapping.inputColumnName,
-              algorithm: mapping.algorithm,
+              algorithm: currentAlgorithm,
               required_match: mapping.required_match,
               parent_reference_column: parentRef,
               parent_input_column: parentInp,
@@ -2289,6 +2304,7 @@ function StepStandardizedPreview({
 
       {activeTab === "input" && input && (
         <DataPreviewTable
+          datasetId={input.dataset.id}
           title={t("preview.input_result")}
           subtitle={t("preview.standardizedSubtitle")}
           filename={input.dataset.original_filename}
@@ -2303,6 +2319,7 @@ function StepStandardizedPreview({
 
       {activeTab === "reference" && reference && (
         <DataPreviewTable
+          datasetId={reference.dataset.id}
           title={t("preview.reference_result")}
           subtitle={t("preview.standardizedSubtitle")}
           filename={reference.dataset.original_filename}
@@ -3189,17 +3206,29 @@ function StepConfigV2({
       const next: typeof current = {};
       fields.forEach((field) => {
         const existing = current[field.id];
-        const allowed = algorithmsForField(existing?.family ?? field.family, field.type);
-        next[field.id] =
-          existing && allowed.includes(existing.algorithm)
-            ? existing
-            : {
-                family: field.family,
-                algorithm: algorithmsForField(field.family, field.type).includes(field.algorithm)
-                  ? field.algorithm
-                  : algorithmsForField(field.family, field.type)[0],
-                normalization: field.normalization,
-              };
+        const configField = configuration?.fields?.find((f) => f.mappingId === field.id);
+        const configuredAlgo = configField?.algorithm;
+        const configuredFamily = configField?.comparisonFamily ?? (configuredAlgo ? comparisonFamilyForAlgorithm(configuredAlgo, field.type) : undefined);
+        const activeFamily = existing?.family ?? configuredFamily ?? field.family;
+        const allowed = algorithmsForField(activeFamily, field.type);
+
+        if (existing && allowed.includes(existing.algorithm)) {
+          next[field.id] = existing;
+        } else if (configuredAlgo && allowed.includes(configuredAlgo as ConfigureAlgorithm)) {
+          next[field.id] = {
+            family: activeFamily,
+            algorithm: configuredAlgo as ConfigureAlgorithm,
+            normalization: configField?.normalization ?? field.normalization,
+          };
+        } else {
+          next[field.id] = {
+            family: activeFamily,
+            algorithm: allowed.includes(field.algorithm)
+              ? field.algorithm
+              : allowed[0],
+            normalization: field.normalization,
+          };
+        }
       });
       return next;
     });

@@ -39,6 +39,8 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_UPDATE);
     Route::delete('/workspaces/{workspace}', [WorkspaceController::class, 'destroy'])
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_DELETE);
+    Route::get('/workspaces/{workspace}/standardized-preview', [WorkspaceController::class, 'standardizedPreview'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
 
     Route::post('/datasets/inspect', DatasetInspectionController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_CREATE);

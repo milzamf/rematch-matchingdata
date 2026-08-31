@@ -198,6 +198,37 @@ class WorkspaceController extends Controller
         ];
     }
 
+    public function standardizedPreview(Request $request, string $workspace, \App\Services\Datasets\DatasetInspectionService $inspectionService): JsonResponse
+    {
+        $model = $this->ownership->findWorkspace($request->user(), $workspace);
+        $role = $request->query('role', 'input');
+        $datasetId = $role === 'reference' ? $model->reference_dataset_id : $model->input_dataset_id;
+
+        if (! $datasetId) {
+            return response()->json([
+                'success' => false,
+                'message' => "Dataset for role '{$role}' not found in this workspace.",
+            ], 404);
+        }
+
+        $dataset = Dataset::findOrFail($datasetId);
+        $page = max(1, (int) $request->query('page', 1));
+        $perPage = min(250, max(1, (int) $request->query('per_page', 50)));
+        $search = $request->query('search');
+
+        $result = $inspectionService->getPaginatedRows(
+            $dataset,
+            $page,
+            $perPage,
+            is_string($search) ? $search : null,
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $result,
+        ]);
+    }
+
     /**
      * @param array<string, mixed> $data
      */
