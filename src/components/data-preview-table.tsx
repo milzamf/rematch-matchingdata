@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { parseEntityName, standardizeColumnValue } from "@/lib/data-normalizer";
 import { usePreferences } from "@/lib/preferences";
-import { fetchDatasetRows } from "@/lib/api";
+import { fetchDatasetRows, fetchWorkspaceStandardizedPreview, type PaginatedDatasetRowsResult } from "@/lib/api";
 
 function findCompanyValueInRow(row: Record<string, unknown>): string | null {
   const companyKeyRegex =
@@ -149,6 +149,8 @@ export interface DataPreviewColumn {
 
 export interface DataPreviewTableProps {
   datasetId?: string;
+  workspaceId?: string;
+  role?: "input" | "reference";
   title: string;
   subtitle?: string;
   filename?: string;
@@ -166,6 +168,8 @@ export interface DataPreviewTableProps {
 
 export function DataPreviewTable({
   datasetId,
+  workspaceId,
+  role,
   title,
   subtitle,
   filename,
@@ -192,9 +196,9 @@ export function DataPreviewTable({
   const effectivePlaceholder = searchPlaceholder ?? t("preview.searchPlaceholder");
   const effectiveEmptyMessage = emptyMessage ?? t("preview.emptyMessage");
 
-  // Fetch paginated rows from backend when datasetId is provided
+  // Fetch paginated rows from backend when datasetId or workspaceId is provided
   useEffect(() => {
-    if (!isModalOpen || !datasetId) {
+    if (!isModalOpen || (!datasetId && !(workspaceId && role))) {
       setServerData(null);
       return;
     }
@@ -205,11 +209,24 @@ export function DataPreviewTable({
 
     const timer = setTimeout(async () => {
       try {
-        const res = await fetchDatasetRows(datasetId, {
-          page: currentPage,
-          per_page: pageSize,
-          search: searchQuery.trim() || undefined,
-        });
+        let res: PaginatedDatasetRowsResult;
+        if (workspaceId && role) {
+          res = await fetchWorkspaceStandardizedPreview(workspaceId, {
+            role,
+            page: currentPage,
+            per_page: pageSize,
+            search: searchQuery.trim() || undefined,
+          });
+        } else if (datasetId) {
+          res = await fetchDatasetRows(datasetId, {
+            page: currentPage,
+            per_page: pageSize,
+            search: searchQuery.trim() || undefined,
+          });
+        } else {
+          return;
+        }
+
         if (!isCancelled) {
           setServerData({
             data: res.data,
@@ -218,7 +235,7 @@ export function DataPreviewTable({
         }
       } catch (err) {
         if (!isCancelled) {
-          console.error("fetchDatasetRows error:", err);
+          console.error("fetch dataset preview rows error:", err);
           setServerError(err instanceof Error ? err.message : "Gagal memuat baris dataset.");
         }
       } finally {
@@ -232,7 +249,7 @@ export function DataPreviewTable({
       isCancelled = true;
       clearTimeout(timer);
     };
-  }, [isModalOpen, datasetId, currentPage, pageSize, searchQuery]);
+  }, [isModalOpen, datasetId, workspaceId, role, currentPage, pageSize, searchQuery]);
 
   // Normalize and deduplicate column definitions
   const columns: DataPreviewColumn[] = useMemo(() => {

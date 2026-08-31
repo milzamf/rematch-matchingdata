@@ -1487,6 +1487,7 @@ function MatchingPage() {
                 <div className="space-y-8">
                   {/* Step 2 Standardized Data Preview */}
                   <StepStandardizedPreview
+                    workspaceId={workspaceId ?? undefined}
                     reference={reference?.result}
                     input={input?.result}
                     mappings={columnMappings}
@@ -2107,10 +2108,12 @@ function StepDataPreview({
 }
 
 function StepStandardizedPreview({
+  workspaceId,
   reference,
   input,
   mappings,
 }: {
+  workspaceId?: string;
   reference?: DatasetInspectResult;
   input?: DatasetInspectResult;
   mappings: ColumnMappingDraft[];
@@ -2305,6 +2308,8 @@ function StepStandardizedPreview({
       {activeTab === "input" && input && (
         <DataPreviewTable
           datasetId={input.dataset.id}
+          workspaceId={workspaceId}
+          role="input"
           title={t("preview.input_result")}
           subtitle={t("preview.standardizedSubtitle")}
           filename={input.dataset.original_filename}
@@ -2320,6 +2325,8 @@ function StepStandardizedPreview({
       {activeTab === "reference" && reference && (
         <DataPreviewTable
           datasetId={reference.dataset.id}
+          workspaceId={workspaceId}
+          role="reference"
           title={t("preview.reference_result")}
           subtitle={t("preview.standardizedSubtitle")}
           filename={reference.dataset.original_filename}
