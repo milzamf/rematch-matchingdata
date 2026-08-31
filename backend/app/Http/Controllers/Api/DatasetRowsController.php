@@ -26,12 +26,21 @@ class DatasetRowsController extends Controller
         $perPage = min(250, max(1, (int) $request->query('per_page', 50)));
         $search = $request->query('search');
 
-        $result = $this->inspectionService->getPaginatedRows(
-            $datasetModel,
-            $page,
-            $perPage,
-            is_string($search) ? $search : null,
-        );
+        $isStandardized = $request->boolean('standardized');
+
+        $result = $isStandardized
+            ? $this->inspectionService->getPaginatedStandardizedRows(
+                $datasetModel,
+                $page,
+                $perPage,
+                is_string($search) ? $search : null,
+            )
+            : $this->inspectionService->getPaginatedRows(
+                $datasetModel,
+                $page,
+                $perPage,
+                is_string($search) ? $search : null,
+            );
 
         return response()->json([
             'success' => true,

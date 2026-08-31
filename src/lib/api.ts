@@ -794,12 +794,13 @@ export interface PaginatedDatasetRowsResult {
 
 export async function fetchDatasetRows(
   datasetId: string,
-  params?: { page?: number; per_page?: number; search?: string },
+  params?: { page?: number; per_page?: number; search?: string; standardized?: boolean },
 ): Promise<PaginatedDatasetRowsResult> {
   const query = new URLSearchParams();
   if (params?.page) query.append("page", String(params.page));
   if (params?.per_page) query.append("per_page", String(params.per_page));
   if (params?.search) query.append("search", params.search);
+  if (params?.standardized) query.append("standardized", "1");
 
   const qs = query.toString();
   const endpoint = `/datasets/${datasetId}/rows${qs ? `?${qs}` : ""}`;

@@ -265,4 +265,86 @@ class DatasetInspectionService
             'last_page' => max(1, (int) ceil($total / $perPage)),
         ];
     }
+
+    /**
+     * @param array<int, string> $mappedColumns
+     * @return array{data: array<int, array<string, mixed>>, columns: array<int, array<string, mixed>>, total: int, current_page: int, per_page: int, last_page: int}
+     */
+    public function getPaginatedStandardizedRows(Dataset $dataset, int $page = 1, int $perPage = 50, ?string $search = null, array $mappedColumns = []): array
+    {
+        $rawResult = $this->getPaginatedRows($dataset, $page, $perPage, $search);
+        $entityParser = new \App\Services\Matching\EntityNameParser();
+        $datasetColumns = $dataset->columns()->get();
+        $colList = [];
+
+        if (! empty($mappedColumns)) {
+            $colList = $mappedColumns;
+        } elseif ($datasetColumns->isNotEmpty()) {
+            $colList = $datasetColumns->pluck('name')->all();
+        } elseif (! empty($rawResult['data'])) {
+            $colList = array_keys($rawResult['data'][0]);
+        }
+
+        $standardizedColumns = [];
+        $seenCols = [];
+        foreach ($colList as $colName) {
+            $colName = (string) $colName;
+            if (isset($seenCols[$colName])) {
+                continue;
+            }
+            $seenCols[$colName] = true;
+
+            $standardizedColumns[] = [
+                'key' => 'raw_' . $colName,
+                'label' => $colName . ' (Mentah)',
+            ];
+            $standardizedColumns[] = [
+                'key' => 'std_' . $colName,
+                'label' => $colName . ' (Terstandardisasi)',
+                'isStandardized' => true,
+            ];
+
+            if ($entityParser->isEntityNameColumn($colName)) {
+                $standardizedColumns[] = [
+                    'key' => 'gen_core_' . $colName,
+                    'label' => '[GENERATED] ' . $colName . ' - NAMA INTI',
+                    'isVirtual' => true,
+                ];
+                $standardizedColumns[] = [
+                    'key' => 'gen_legal_' . $colName,
+                    'label' => '[GENERATED] ' . $colName . ' - BADAN USAHA',
+                    'isVirtual' => true,
+                ];
+            }
+        }
+
+        $standardizedRows = [];
+        foreach ($rawResult['data'] as $rawRow) {
+            $row = $rawRow;
+            foreach ($colList as $colName) {
+                $colName = (string) $colName;
+                $rawVal = $rawRow[$colName] ?? null;
+                $row['raw_' . $colName] = $rawVal;
+
+                $stdVal = is_string($rawVal) ? trim(mb_strtolower($rawVal)) : $rawVal;
+                $row['std_' . $colName] = $stdVal;
+
+                if ($entityParser->isEntityNameColumn($colName)) {
+                    $parsed = $entityParser->parse($rawVal);
+                    $row['gen_core_' . $colName] = $parsed['core_name'] ?? $rawVal;
+                    $row['gen_legal_' . $colName] = $parsed['legal_form'] ?? '-';
+                }
+            }
+            $standardizedRows[] = $row;
+        }
+
+        return [
+            'columns' => $standardizedColumns,
+            'data' => $standardizedRows,
+            'total' => $rawResult['total'],
+            'current_page' => $rawResult['current_page'],
+            'per_page' => $rawResult['per_page'],
+            'last_page' => $rawResult['last_page'],
+        ];
+    }
 }

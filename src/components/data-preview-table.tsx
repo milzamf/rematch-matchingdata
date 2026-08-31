@@ -222,6 +222,7 @@ export function DataPreviewTable({
             page: currentPage,
             per_page: pageSize,
             search: searchQuery.trim() || undefined,
+            standardized: Boolean(role || columns.some((c) => c.isStandardized || c.isVirtual)),
           });
         } else {
           return;

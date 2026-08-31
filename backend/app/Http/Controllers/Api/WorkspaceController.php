@@ -216,7 +216,7 @@ class WorkspaceController extends Controller
         $perPage = min(250, max(1, (int) $request->query('per_page', 50)));
         $search = $request->query('search');
 
-        $result = $inspectionService->getPaginatedRows(
+        $result = $inspectionService->getPaginatedStandardizedRows(
             $dataset,
             $page,
             $perPage,
