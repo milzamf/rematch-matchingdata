@@ -33,14 +33,16 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
     Route::post('/workspaces', [WorkspaceController::class, 'store'])
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_CREATE);
+    Route::get('/workspaces/{workspace}/preview-standardized', [WorkspaceController::class, 'previewStandardized'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
+    Route::get('/workspaces/{workspace}/standardized-preview', [WorkspaceController::class, 'standardizedPreview'])
+        ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
     Route::get('/workspaces/{workspace}', [WorkspaceController::class, 'show'])
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
     Route::patch('/workspaces/{workspace}', [WorkspaceController::class, 'update'])
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_UPDATE);
     Route::delete('/workspaces/{workspace}', [WorkspaceController::class, 'destroy'])
         ->middleware('permission:'.PermissionRegistry::WORKSPACE_DELETE);
-    Route::get('/workspaces/{workspace}/standardized-preview', [WorkspaceController::class, 'standardizedPreview'])
-        ->middleware('permission:'.PermissionRegistry::WORKSPACE_VIEW);
 
     Route::post('/datasets/inspect', DatasetInspectionController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_CREATE);

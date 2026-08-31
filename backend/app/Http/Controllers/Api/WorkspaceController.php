@@ -198,7 +198,7 @@ class WorkspaceController extends Controller
         ];
     }
 
-    public function standardizedPreview(Request $request, string $workspace, \App\Services\Datasets\DatasetInspectionService $inspectionService): JsonResponse
+    public function previewStandardized(Request $request, string $workspace, \App\Services\Datasets\DatasetInspectionService $inspectionService): JsonResponse
     {
         $model = $this->ownership->findWorkspace($request->user(), $workspace);
         $role = $request->query('role', 'input');
@@ -227,6 +227,11 @@ class WorkspaceController extends Controller
             'success' => true,
             'data' => $result,
         ]);
+    }
+
+    public function standardizedPreview(Request $request, string $workspace, \App\Services\Datasets\DatasetInspectionService $inspectionService): JsonResponse
+    {
+        return $this->previewStandardized($request, $workspace, $inspectionService);
     }
 
     /**

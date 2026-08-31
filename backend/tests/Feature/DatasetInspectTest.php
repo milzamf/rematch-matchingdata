@@ -240,6 +240,53 @@ class DatasetInspectTest extends TestCase
             ->assertJsonCount(3, 'data.data');
     }
 
+    public function test_it_previews_standardized_rows_via_workspace_endpoint(): void
+    {
+        $csvContent = "id,nama,alamat\n";
+        for ($i = 1; $i <= 188; $i++) {
+            $csvContent .= "{$i},CV. Vendor {$i},Jalan Mawar {$i}\n";
+        }
+        $file = UploadedFile::fake()->createWithContent('input_188.csv', $csvContent);
+
+        $inspectRes = $this->postJson('/api/datasets/inspect', [
+            'file' => $file,
+            'dataset_role' => 'input',
+        ])->assertOk();
+
+        $datasetId = $inspectRes->json('data.dataset.id');
+        $user = \App\Models\User::first() ?: \App\Models\User::factory()->create();
+        $this->actingAs($user);
+
+        $workspace = \App\Models\Workspace::create([
+            'user_id' => $user->id,
+            'name' => 'Test Standardized Preview Workspace',
+            'input_dataset_id' => $datasetId,
+        ]);
+
+        // Page 3 (rows 101 to 150)
+        $this->getJson("/api/workspaces/{$workspace->id}/preview-standardized?role=input&page=3&per_page=50")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 188)
+            ->assertJsonPath('data.current_page', 3)
+            ->assertJsonPath('data.per_page', 50)
+            ->assertJsonPath('data.last_page', 4)
+            ->assertJsonCount(50, 'data.data')
+            ->assertJsonPath('data.data.0.id', '101');
+
+        // Page 4 (rows 151 to 188)
+        $this->getJson("/api/workspaces/{$workspace->id}/preview-standardized?role=input&page=4&per_page=50")
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.total', 188)
+            ->assertJsonPath('data.current_page', 4)
+            ->assertJsonPath('data.per_page', 50)
+            ->assertJsonPath('data.last_page', 4)
+            ->assertJsonCount(38, 'data.data')
+            ->assertJsonPath('data.data.0.id', '151')
+            ->assertJsonPath('data.data.37.id', '188');
+    }
+
     private function fakeXlsx(string $name): UploadedFile
     {
         $path = tempnam(sys_get_temp_dir(), 'batchmatch-xlsx-');

@@ -827,6 +827,42 @@ export async function fetchDatasetRows(
   return payload.data;
 }
 
+export async function fetchWorkspaceStandardizedPreview(
+  workspaceId: string,
+  params?: { role?: "input" | "reference"; page?: number; per_page?: number; search?: string },
+): Promise<PaginatedDatasetRowsResult> {
+  const query = new URLSearchParams();
+  if (params?.role) query.append("role", params.role);
+  if (params?.page) query.append("page", String(params.page));
+  if (params?.per_page) query.append("per_page", String(params.per_page));
+  if (params?.search) query.append("search", params.search);
+
+  const qs = query.toString();
+  const endpoint = `/workspaces/${workspaceId}/preview-standardized${qs ? `?${qs}` : ""}`;
+
+  const response = await apiFetch(endpoint, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<PaginatedDatasetRowsResult>
+    | ApiFailure
+    | null;
+
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(
+      payload?.message ?? "Failed to fetch workspace standardized preview.",
+      response.status,
+      payload?.success === false ? payload.errors : undefined,
+    );
+  }
+
+  return payload.data;
+}
+
 export async function runMatching(input: RunMatchingInput): Promise<MatchingRunResult> {
   const response = await apiFetch("/matching-jobs/run", {
     method: "POST",
