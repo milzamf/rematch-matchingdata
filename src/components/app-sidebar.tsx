@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   ShieldCheck,
@@ -22,6 +23,7 @@ import {
 import { getInitials, useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
+import { LogoutDialog } from "@/components/logout-dialog";
 
 const nav = [
   { labelKey: "nav.dashboard", url: "/", icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
@@ -53,9 +55,18 @@ export function AppSidebar() {
   const visibleNav = nav.filter((item) => !("permission" in item) || can(item.permission));
   const visibleSecondaryNav = secondaryNav.filter((item) => can(item.permission));
 
-  const handleLogout = async () => {
-    await logout();
-    navigate({ to: "/login", replace: true });
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleConfirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      navigate({ to: "/login", replace: true });
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutConfirm(false);
+    }
   };
 
   return (
@@ -199,8 +210,11 @@ export function AppSidebar() {
 
               {/* Destructive Action */}
               <DropdownMenuItem
-                onClick={handleLogout}
-                className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setShowLogoutConfirm(true);
+                }}
+                className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:text-destructive cursor-pointer transition-colors active:scale-[0.98]"
               >
                 <LogOut className="size-4 text-destructive" />
                 <span className="font-medium">{t("auth.logout") ?? "Keluar"}</span>
@@ -209,6 +223,13 @@ export function AppSidebar() {
           </DropdownMenu>
         ) : null}
       </div>
+
+      <LogoutDialog
+        open={showLogoutConfirm}
+        onOpenChange={setShowLogoutConfirm}
+        onConfirm={handleConfirmLogout}
+        isLoading={isLoggingOut}
+      />
     </aside>
   );
 }
