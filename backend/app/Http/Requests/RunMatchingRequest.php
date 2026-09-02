@@ -43,7 +43,7 @@ class RunMatchingRequest extends FormRequest
             'mappings.*.metadata' => ['nullable', 'array'],
             'configuration' => ['required', 'array'],
             'configuration.preset' => ['nullable', 'string', 'max:32'],
-            'configuration.mode' => ['nullable', 'string', 'in:default,custom,preset'],
+            'configuration.mode' => ['nullable', 'string', 'in:default,custom,preset,construction'],
             'configuration.strategy' => ['nullable', 'string', 'max:32'],
             'configuration.fields' => ['nullable', 'array'],
             'configuration.fields.*.mappingId' => ['required_with:configuration.fields', 'string', 'max:100'],

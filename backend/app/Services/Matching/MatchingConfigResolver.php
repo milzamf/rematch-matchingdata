@@ -10,7 +10,12 @@ class MatchingConfigResolver
      */
     public function resolve(array $configuration): array
     {
-        $preset = (string) ($configuration['preset'] ?? 'Default');
+        $mode = (string) ($configuration['mode'] ?? 'default');
+        $preset = (string) ($configuration['preset'] ?? ($mode === 'construction' ? 'Konstruksi' : 'Default'));
+        if (strcasecmp($preset, 'construction') === 0 || strcasecmp($mode, 'construction') === 0) {
+            $preset = 'Konstruksi';
+        }
+
         $strategy = (string) ($configuration['strategy'] ?? $this->strategyForPreset($preset));
         $thresholds = $configuration['thresholds'] ?? $this->thresholdsForPreset($preset);
         $candidateGeneration = $configuration['candidateGeneration'] ?? ['topN' => 3];
@@ -18,7 +23,7 @@ class MatchingConfigResolver
 
         return [
             'preset' => $preset,
-            'mode' => (string) ($configuration['mode'] ?? 'default'),
+            'mode' => $mode,
             'strategy' => $this->normalizeStrategy($strategy),
             'fields' => $fields,
             'thresholds' => [

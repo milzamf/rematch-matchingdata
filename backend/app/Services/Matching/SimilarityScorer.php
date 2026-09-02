@@ -22,9 +22,9 @@ class SimilarityScorer
             'Jaro-Winkler' => $this->jaroWinkler($left, $right) * 100,
             'Levenshtein' => $this->levenshteinRatio($left, $right) * 100,
             'Damerau-Levenshtein' => $this->damerauLevenshteinRatio($left, $right) * 100,
-            'Jaccard Similarity', 'Jaccard' => $this->jaccard($left, $right) * 100,
+            'Jaccard Similarity' => $this->jaccard($left, $right) * 100,
             'Cosine Similarity' => $this->cosine($left, $right) * 100,
-            'Sørensen-Dice', 'Sorensen-Dice' => $this->sorensenDice($left, $right) * 100,
+            'Sørensen-Dice' => $this->sorensenDice($left, $right) * 100,
             'Ratcliff-Obershelp' => $this->ratcliffObershelp($left, $right) * 100,
             'Monge-Elkan' => $this->mongeElkan($left, $right) * 100,
             'Smith-Waterman' => $this->smithWaterman($left, $right) * 100,
@@ -83,12 +83,33 @@ class SimilarityScorer
     private function normalizeAlgorithm(string $algorithm): string
     {
         $cleaned = trim($algorithm);
+        $canonical = mb_strtolower(str_replace(['-', '_', ' '], '', $cleaned));
 
-        return match ($cleaned) {
-            'Token Sort' => 'Token Sort Ratio',
-            'Token Set' => 'Token Set Ratio',
-            'Partial Token' => 'Partial Token Set',
-            default => $cleaned,
+        return match ($canonical) {
+            'exact', 'rawexact', 'exactmatch', 'exact_name' => 'Exact',
+            'caseinsensitive', 'caseinsensitiveexact' => 'Case-Insensitive Exact',
+            'normalizedexact', 'normalized', 'normalizedname', 'numericexact', 'dateexact' => 'Normalized Exact',
+            'jarowinkler', 'jaro' => 'Jaro-Winkler',
+            'levenshtein', 'levenshteinratio' => 'Levenshtein',
+            'dameraulevenshtein', 'damerau' => 'Damerau-Levenshtein',
+            'tokensort', 'tokensortratio' => 'Token Sort Ratio',
+            'tokenset', 'tokensetratio' => 'Token Set Ratio',
+            'partialratio' => 'Partial Ratio',
+            'partialtokensort' => 'Partial Token Sort',
+            'partialtokenset', 'partialtoken' => 'Partial Token Set',
+            'jaccard', 'jaccardsimilarity' => 'Jaccard Similarity',
+            'cosine', 'cosinesimilarity' => 'Cosine Similarity',
+            'sorensendice', 'sorensen', 'sørensendice', 'sørensen' => 'Sørensen-Dice',
+            'ratcliffobershelp', 'ratcliff' => 'Ratcliff-Obershelp',
+            'mongeelkan' => 'Monge-Elkan',
+            'smithwaterman' => 'Smith-Waterman',
+            'fuzzy', 'similarity' => 'Jaro-Winkler',
+            default => match ($cleaned) {
+                'Token Sort' => 'Token Sort Ratio',
+                'Token Set' => 'Token Set Ratio',
+                'Partial Token' => 'Partial Token Set',
+                default => $cleaned,
+            },
         };
     }
 
@@ -330,9 +351,43 @@ class SimilarityScorer
 
     private function tokenSetRatio(string $left, string $right): float
     {
+        $leftTokens = $this->normalizer->tokens($left);
+        $rightTokens = $this->normalizer->tokens($right);
+
+        if (empty($leftTokens) || empty($rightTokens)) {
+            return (empty($leftTokens) && empty($rightTokens)) ? 1.0 : 0.0;
+        }
+
+        $setLeft = array_values(array_unique($leftTokens));
+        $setRight = array_values(array_unique($rightTokens));
+        sort($setLeft);
+        sort($setRight);
+
+        $intersect = array_values(array_intersect($setLeft, $setRight));
+        $diffLeft = array_values(array_diff($setLeft, $setRight));
+        $diffRight = array_values(array_diff($setRight, $setLeft));
+
+        if (empty($intersect)) {
+            $sortedLeft = implode(' ', $setLeft);
+            $sortedRight = implode(' ', $setRight);
+            return $this->levenshteinRatio($sortedLeft, $sortedRight);
+        }
+
+        $t0 = implode(' ', $intersect);
+        $t1 = trim($t0 . ' ' . implode(' ', $diffLeft));
+        $t2 = trim($t0 . ' ' . implode(' ', $diffRight));
+
+        $unionCount = count(array_unique(array_merge($setLeft, $setRight)));
+        $minCount = min(count($setLeft), count($setRight));
+        $overlap = $minCount > 0 ? (count($intersect) / $minCount) : 0.0;
+        $jaccard = $unionCount > 0 ? (count($intersect) / $unionCount) : 0.0;
+
         return max(
-            $this->levenshteinRatio($this->tokenSetText($left), $this->tokenSetText($right)),
-            $this->jaccard($left, $right),
+            $this->levenshteinRatio($t0, $t1),
+            $this->levenshteinRatio($t0, $t2),
+            $this->levenshteinRatio($t1, $t2),
+            $overlap,
+            $jaccard
         );
     }
 

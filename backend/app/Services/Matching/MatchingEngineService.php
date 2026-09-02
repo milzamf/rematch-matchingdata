@@ -47,7 +47,11 @@ class MatchingEngineService
     {
         $job = $this->prepareJob($user, $payload);
 
-        RunMatchingJob::dispatch($job->id);
+        if (app()->environment('testing') || config('queue.default') === 'sync') {
+            RunMatchingJob::dispatchSync($job->id);
+        } else {
+            RunMatchingJob::dispatch($job->id);
+        }
 
         return $this->responseFor($job->refresh());
     }
@@ -129,6 +133,8 @@ class MatchingEngineService
                 'candidate_generation' => ($configuration['candidateGeneration'] ?? null),
                 'output_config' => ($configuration['output'] ?? null),
                 'advanced_settings' => [
+                    'mode' => ($configuration['mode'] ?? null),
+                    'fields' => ($configuration['fields'] ?? null),
                     'weighting' => ($configuration['weighting'] ?? null),
                     'rules' => ($configuration['rules'] ?? null),
                     'runOptions' => ($configuration['runOptions'] ?? null),
@@ -169,7 +175,9 @@ class MatchingEngineService
         $configModel = $job->configuration;
         $configuration = $this->configResolver->resolve([
             'preset' => $configModel?->preset ?? 'Default',
+            'mode' => data_get($configModel?->advanced_settings, 'mode', 'default'),
             'strategy' => $configModel?->strategy ?? 'Hybrid',
+            'fields' => data_get($configModel?->advanced_settings, 'fields', []),
             'thresholds' => $configModel?->thresholds ?? [],
             'candidateGeneration' => $configModel?->candidate_generation ?? [],
             'searchOptimization' => $configModel?->search_optimization ?? [],
@@ -272,8 +280,8 @@ class MatchingEngineService
      */
     private function resolveMappings(array $rawMappings, array $configuration): array
     {
-        $configuredFields = collect($configuration['fields'] ?? [])->keyBy('mappingId');
-        $weightByField = collect(data_get($configuration, 'weighting.fields', []))->keyBy('mappingId');
+        $configuredFields = collect($configuration['fields'] ?? []);
+        $weightByField = collect(data_get($configuration, 'weighting.fields', []));
         $validMappings = [];
 
         foreach ($rawMappings as $index => $mapping) {
@@ -284,9 +292,25 @@ class MatchingEngineService
                 continue;
             }
 
-            $mappingId = (string) ($mapping['id'] ?? $mapping['mappingId'] ?? Str::uuid());
-            $configured = $configuredFields->get($mappingId, []);
-            $weight = $weightByField->get($mappingId, []);
+            $mappingId = (string) ($mapping['id'] ?? $mapping['mappingId'] ?? '');
+
+            // Match configured field by mappingId or composite column names
+            $configured = $configuredFields->first(function ($cf) use ($mappingId, $refCol, $inpCol) {
+                if ($mappingId !== '' && (string) ($cf['mappingId'] ?? '') === $mappingId) {
+                    return true;
+                }
+                $cRef = (string) ($cf['referenceColumnName'] ?? $cf['reference_column_name'] ?? '');
+                $cInp = (string) ($cf['inputColumnName'] ?? $cf['input_column_name'] ?? '');
+                return ($cRef === $refCol && $cInp === $inpCol);
+            }) ?? [];
+
+            $weight = $weightByField->first(function ($wf) use ($mappingId, $refCol, $inpCol) {
+                if ($mappingId !== '' && (string) ($wf['mappingId'] ?? '') === $mappingId) {
+                    return true;
+                }
+                $fieldLabel = (string) ($wf['field'] ?? '');
+                return str_contains($fieldLabel, $refCol) && str_contains($fieldLabel, $inpCol);
+            }) ?? [];
 
             $parentInput = (string) (
                 $mapping['parent_input_column']
@@ -317,7 +341,7 @@ class MatchingEngineService
             ]);
 
             $validMappings[] = [
-                'id' => $mappingId,
+                'id' => $mappingId !== '' ? $mappingId : (string) Str::uuid(),
                 'reference_column_id' => $mapping['referenceColumnId'] ?? $mapping['reference_column_id'] ?? null,
                 'input_column_id' => $mapping['inputColumnId'] ?? $mapping['input_column_id'] ?? null,
                 'reference_column_name' => $refCol,
@@ -325,7 +349,7 @@ class MatchingEngineService
                 'parent_input_column' => $parentInput !== '' ? $parentInput : null,
                 'parent_reference_column' => $parentRef !== '' ? $parentRef : null,
                 'transform' => $transform !== '' ? $transform : null,
-                'algorithm' => $this->resolveAlgorithm(($configuration['strategy'] ?? null), $configured['algorithm'] ?? $mapping['algorithm'] ?? null),
+                'algorithm' => $this->resolveAlgorithm(($configuration['strategy'] ?? 'Hybrid'), $configured['algorithm'] ?? $mapping['algorithm'] ?? null),
                 'weight' => (float) ($weight['weight'] ?? $mapping['weight'] ?? $this->defaultWeight($index, count($rawMappings))),
                 'required_match' => (bool) ($mapping['required_match'] ?? $mapping['strict'] ?? $mapping['is_mandatory'] ?? false),
                 'metadata' => [
@@ -1063,7 +1087,23 @@ class MatchingEngineService
                 }
 
                 $algorithm = ($mapping['algorithm'] ?? null);
-                $score = $this->scorer->score($algorithm, $left, $right);
+                if ($left === '' && $right === '') {
+                    $refLegal = $refIdentity['legal_form'] ?? null;
+                    $inpLegal = $inpIdentity['legal_form'] ?? null;
+                    if ($refLegal !== null && $inpLegal !== null && $refLegal === $inpLegal) {
+                        $score = 100.0;
+                    } else {
+                        $rawLeft = trim((string) ($candidate['row'][$refCol] ?? ''));
+                        $rawRight = trim((string) ($inputRecord['row'][$inpCol] ?? ''));
+                        if ($rawLeft !== '' && $rawRight !== '') {
+                            $score = $this->scorer->score($algorithm, $rawLeft, $rawRight);
+                        } else {
+                            $score = 0.0;
+                        }
+                    }
+                } else {
+                    $score = $this->scorer->score($algorithm, $left, $right);
+                }
 
                 $weight = max(0.0, (float) ($mapping['weight'] ?? 0));
                 $weightedScoreSum += $score * $weight;
@@ -1099,19 +1139,129 @@ class MatchingEngineService
             }
 
             // -----------------------------------------------------------------
-            // Phase 4: Ordered Partial Verification (The Guardrails)
+            // Phase 4: Verification & Decision Tree Evaluation
             // -----------------------------------------------------------------
+            $presetName = (string) ($configuration['preset'] ?? '');
+            $modeName = (string) ($configuration['mode'] ?? '');
+            $isConstructionPreset = (strcasecmp($presetName, 'Konstruksi') === 0 || strcasecmp($presetName, 'Construction') === 0 || strcasecmp($modeName, 'construction') === 0);
+
             $rulesEvaluated = [];
             $allRulesPassed = true;
             $failedRuleReasons = [];
+            $downgraded = false;
+            $downgradeReason = null;
+            $finalClassification = $initialClassification;
 
             // Map field scores by column names for rapid lookup
             $fieldScoreByMapping = collect($fieldScores)->keyBy(function ($fs) {
                 return $fs['reference_column'].'|'.$fs['input_column'];
             });
 
-            if ($initialClassification !== 'unmatched' && count($verificationRules) > 0) {
-                // NO SHORT-CIRCUIT: evaluate ALL rules in sequence!
+            if ($isConstructionPreset) {
+                // -------------------------------------------------------------
+                // PRESET KONSTRUKSI DECISION TREE (ISO 5807 Flowchart Implementation)
+                // -------------------------------------------------------------
+                $cityScore = $this->extractFieldScore($fieldScores, ['kab', 'kota', 'city', 'location', 'wilayah', 'kdkab']);
+                $nameScore = $this->extractFieldScore($fieldScores, ['nama inti', 'core name', 'nama_perusahaan', 'nama_penyedia', 'nama', 'name', 'company']);
+                $addrScore = $this->extractFieldScore($fieldScores, ['alamat', 'address']);
+                $isActive = $this->resolveRecordActiveStatus($candidate);
+
+                $cityPassed = (round($cityScore, 2) >= 100.0);
+                $nameAddrPassed = (round($nameScore, 2) >= 100.0 && round($addrScore, 2) >= 100.0);
+
+                // Step 1: Evaluasi 1 (similarity_total >= 90%?)
+                $rulesEvaluated[] = [
+                    'order' => 1,
+                    'field' => 'Skor Total WLS (Nama 55% + Alamat 30% + Badan Usaha 10% + Kode Kab 5%)',
+                    'method' => 'WLS Formula',
+                    'required_threshold' => 90.0,
+                    'actual_score' => $ws,
+                    'passed' => ($ws >= 90.0),
+                    'is_mandatory' => false,
+                ];
+
+                if ($ws < 90.0) {
+                    // Evaluasi 1.1 (Ambang Sedang: similarity_total antara 80% - 89%?)
+                    $inReviewRange = ($ws >= 80.0);
+                    $rulesEvaluated[] = [
+                        'order' => 2,
+                        'field' => 'Pemeriksaan Ambang Sedang (80% - 89%)',
+                        'method' => 'Range Check (80% - 89%)',
+                        'required_threshold' => 80.0,
+                        'actual_score' => $ws,
+                        'passed' => $inReviewRange,
+                        'is_mandatory' => false,
+                    ];
+
+                    if ($inReviewRange) {
+                        $allRulesPassed = false;
+                        $finalClassification = 'possible_match';
+                        $decisionReason = "Skor total kemiripan {$ws}% berada pada ambang sedang (80% - 89%) -> Reviu Manual (Keputusan di tangan User)";
+                    } else {
+                        $allRulesPassed = false;
+                        $finalClassification = 'unmatched';
+                        $decisionReason = "Skor total kemiripan {$ws}% < 80% -> Tidak Cocok (Masukkan record ke tabel Referensi)";
+                    }
+                } else {
+                    // ws >= 90% -> Masuk ke pemeriksaan variabel pendukung
+                    // Step 2: Evaluasi 2 (Apakah kemiripan_kota == 100%?)
+                    $rulesEvaluated[] = [
+                        'order' => 2,
+                        'field' => 'Evaluasi 2: Kemiripan Kota / Kabupaten == 100%',
+                        'method' => 'Exact Match',
+                        'required_threshold' => 100.0,
+                        'actual_score' => $cityScore,
+                        'passed' => $cityPassed,
+                        'is_mandatory' => true,
+                    ];
+
+                    if ($cityPassed) {
+                        // EARLY EXIT / TERMINAL MATCH! Rule 1 & Rule 2 lolos -> STOP, AUTO-MATCH (DROP record duplikat)
+                        $allRulesPassed = true;
+                        $finalClassification = 'matched';
+                        $decisionReason = "Skor total kemiripan {$ws}% >= 90% dan Kemiripan Kota 100% -> Cocok (Drop record duplikat)";
+                    } else {
+                        // Evaluasi 3: Apakah kemiripan_nama_perusahaan == 100% DAN kemiripan_alamat == 100%?
+                        $rulesEvaluated[] = [
+                            'order' => 3,
+                            'field' => 'Evaluasi 3: Syarat Ganda (Nama Perusahaan 100% DAN Alamat 100%)',
+                            'method' => 'Exact Dual Match',
+                            'required_threshold' => 100.0,
+                            'actual_score' => min($nameScore, $addrScore),
+                            'passed' => $nameAddrPassed,
+                            'is_mandatory' => true,
+                        ];
+
+                        if (! $nameAddrPassed) {
+                            $allRulesPassed = false;
+                            $finalClassification = 'unmatched';
+                            $decisionReason = "Kemiripan kota {$cityScore}% < 100% dan syarat ganda (Nama {$nameScore}%, Alamat {$addrScore}%) tidak terpenuhi -> Tidak Cocok (Masukkan record ke tabel Referensi)";
+                        } else {
+                            // Evaluasi 4: Apakah Referensi.is_active == 1?
+                            $rulesEvaluated[] = [
+                                'order' => 4,
+                                'field' => 'Evaluasi 4: Status Referensi Aktif (is_active == 1)',
+                                'method' => 'Active Status Flag',
+                                'required_threshold' => 100.0,
+                                'actual_score' => $isActive ? 100.0 : 0.0,
+                                'passed' => $isActive,
+                                'is_mandatory' => true,
+                            ];
+
+                            if ($isActive) {
+                                $allRulesPassed = true;
+                                $finalClassification = 'matched';
+                                $decisionReason = "Nama & Alamat 100% dan Status Referensi Aktif (is_active == 1) -> Cocok (Drop record duplikat)";
+                            } else {
+                                $allRulesPassed = false;
+                                $finalClassification = 'unmatched';
+                                $decisionReason = "Nama & Alamat 100% namun Status Referensi Tidak Aktif (is_active == 0) -> Tidak Cocok (Masukkan record ke tabel Referensi)";
+                            }
+                        }
+                    }
+                }
+            } elseif ($initialClassification !== 'unmatched' && count($verificationRules) > 0) {
+                // Standard Guardrails Loop
                 foreach ($verificationRules as $vRule) {
                     $ruleOrder = (int) ($vRule['order'] ?? (count($rulesEvaluated) + 1));
                     $targetMapping = $this->findMappingForRule($vRule, $mappings);
@@ -1160,38 +1310,42 @@ class MatchingEngineService
                         'is_mandatory' => (bool) ($targetMapping['required_match'] ?? false),
                     ];
                 }
-            }
 
-            // Downgrade logic: If Auto-Match fails ANY rule, downgrade to Need Review (possible_match)
-            $downgraded = false;
-            $downgradeReason = null;
-            $finalClassification = $initialClassification;
-
-            if ($numericConflict && ($initialClassification === 'matched' || ! $allRulesPassed)) {
-                $finalClassification = 'possible_match';
-                $downgraded = true;
-                $downgradeReason = 'Numeric sequence mismatch requires review';
-                $decisionReason = 'Numeric sequence mismatch requires review';
-            } elseif ($initialClassification === 'matched' && ! $allRulesPassed) {
-                $finalClassification = 'possible_match';
-                $downgraded = true;
-                $downgradeReason = implode('; ', $failedRuleReasons);
-                $decisionReason = "Auto-match downgraded to needs_review: {$downgradeReason}";
-            } elseif ($identityConflict && $finalClassification === 'matched') {
-                $finalClassification = 'possible_match';
-                $downgraded = true;
-                $downgradeReason = 'Identity metadata conflict requires review';
-                $decisionReason = 'Identity metadata conflict requires review';
-            } elseif ($finalClassification === 'matched') {
-                $decisionReason = 'Auto-match verified by guardrails';
-            } elseif ($finalClassification === 'possible_match') {
-                $decisionReason = "Needs review (score: {$ws}%)";
+                // Downgrade logic for standard guardrails
+                if ($numericConflict && ($initialClassification === 'matched' || ! $allRulesPassed)) {
+                    $finalClassification = 'possible_match';
+                    $downgraded = true;
+                    $downgradeReason = 'Numeric sequence mismatch requires review';
+                    $decisionReason = 'Numeric sequence mismatch requires review';
+                } elseif ($initialClassification === 'matched' && ! $allRulesPassed) {
+                    $finalClassification = 'possible_match';
+                    $downgraded = true;
+                    $downgradeReason = implode('; ', $failedRuleReasons);
+                    $decisionReason = "Auto-match downgraded to needs_review: {$downgradeReason}";
+                } elseif ($identityConflict && $finalClassification === 'matched') {
+                    $finalClassification = 'possible_match';
+                    $downgraded = true;
+                    $downgradeReason = 'Identity metadata conflict requires review';
+                    $decisionReason = 'Identity metadata conflict requires review';
+                } elseif ($finalClassification === 'matched') {
+                    $decisionReason = 'Auto-match verified by guardrails';
+                } elseif ($finalClassification === 'possible_match') {
+                    $decisionReason = "Needs review (score: {$ws}%)";
+                } else {
+                    $decisionReason = "Unmatched (score: {$ws}% below review threshold)";
+                }
             } else {
-                $decisionReason = "Unmatched (score: {$ws}% below review threshold)";
+                if ($finalClassification === 'matched') {
+                    $decisionReason = 'Auto-match verified';
+                } elseif ($finalClassification === 'possible_match') {
+                    $decisionReason = "Needs review (score: {$ws}%)";
+                } else {
+                    $decisionReason = "Unmatched (score: {$ws}% below review threshold)";
+                }
             }
 
             $verificationEvidence = [
-                'phase' => 'Phase 4: Ordered Partial Verification',
+                'phase' => $isConstructionPreset ? 'Phase 4: Decision Tree Preset Konstruksi' : 'Phase 4: Ordered Partial Verification',
                 'is_exact_match' => false,
                 'bypassed_fuzzy' => false,
                 'initial_classification' => $initialClassification,
@@ -1232,11 +1386,25 @@ class MatchingEngineService
      */
     private function resolveVerificationRules(array $configuration, array $mappings, float $defaultThreshold): array
     {
-        $customRules = data_get($configuration, 'rules.verificationOrder')
+        $rules = data_get($configuration, 'rules') ?? data_get($configuration, 'advanced_settings.rules');
+
+        // Check if verification is explicitly disabled
+        $verificationEnabled = data_get($rules, 'verificationEnabled');
+        if ($verificationEnabled === false || $verificationEnabled === 0 || $verificationEnabled === '0') {
+            return [];
+        }
+
+        $customRules = data_get($rules, 'verificationOrder')
+            ?? data_get($configuration, 'rules.verificationOrder')
             ?? data_get($configuration, 'advanced_settings.rules.verificationOrder');
 
         if (is_array($customRules) && count($customRules) > 0) {
             return $customRules;
+        }
+
+        // If rules was explicitly provided with empty verificationOrder, do not run rules
+        if ($rules !== null && is_array($rules) && isset($rules['verificationOrder']) && count($rules['verificationOrder']) === 0) {
+            return [];
         }
 
         // Sort mappings for default verification order:
@@ -1261,7 +1429,7 @@ class MatchingEngineService
             return 0;
         });
 
-        $rules = [];
+        $rulesList = [];
         foreach ($sorted as $index => $mapping) {
             $refCol = (string) ($mapping['reference_column_name'] ?? null);
             $isMandatory = (bool) ($mapping['required_match'] ?? false);
@@ -1272,16 +1440,16 @@ class MatchingEngineService
 
             $threshold = $isMandatory ? 100.0 : ($isName ? 90.0 : ($isLoc ? 100.0 : $defaultThreshold));
 
-            $rules[] = [
+            $rulesList[] = [
                 'order' => $index + 1,
                 'mappingId' => $mapping['id'] ?? (string) $index,
                 'field' => ($mapping['input_column_name'] ?? null) . " <-> " . ($mapping['reference_column_name'] ?? null),
-                'method' => ($mapping['algorithm'] ?? null),
+                'method' => ($mapping['algorithm'] ?? 'Jaro-Winkler'),
                 'threshold' => $threshold,
             ];
         }
 
-        return $rules;
+        return $rulesList;
     }
 
     private function isLocationColumn(string $columnName): bool
@@ -1314,17 +1482,72 @@ class MatchingEngineService
         $ruleField = mb_strtolower(trim((string) ($rule['field'] ?? '')));
         if ($ruleField !== '') {
             foreach ($mappings as $mapping) {
-                $ref = mb_strtolower((string) ($mapping['reference_column_name'] ?? null));
-                $inp = mb_strtolower((string) ($mapping['input_column_name'] ?? null));
+                $ref = mb_strtolower((string) ($mapping['reference_column_name'] ?? ''));
+                $inp = mb_strtolower((string) ($mapping['input_column_name'] ?? ''));
                 $label = mb_strtolower("{$inp} ↔ {$ref}");
+                $labelAlt = mb_strtolower("{$inp} <-> {$ref}");
 
-                if ($ruleField === $label || $ruleField === $ref || $ruleField === $inp || str_contains($ruleField, $ref)) {
+                if ($ruleField === $label || $ruleField === $labelAlt || $ruleField === $ref || $ruleField === $inp || str_contains($ruleField, $ref) || str_contains($ruleField, $inp)) {
                     return $mapping;
                 }
             }
         }
 
-        return $mappings[0] ?? null;
+        return null;
+    }
+
+    /**
+     * Extract field score matching any of given keyword substrings.
+     *
+     * @param array<int, array<string, mixed>> $fieldScores
+     * @param list<string> $keywords
+     */
+    private function extractFieldScore(array $fieldScores, array $keywords): float
+    {
+        foreach ($fieldScores as $fs) {
+            $ref = mb_strtolower((string) ($fs['reference_column'] ?? ''));
+            $inp = mb_strtolower((string) ($fs['input_column'] ?? ''));
+
+            foreach ($keywords as $kw) {
+                if (str_contains($ref, $kw) || str_contains($inp, $kw)) {
+                    return (float) ($fs['score'] ?? 0.0);
+                }
+            }
+        }
+
+        return 0.0;
+    }
+
+    /**
+     * Resolve active status flag for candidate/reference record (is_active == 1).
+     *
+     * @param array<string, mixed> $candidate
+     */
+    private function resolveRecordActiveStatus(array $candidate): bool
+    {
+        $raw = $candidate['row'] ?? $candidate['raw'] ?? [];
+        $norm = $candidate['normalized'] ?? [];
+        $merged = array_merge($norm, $raw);
+
+        foreach ($merged as $key => $val) {
+            $k = mb_strtolower((string) $key);
+            if (
+                in_array($k, ['is_active', 'status_perusahaan', 'status', 'active', 'is_aktif', 'status_aktif', 'status_penyedia', 'status_badan_usaha'], true)
+                || str_contains($k, 'is_active')
+                || str_contains($k, 'status_perusahaan')
+            ) {
+                $v = mb_strtolower(trim((string) $val));
+                if (in_array($v, ['0', 'false', 'tidak aktif', 'inactive', 'tutup', 'nonaktif', 'non-aktif', 'non active', 't'], true)) {
+                    return false;
+                }
+                if (in_array($v, ['1', 'true', 'aktif', 'active', 'ya', 'yes', 'a'], true)) {
+                    return true;
+                }
+            }
+        }
+
+        // If no explicit inactive flag is found, default to active (1)
+        return true;
     }
 
     /**
