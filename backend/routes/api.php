@@ -68,6 +68,12 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
     Route::post('/matching-jobs/{job}/review-decisions/{decision}/undo', UndoReviewDecisionController::class)
         ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
+    Route::get('/matching-jobs/{job}/review-rules', [\App\Http\Controllers\Api\ReviewRulesController::class, 'index'])
+        ->middleware('permission:'.PermissionRegistry::REVIEW_VIEW);
+    Route::post('/matching-jobs/{job}/review-rules', [\App\Http\Controllers\Api\ReviewRulesController::class, 'store'])
+        ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
+    Route::delete('/matching-jobs/{job}/review-rules/{rule}', [\App\Http\Controllers\Api\ReviewRulesController::class, 'destroy'])
+        ->middleware('permission:'.PermissionRegistry::REVIEW_DECIDE);
 
     Route::get('/monitoring/overview', MonitoringOverviewController::class)
         ->middleware('permission:'.PermissionRegistry::MONITORING_VIEW);

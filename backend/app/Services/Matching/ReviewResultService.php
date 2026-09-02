@@ -39,7 +39,12 @@ class ReviewResultService
         $decisionHistory = $allDecisions
             ->groupBy('input_record_key');
 
-        $items = $results->groupBy('input_record_key')->map(function ($group, string $inputKey) use ($latestDecisions, $decisionHistory) {
+        $customRules = data_get($job->configuration?->advanced_settings, 'custom_review_rules', []);
+        if (empty($customRules) && $job->workspace) {
+            $customRules = data_get($job->workspace->workflow_state, 'custom_review_rules', []);
+        }
+
+        $items = $results->groupBy('input_record_key')->map(function ($group, string $inputKey) use ($latestDecisions, $decisionHistory, $customRules) {
             /** @var \Illuminate\Support\Collection<int, MatchingResult> $group */
             $primary = $group->first();
             $decision = $latestDecisions->get($inputKey);
@@ -59,7 +64,7 @@ class ReviewResultService
 
             return [
                 ...$item,
-                'case_features' => $this->caseFeatures($item),
+                'case_features' => $this->caseFeatures($item, $customRules),
             ];
         })->values();
 
@@ -89,6 +94,8 @@ class ReviewResultService
             }
         }
 
+        $reviewGroups = $this->buildReviewGroups($items, $customRules);
+
         return [
             'job' => [
                 'id' => $job->id,
@@ -111,7 +118,10 @@ class ReviewResultService
                 'duplicate_details' => $duplicateDetails,
             ],
             'items' => $items->all(),
-            'case_groups' => $this->caseGroups($items),
+            'system_presets' => $reviewGroups['system_presets'],
+            'custom_rules' => $reviewGroups['custom_rules'],
+            'dynamic_patterns' => $reviewGroups['dynamic_patterns'],
+            'case_groups' => $reviewGroups['case_groups'],
         ];
     }
 
@@ -302,52 +312,191 @@ class ReviewResultService
      */
     private function caseGroups($items): array
     {
-        return $items
-            ->filter(fn (array $item) => $this->isReviewCaseItem($item))
-            ->groupBy(fn (array $item) => data_get($item, 'case_features.fingerprint'))
-            ->map(function ($group, string $fingerprint) {
-                /** @var \Illuminate\Support\Collection<int, array<string, mixed>> $group */
-                $representative = $group->sortByDesc(fn (array $item) => data_get($item, 'candidates.0.score', 0))->first();
-                $scores = $group->map(fn (array $item) => (float) data_get($item, 'candidates.0.score', 0));
-                $scoreRange = ($scores->max() ?? 0) - ($scores->min() ?? 0);
-                $confidence = $this->clusterConfidence($group->count(), $scoreRange);
+        return $this->buildReviewGroups($items)['case_groups'];
+    }
 
-                $decisionSummary = $this->decisionSummary($group);
-                $groupStatus = $this->caseGroupStatus($group, $decisionSummary);
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function defaultSystemPresets(): array
+    {
+        return [
+            [
+                'id' => 'system_preset_1_nib_conflict',
+                'preset_number' => 1,
+                'name' => '1. NIB Beda / Konflik Identitas',
+                'pattern' => 'IDENTIFIER_CONFLICT',
+                'description' => 'Nomor NIB atau NPWP di kedua data terisi tetapi nilainya berbeda, atau terjadi konflik pada identifier legal unik.',
+                'type' => 'system_preset',
+                'recommendation' => 'Reject atau verifikasi keabsahan izin berusaha secara individual.',
+            ],
+            [
+                'id' => 'system_preset_2_legal_form',
+                'preset_number' => 2,
+                'name' => '2. Beda Bentuk Usaha (PT/CV)',
+                'pattern' => 'LEGAL_FORM_CONFLICT',
+                'description' => 'Bentuk badan usaha berbeda (CV vs PT / perorangan) meskipun nama inti perusahaan memiliki kemiripan tinggi.',
+                'type' => 'system_preset',
+                'recommendation' => 'Reject group kecuali sampel perwakilan terbukti transformasi entitas yang sama.',
+            ],
+            [
+                'id' => 'system_preset_3_multi_candidate',
+                'preset_number' => 3,
+                'name' => '3. Kandidat Ganda (Ambiguitas)',
+                'pattern' => 'MULTI_CANDIDATE_AMBIGUITY',
+                'description' => 'Terdapat 2 atau lebih data kandidat acuan dengan kemiripan tinggi dan selisih skor <= 5%.',
+                'type' => 'system_preset',
+                'recommendation' => 'Pilih manual salah satu kandidat acuan yang paling sesuai.',
+            ],
+            [
+                'id' => 'system_preset_4_geo_location',
+                'preset_number' => 4,
+                'name' => '4. Beda Wilayah (Kabupaten)',
+                'pattern' => 'GEO_LOCATION_CONFLICT',
+                'description' => 'Kemiripan nama perusahaan tinggi (>= 80%), namun kolom Kabupaten/Kota berbeda antardata.',
+                'type' => 'system_preset',
+                'recommendation' => 'Periksa apakah entitas memiliki kantor cabang atau berpindah domisili wilayah.',
+            ],
+            [
+                'id' => 'system_preset_5_address',
+                'preset_number' => 5,
+                'name' => '5. Beda Alamat',
+                'pattern' => 'ADDRESS_CONFLICT',
+                'description' => 'Nama perusahaan dan wilayah cocok, namun penulisan alamat jalan/detail memiliki kemiripan rendah (< 60%).',
+                'type' => 'system_preset',
+                'recommendation' => 'Verifikasi keabsahan relokasi kantor sebelum menyetujui.',
+            ],
+            [
+                'id' => 'system_preset_6_inactive',
+                'preset_number' => 6,
+                'name' => '6. Status Usaha Nonaktif',
+                'pattern' => 'INACTIVE_BUSINESS_STATUS',
+                'description' => 'Data acuan menunjukkan status tutup, belum beroperasi, atau tidak aktif pada direktori usaha.',
+                'type' => 'system_preset',
+                'recommendation' => 'Konfirmasi apakah perusahaan kembali aktif atau merupakan entitas lama.',
+            ],
+        ];
+    }
 
-                return [
-                    'id' => $fingerprint,
-                    'fingerprint' => $fingerprint,
-                    'status' => $groupStatus,
-                    'pattern' => data_get($representative, 'case_features.pattern'),
-                    'label' => $this->caseLabel((string) data_get($representative, 'case_features.pattern')),
-                    'reason' => data_get($representative, 'case_features.reason'),
-                    'conditions' => data_get($representative, 'case_features.conditions', []),
-                    'confidence' => $confidence,
-                    'consistency' => $this->caseConsistency($confidence),
-                    'recommendation' => $this->caseRecommendation((string) data_get($representative, 'case_features.pattern'), $confidence, $decisionSummary),
-                    'knowledge_level' => $this->knowledgeLevelFromHistory($group),
-                    'eligible_for_bulk' => $confidence === 'High' && $groupStatus === 'open',
-                    'item_count' => $group->count(),
-                    'reviewed_count' => $group->filter(fn (array $item) => $item['decision'] !== null)->count(),
-                    'decision_summary' => $decisionSummary,
-                    'decision_history' => $group
-                        ->flatMap(fn (array $item) => $item['decision_history'] ?? [])
-                        ->values()
-                        ->all(),
-                    'item_keys' => $group->pluck('input_record_key')->values()->all(),
-                    'representative_input_key' => $representative['input_record_key'] ?? null,
-                    'representative' => $representative,
-                    'representative_samples' => $group
-                        ->sortByDesc(fn (array $item) => data_get($item, 'candidates.0.score', 0))
-                        ->take(3)
-                        ->values()
-                        ->all(),
-                ];
-            })
-            ->sortBy(fn (array $group) => ['High' => 0, 'Mixed' => 1, 'Unique' => 2][$group['confidence']] ?? 3)
+    /**
+     * @param \Illuminate\Support\Collection<int, array<string, mixed>> $items
+     * @param array<int, array<string, mixed>> $customRules
+     * @return array{system_presets: array<int, array<string, mixed>>, custom_rules: array<int, array<string, mixed>>, dynamic_patterns: array<int, array<string, mixed>>, case_groups: array<int, array<string, mixed>>}
+     */
+    private function buildReviewGroups($items, array $customRules = []): array
+    {
+        $reviewItems = $items->filter(fn (array $item) => $this->isReviewCaseItem($item));
+        $byGroupId = $reviewItems->groupBy(fn (array $item) => (string) data_get($item, 'case_features.group_id'));
+
+        // 1. System Presets
+        $defaultDefs = $this->defaultSystemPresets();
+        $systemPresets = [];
+        foreach ($defaultDefs as $def) {
+            $group = $byGroupId->get($def['id'], collect());
+            $systemPresets[] = $this->formatGroupPayload($def['id'], $group, $def);
+        }
+
+        // 2. Custom Rules
+        $customRuleGroups = [];
+        foreach ($customRules as $cr) {
+            $gid = 'custom_rule_' . ($cr['id'] ?? Str::slug($cr['name']));
+            $group = $byGroupId->get($gid, collect());
+            $customRuleGroups[] = $this->formatGroupPayload($gid, $group, [
+                'id' => $gid,
+                'name' => $cr['name'],
+                'description' => $cr['description'] ?? "Kustom: {$cr['name']}",
+                'type' => 'custom_rule',
+                'rule_id' => $cr['id'] ?? null,
+                'pattern' => 'CUSTOM_RULE_' . ($cr['id'] ?? Str::slug($cr['name'])),
+                'recommendation' => match ($cr['action_recommendation'] ?? 'manual') {
+                    'accept' => 'Setujui pencocokan sesuai aturan kustom.',
+                    'reject' => 'Tolak pencocokan sesuai aturan kustom.',
+                    default => 'Tinjau sampel perwakilan sebelum mengambil keputusan kelompok.',
+                },
+            ]);
+        }
+
+        // 3. Dynamic Fallback Patterns
+        $dynamicPatterns = [];
+        foreach ($byGroupId as $gid => $group) {
+            $first = $group->first();
+            if (data_get($first, 'case_features.rule_type') === 'dynamic_fallback') {
+                $dynamicPatterns[] = $this->formatGroupPayload($gid, $group, [
+                    'id' => $gid,
+                    'name' => data_get($first, 'case_features.label', 'Pola Dinamis'),
+                    'description' => data_get($first, 'case_features.reason', 'Pola data sisa.'),
+                    'type' => 'dynamic_fallback',
+                    'pattern' => data_get($first, 'case_features.pattern', 'DYNAMIC_PATTERN'),
+                    'recommendation' => 'Tinjau sampel perwakilan, atau promosikan ke aturan baru dengan tombol Jadikan Aturan Baru.',
+                ]);
+            }
+        }
+
+        // 4. Combined active case groups
+        $activeGroups = collect(array_merge($systemPresets, $customRuleGroups, $dynamicPatterns))
+            ->filter(fn (array $g) => $g['item_count'] > 0)
             ->values()
             ->all();
+
+        return [
+            'system_presets' => $systemPresets,
+            'custom_rules' => $customRuleGroups,
+            'dynamic_patterns' => $dynamicPatterns,
+            'case_groups' => $activeGroups,
+        ];
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, array<string, mixed>> $group
+     * @param array<string, mixed> $meta
+     * @return array<string, mixed>
+     */
+    private function formatGroupPayload(string $groupId, $group, array $meta): array
+    {
+        $hasItems = $group->isNotEmpty();
+        $representative = $hasItems
+            ? $group->sortByDesc(fn (array $item) => data_get($item, 'candidates.0.score', 0))->first()
+            : null;
+        $scores = $group->map(fn (array $item) => (float) data_get($item, 'candidates.0.score', 0));
+        $scoreRange = $hasItems ? (($scores->max() ?? 0) - ($scores->min() ?? 0)) : 0;
+        $confidence = $hasItems ? $this->clusterConfidence($group->count(), $scoreRange) : 'Unique';
+        $decisionSummary = $this->decisionSummary($group);
+        $groupStatus = $hasItems ? $this->caseGroupStatus($group, $decisionSummary) : 'open';
+
+        return [
+            'id' => $groupId,
+            'fingerprint' => $groupId,
+            'status' => $groupStatus,
+            'pattern' => $meta['pattern'] ?? data_get($representative, 'case_features.pattern', 'UNKNOWN'),
+            'label' => $meta['name'] ?? data_get($representative, 'case_features.label', 'Grup'),
+            'rule_name' => $meta['name'] ?? data_get($representative, 'case_features.label', 'Grup'),
+            'rule_type' => $meta['type'] ?? data_get($representative, 'case_features.rule_type', 'system_preset'),
+            'preset_number' => $meta['preset_number'] ?? data_get($representative, 'case_features.preset_number'),
+            'description' => $meta['description'] ?? data_get($representative, 'case_features.reason', ''),
+            'reason' => $meta['description'] ?? data_get($representative, 'case_features.reason', ''),
+            'conditions' => data_get($representative, 'case_features.conditions', []),
+            'confidence' => $confidence,
+            'consistency' => $this->caseConsistency($confidence),
+            'recommendation' => $meta['recommendation'] ?? $this->caseRecommendation((string) ($meta['pattern'] ?? ''), $confidence, $decisionSummary),
+            'knowledge_level' => $this->knowledgeLevelFromHistory($group),
+            'eligible_for_bulk' => $hasItems && $confidence === 'High' && $groupStatus === 'open',
+            'eligible_for_rule_promotion' => ($meta['type'] ?? '') === 'dynamic_fallback',
+            'item_count' => $group->count(),
+            'reviewed_count' => $group->filter(fn (array $item) => $item['decision'] !== null)->count(),
+            'decision_summary' => $decisionSummary,
+            'decision_history' => $group
+                ->flatMap(fn (array $item) => $item['decision_history'] ?? [])
+                ->values()
+                ->all(),
+            'item_keys' => $group->pluck('input_record_key')->values()->all(),
+            'representative_input_key' => $representative['input_record_key'] ?? null,
+            'representative' => $representative,
+            'representative_samples' => $group
+                ->sortByDesc(fn (array $item) => data_get($item, 'candidates.0.score', 0))
+                ->take(3)
+                ->values()
+                ->all(),
+        ];
     }
 
     private function decisionPayload(ReviewDecision $decision): array
@@ -434,76 +583,263 @@ class ReviewResultService
 
     /**
      * @param array<string, mixed> $item
+     * @param array<int, array<string, mixed>> $customRules
      * @return array<string, mixed>
      */
-    private function caseFeatures(array $item): array
+    private function caseFeatures(array $item, array $customRules = []): array
     {
         $candidate = $item['candidates'][0] ?? null;
 
         if (! is_array($candidate) || empty($candidate['reference_record_key'])) {
             return [
                 'pattern' => 'NO_CANDIDATE',
+                'label' => 'No Candidate',
+                'group_id' => 'dynamic_no_candidate',
                 'fingerprint' => 'NO_CANDIDATE',
+                'rule_type' => 'dynamic_fallback',
+                'preset_number' => null,
                 'reason' => 'No reference candidate was generated for this input record.',
                 'conditions' => ['has_reference_candidate' => false],
             ];
         }
 
+        $inp = $item['input_record'] ?? [];
+        $ref = is_array($candidate) ? ($candidate['reference_record'] ?? []) : [];
+        $candidates = $item['candidates'] ?? [];
         $fieldScores = collect($candidate['field_scores'] ?? []);
         $score = (float) ($candidate['score'] ?? 0);
         $scoreBand = $this->scoreBand($score);
-        $identityConflict = $fieldScores->contains(fn (array $score) => (bool) ($score['identity_conflict'] ?? false));
+
+        $identityConflict = $fieldScores->contains(fn (array $s) => (bool) ($s['identity_conflict'] ?? false));
         $differentFields = $fieldScores
-            ->filter(fn (array $score) => ($score['comparison'] ?? null) === 'different')
+            ->filter(fn (array $s) => ($s['comparison'] ?? null) === 'different')
             ->pluck('reference_column')
             ->values()
             ->all();
         $similarFields = $fieldScores
-            ->filter(fn (array $score) => ($score['comparison'] ?? null) === 'similar')
+            ->filter(fn (array $s) => ($s['comparison'] ?? null) === 'similar')
             ->pluck('reference_column')
             ->values()
             ->all();
 
+        // 1. NIB / Identifier conflict check
+        $nibInp = preg_replace('/[^0-9A-Za-z]/', '', (string) ($inp['nib'] ?? $inp['nib_penyedia'] ?? ''));
+        $nibRef = preg_replace('/[^0-9A-Za-z]/', '', (string) ($ref['nib'] ?? $ref['nib_perusahaan'] ?? ''));
+        $hasNibConflict = !empty($nibInp) && !empty($nibRef) && $nibInp !== $nibRef;
+
+        $npwpInp = preg_replace('/[^0-9]/', '', (string) ($inp['npwp_penyedia'] ?? $inp['npwp'] ?? ''));
+        $npwpRef = preg_replace('/[^0-9]/', '', (string) ($ref['npwp'] ?? $ref['npwp_perusahaan'] ?? ''));
+        $hasNpwpConflict = !empty($npwpInp) && !empty($npwpRef) && $npwpInp !== $npwpRef;
+
+        $hasIdConflict = $hasNibConflict || $hasNpwpConflict || $this->hasIdentifierConflict($candidate);
+
+        // Name core score
+        $coreNameScore = $score;
+        foreach ($fieldScores as $fs) {
+            $col = strtolower((string) ($fs['reference_column'] ?? ''));
+            if (str_contains($col, 'nama inti') || str_contains($col, 'core') || str_contains($col, 'nama')) {
+                $coreNameScore = max($coreNameScore, (float) ($fs['score'] ?? 0));
+            }
+        }
+
+        // 2. Legal form conflict check (PT vs CV)
+        $legalConflict = $identityConflict;
+        if (! $legalConflict) {
+            $legalInp = mb_strtolower(trim((string) ($inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? '')));
+            $legalRef = mb_strtolower(trim((string) ($ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? '')));
+            if (!empty($legalInp) && !empty($legalRef) && $legalInp !== $legalRef && $coreNameScore >= 85) {
+                $legalConflict = true;
+            }
+        }
+
+        // 3. Multi-candidate check
+        $hasMultiCandidate = false;
+        if (count($candidates) >= 2) {
+            $top1Score = (float) ($candidates[0]['score'] ?? 0);
+            $top2Score = (float) ($candidates[1]['score'] ?? 0);
+            if (abs($top1Score - $top2Score) <= 5.0 || ($top1Score >= 70 && $top2Score >= 70)) {
+                $hasMultiCandidate = true;
+            }
+        }
+
+        // 4. Location / Kabupaten conflict check
         $locationConflict = collect($differentFields)->contains(function (string $col) {
             $c = strtolower($col);
             return Str::contains($c, ['kab', 'kota', 'city', 'wilayah', 'district', 'lokasi', 'prov', 'kd_kab', 'kode_kab', 'regency']);
         });
+        if (! $locationConflict && $coreNameScore >= 80) {
+            $kabInp = mb_strtolower(trim((string) ($inp['kd_kab'] ?? $inp['kabupaten'] ?? $inp['nmkab'] ?? '')));
+            $kabRef = mb_strtolower(trim((string) ($ref['kab'] ?? $ref['nm_kab'] ?? '')));
+            if (!empty($kabInp) && !empty($kabRef) && $kabInp !== $kabRef) {
+                $locationConflict = true;
+            }
+        }
 
-        if ($identityConflict) {
+        // 5. Address conflict check
+        $addressConflict = false;
+        $addrScore = null;
+        foreach ($fieldScores as $fs) {
+            $col = strtolower((string) ($fs['reference_column'] ?? ''));
+            if (str_contains($col, 'alamat') || str_contains($col, 'address')) {
+                $addrScore = (float) ($fs['score'] ?? 0);
+                break;
+            }
+        }
+        if ($coreNameScore >= 80 && ! $locationConflict) {
+            if ($addrScore !== null && $addrScore < 60) {
+                $addressConflict = true;
+            } elseif (collect($differentFields)->contains(fn ($c) => str_contains(strtolower($c), 'alamat'))) {
+                $addressConflict = true;
+            }
+        }
+
+        // 6. Inactive status check
+        $statusPerusahaan = mb_strtolower(trim((string) ($ref['status_perusahaan'] ?? $ref['status'] ?? $ref['is_active'] ?? '')));
+        $isInactive = in_array($statusPerusahaan, ['2', '0', 'tutup', 'tidak aktif', 'nonaktif', 't', 'false'], true)
+            || str_contains($statusPerusahaan, 'tutup')
+            || str_contains($statusPerusahaan, 'tidak aktif');
+
+        // Sequential Priority 1 to 6
+        if ($hasIdConflict) {
+            $pattern = 'IDENTIFIER_CONFLICT';
+            $reason = 'Nomor NIB atau NPWP di kedua data terisi tetapi nilainya berbeda, atau terjadi konflik pada identifier legal unik.';
+            $ruleType = 'system_preset';
+            $presetNumber = 1;
+            $groupId = 'system_preset_1_nib_conflict';
+            $label = '1. NIB Beda / Konflik Identitas';
+        } elseif ($legalConflict) {
             $pattern = 'LEGAL_FORM_CONFLICT';
-            $reason = 'Bentuk badan usaha berbeda meskipun nama inti perusahaan sangat mirip';
+            $reason = 'Bentuk badan usaha berbeda (CV vs PT / perorangan) meskipun nama inti perusahaan memiliki kemiripan tinggi.';
+            $ruleType = 'system_preset';
+            $presetNumber = 2;
+            $groupId = 'system_preset_2_legal_form';
+            $label = '2. Beda Bentuk Usaha (PT/CV)';
+        } elseif ($hasMultiCandidate) {
+            $pattern = 'MULTI_CANDIDATE_AMBIGUITY';
+            $reason = 'Terdapat 2 atau lebih data kandidat acuan dengan kemiripan tinggi dan selisih skor <= 5%.';
+            $ruleType = 'system_preset';
+            $presetNumber = 3;
+            $groupId = 'system_preset_3_multi_candidate';
+            $label = '3. Kandidat Ganda (Ambiguitas)';
         } elseif ($locationConflict) {
             $pattern = 'GEO_LOCATION_CONFLICT';
-            $reason = 'Nama dan alamat memiliki kemiripan tinggi, namun Kode Kabupaten/Kota berbeda';
-        } elseif ($differentFields !== []) {
-            $pattern = 'FIELD_CONFLICT';
-            $reason = 'Some supporting fields differ and need a reviewer decision.';
-        } elseif ($similarFields !== []) {
-            $pattern = 'SIMILAR_NAME_REVIEW';
-            $reason = 'The candidate is similar but not strong enough for automatic approval.';
+            $reason = 'Kemiripan nama perusahaan tinggi (>= 80%), namun kolom Kabupaten/Kota berbeda antardata.';
+            $ruleType = 'system_preset';
+            $presetNumber = 4;
+            $groupId = 'system_preset_4_geo_location';
+            $label = '4. Beda Wilayah (Kabupaten)';
+        } elseif ($addressConflict) {
+            $pattern = 'ADDRESS_CONFLICT';
+            $reason = 'Nama perusahaan dan wilayah cocok, namun penulisan alamat jalan/detail memiliki kemiripan rendah (< 60%).';
+            $ruleType = 'system_preset';
+            $presetNumber = 5;
+            $groupId = 'system_preset_5_address';
+            $label = '5. Beda Alamat';
+        } elseif ($isInactive) {
+            $pattern = 'INACTIVE_BUSINESS_STATUS';
+            $reason = 'Data acuan menunjukkan status tutup, belum beroperasi, atau tidak aktif pada direktori usaha.';
+            $ruleType = 'system_preset';
+            $presetNumber = 6;
+            $groupId = 'system_preset_6_inactive';
+            $label = '6. Status Usaha Nonaktif';
         } else {
-            $pattern = 'LOW_CONFIDENCE_MATCH';
-            $reason = 'The score is inside the review band and needs confirmation.';
+            // Check Custom Rules
+            $matchedCustom = null;
+            foreach ($customRules as $cr) {
+                if ($this->matchesCustomRule($cr, $inp, $ref, $candidate, $score)) {
+                    $matchedCustom = $cr;
+                    break;
+                }
+            }
+
+            if ($matchedCustom !== null) {
+                $pattern = 'CUSTOM_RULE_' . ($matchedCustom['id'] ?? Str::slug($matchedCustom['name']));
+                $reason = $matchedCustom['description'] ?? "Memenuhi kriteria aturan kustom: {$matchedCustom['name']}.";
+                $ruleType = 'custom_rule';
+                $presetNumber = null;
+                $groupId = 'custom_rule_' . ($matchedCustom['id'] ?? Str::slug($matchedCustom['name']));
+                $label = $matchedCustom['name'];
+            } else {
+                // Fallback: Pola Dinamis
+                $diffText = $differentFields !== [] ? 'Perbedaan Kolom ' . implode(', ', array_slice($differentFields, 0, 2)) : "Skor Rentang {$scoreBand}%";
+                $pattern = 'DYNAMIC_PATTERN_' . $scoreBand . ($differentFields !== [] ? '_' . implode('-', array_slice($differentFields, 0, 2)) : '');
+                $reason = 'Tidak memenuhi 6 aturan bawaan; ditampung ke pola dinamis berbasis kemiripan data sisa.';
+                $ruleType = 'dynamic_fallback';
+                $presetNumber = null;
+                $groupId = 'dynamic_' . md5($pattern);
+                $label = "Pola Dinamis: {$diffText}";
+            }
         }
 
         return [
             'pattern' => $pattern,
-            'fingerprint' => implode('|', [
-                $pattern,
-                $scoreBand,
-                implode(',', $differentFields),
-                implode(',', $similarFields),
-            ]),
+            'label' => $label,
+            'group_id' => $groupId,
+            'fingerprint' => $groupId,
+            'rule_type' => $ruleType,
+            'preset_number' => $presetNumber,
             'reason' => $reason,
             'conditions' => [
                 'score_band' => $scoreBand,
                 'core_name_similarity_min' => round($score / 100, 2),
-                'legal_form_conflict' => $identityConflict,
+                'legal_form_conflict' => $legalConflict,
                 'location_conflict' => $locationConflict,
+                'address_conflict' => $addressConflict,
+                'multi_candidate' => $hasMultiCandidate,
+                'has_identifier_conflict' => $hasIdConflict,
+                'is_inactive' => $isInactive,
                 'different_fields' => $differentFields,
                 'similar_fields' => $similarFields,
             ],
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $rule
+     * @param array<string, mixed> $inp
+     * @param array<string, mixed> $ref
+     * @param array<string, mixed> $candidate
+     */
+    private function matchesCustomRule(array $rule, array $inp, array $ref, array $candidate, float $overallScore): bool
+    {
+        $conditions = $rule['conditions'] ?? [];
+        if (empty($conditions)) {
+            return false;
+        }
+
+        foreach ($conditions as $cond) {
+            $source = $cond['source'] ?? 'input';
+            $field = (string) ($cond['field'] ?? '');
+            $op = (string) ($cond['operator'] ?? 'equals');
+            $val = (string) ($cond['value'] ?? '');
+
+            $targetVal = '';
+            if ($source === 'comparison' || $field === 'score') {
+                $targetVal = (string) $overallScore;
+            } elseif ($source === 'reference') {
+                $targetVal = (string) ($ref[$field] ?? '');
+            } else {
+                $targetVal = (string) ($inp[$field] ?? '');
+            }
+
+            $matched = match ($op) {
+                'equals' => mb_strtolower(trim($targetVal)) === mb_strtolower(trim($val)),
+                'not_equals' => mb_strtolower(trim($targetVal)) !== mb_strtolower(trim($val)),
+                'contains' => str_contains(mb_strtolower($targetVal), mb_strtolower(trim($val))),
+                'does_not_contain' => ! str_contains(mb_strtolower($targetVal), mb_strtolower(trim($val))),
+                'greater_than' => (float) $targetVal > (float) $val,
+                'less_than' => (float) $targetVal < (float) $val,
+                'is_empty' => trim($targetVal) === '',
+                'is_not_empty' => trim($targetVal) !== '',
+                default => false,
+            };
+
+            if (! $matched) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function clusterConfidence(int $count, float $scoreRange): string
@@ -532,11 +868,19 @@ class ReviewResultService
         return 'below-75';
     }
 
-    private function caseLabel(string $pattern): string
+    private function caseLabel(string $pattern, ?string $fallbackLabel = null): string
     {
+        if ($fallbackLabel) {
+            return $fallbackLabel;
+        }
+
         return match ($pattern) {
-            'LEGAL_FORM_CONFLICT' => 'Legal form conflict',
-            'GEO_LOCATION_CONFLICT' => 'Konflik Wilayah (Beda Kode Kab/Kota)',
+            'IDENTIFIER_CONFLICT' => '1. NIB Beda / Konflik Identitas',
+            'LEGAL_FORM_CONFLICT' => '2. Beda Bentuk Usaha (PT/CV)',
+            'MULTI_CANDIDATE_AMBIGUITY' => '3. Kandidat Ganda (Ambiguitas)',
+            'GEO_LOCATION_CONFLICT' => '4. Beda Wilayah (Kabupaten)',
+            'ADDRESS_CONFLICT' => '5. Beda Alamat',
+            'INACTIVE_BUSINESS_STATUS' => '6. Status Usaha Nonaktif',
             'FIELD_CONFLICT' => 'Supporting field conflict',
             'SIMILAR_NAME_REVIEW' => 'Similar name review',
             'NO_CANDIDATE' => 'No candidate',
@@ -559,15 +903,15 @@ class ReviewResultService
             return 'Resolved. Keep the decision history for audit.';
         }
 
-        if ($confidence !== 'High') {
-            return 'Review individually before applying any bulk decision.';
-        }
-
         return match ($pattern) {
-            'LEGAL_FORM_CONFLICT', 'FIELD_CONFLICT' => 'Reject group unless the representative sample is intentionally the same entity.',
-            'SIMILAR_NAME_REVIEW' => 'Accept group after checking representative samples.',
-            'NO_CANDIDATE' => 'Mark as unmatched or review source data.',
-            default => 'Review samples, then apply the recommended group decision.',
+            'IDENTIFIER_CONFLICT' => 'Reject atau verifikasi keabsahan izin berusaha secara individual.',
+            'LEGAL_FORM_CONFLICT' => 'Reject group kecuali sampel perwakilan terbukti transformasi entitas yang sama.',
+            'MULTI_CANDIDATE_AMBIGUITY' => 'Pilih manual salah satu kandidat acuan yang paling sesuai.',
+            'GEO_LOCATION_CONFLICT' => 'Periksa apakah entitas memiliki kantor cabang atau berpindah domisili wilayah.',
+            'ADDRESS_CONFLICT' => 'Verifikasi keabsahan relokasi kantor sebelum menyetujui.',
+            'INACTIVE_BUSINESS_STATUS' => 'Konfirmasi apakah perusahaan kembali aktif atau merupakan entitas lama.',
+            'NO_CANDIDATE' => 'Tandai sebagai tidak cocok (unmatched) atau periksa sumber data mentah.',
+            default => 'Tinjau sampel perwakilan, kemudian terapkan keputusan kelompok.',
         };
     }
 

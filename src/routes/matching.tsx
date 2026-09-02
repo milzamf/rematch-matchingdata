@@ -38,6 +38,7 @@ import { DataPreviewTable } from "@/components/data-preview-table";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
+import { ReviewRuleModal } from "@/components/review-rule-modal";
 import {
   fetchAiMatchingConfiguration,
   fetchAiReviewAnalysis,
@@ -104,6 +105,7 @@ import {
   Sparkles,
   Building2,
   Sliders,
+  SlidersHorizontal,
   Settings2,
   CheckCircle2,
   ChevronDown,
@@ -187,7 +189,7 @@ export type ColumnMappingDraft = {
   parent_reference_column?: string;
   transform?: "EXTRACT_CORE_NAME" | "EXTRACT_LEGAL_FORM" | "NONE" | string;
 };
-type Preset = "Default" | "Custom";
+type Preset = "Default" | "Custom" | "Konstruksi";
 type Strategy = "Hybrid" | "Exact" | "Fuzzy" | "Composite" | "Rule-Based";
 type ComparisonFamily = "Exact" | "Character Similarity" | "Token Similarity";
 type FieldType = "text" | "number" | "date" | "boolean" | "unknown";
@@ -898,7 +900,7 @@ function MatchingPage() {
         setWorkspaceError(null);
 
         navigate({
-          search: (prev: Record<string, unknown>) => ({ ...prev, workspace: workspace.id }),
+          search: ((prev: Record<string, unknown>) => ({ ...prev, workspace: workspace.id })) as any,
           replace: true,
         });
       } catch (error) {
@@ -4075,7 +4077,7 @@ function StepConfigV2({
                   </div>
                 </label>
                 <RunConfigItem
-                  label={t("matching.configV2.unmatched")}
+                  label={t("matching.configV2.unmatched" as any)}
                   value={`< ${reviewThreshold}%`}
                 />
               </div>
@@ -5104,6 +5106,15 @@ function StepReview({
   const [aiLoadingByKey, setAiLoadingByKey] = useState<Record<string, boolean>>({});
   const [aiErrorByKey, setAiErrorByKey] = useState<Record<string, string | null>>({});
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [reviewRuleModalOpen, setReviewRuleModalOpen] = useState(false);
+  const [reviewRuleModalInitial, setReviewRuleModalInitial] = useState<{
+    name?: string;
+    description?: string;
+    conditions?: any[];
+    action_recommendation?: "accept" | "reject" | "manual";
+  } | null>(null);
+  const [ruleTabFilter, setRuleTabFilter] = useState<"all" | "system" | "custom" | "dynamic">("all");
+  const [selectedSystemPresetNumber, setSelectedSystemPresetNumber] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const identityMappings = useMemo(
@@ -5140,19 +5151,78 @@ function StepReview({
 
   const items = review?.items ?? [];
   const caseGroups = review?.case_groups ?? [];
+  const systemPresets = review?.system_presets ?? [];
+  const customRules = review?.custom_rules ?? [];
+  const dynamicPatterns = review?.dynamic_patterns ?? [];
+
   const visibleCaseGroups = caseGroups?.filter((group) => {
     if (caseGroupFilter !== "all" && (group.status ?? "open") !== caseGroupFilter) return false;
+
+    if (ruleTabFilter === "system") {
+      if (group.rule_type !== "system_preset") return false;
+      if (selectedSystemPresetNumber !== null && group.preset_number !== selectedSystemPresetNumber) {
+        return false;
+      }
+    } else if (ruleTabFilter === "custom") {
+      if (group.rule_type !== "custom_rule") return false;
+    } else if (ruleTabFilter === "dynamic") {
+      if (group.rule_type !== "dynamic_fallback") return false;
+    }
+
     if (!query) return true;
     const haystack = JSON.stringify([
       group.label,
       group.pattern,
       group.reason,
+      group.description,
       group.confidence,
       group.representative?.input_record,
       group.representative?.candidates?.[0]?.reference_record,
     ]).toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
+
+  const ruleCounts = {
+    all: caseGroups.reduce((acc, g) => acc + (g.item_count ?? 0), 0),
+    system: systemPresets.reduce((acc, g) => acc + (g.item_count ?? 0), 0),
+    custom: customRules.reduce((acc, g) => acc + (g.item_count ?? 0), 0),
+    dynamic: dynamicPatterns.reduce((acc, g) => acc + (g.item_count ?? 0), 0),
+  };
+
+  const handlePromoteRule = useCallback((group: ReviewCaseGroup) => {
+    const candidate = group.representative?.candidates?.[0];
+    const diffCols = (group.conditions?.different_fields as string[]) ?? [];
+    const targetField = diffCols[0] ?? "alamat";
+    setReviewRuleModalInitial({
+      name: `Aturan: ${group.label.replace(/^Pola Dinamis:\s*/i, "")}`,
+      description: group.reason ?? "Aturan kustom yang dipromosikan dari klaster pola dinamis.",
+      conditions: [
+        {
+          source: "input",
+          field: targetField,
+          operator: "is_not_empty",
+        },
+      ],
+      action_recommendation: "manual",
+    });
+    setReviewRuleModalOpen(true);
+  }, []);
+
+  const handleOpenAddRuleModal = useCallback(() => {
+    setReviewRuleModalInitial(null);
+    setReviewRuleModalOpen(true);
+  }, []);
+
+  const handleRuleSaved = useCallback(
+    (newRule: any) => {
+      toast.success(`Aturan review "${newRule.name}" berhasil disimpan.`);
+      if (jobId) {
+        fetchReviewResults(jobId).then((data) => setReview(data));
+      }
+    },
+    [jobId],
+  );
+
   const caseGroupCounts = {
     open: caseGroups?.filter((group) => (group.status ?? "open") === "open").length,
     resolved: caseGroups?.filter((group) => group.status === "resolved").length,
@@ -5555,6 +5625,16 @@ function StepReview({
             onUndo={undoDecision}
             onDecide={decideCaseGroup}
             canDecide={canDecide}
+            tabCategory={ruleTabFilter}
+            onTabCategoryChange={setRuleTabFilter}
+            selectedPresetNumber={selectedSystemPresetNumber}
+            onSelectPresetNumber={setSelectedSystemPresetNumber}
+            systemPresets={systemPresets}
+            customRules={customRules}
+            dynamicPatterns={dynamicPatterns}
+            ruleCounts={ruleCounts}
+            onOpenAddRuleModal={handleOpenAddRuleModal}
+            onPromoteRule={handlePromoteRule}
           />
         ))}
 
@@ -6124,6 +6204,16 @@ function StepReview({
         </SheetContent>
       </Sheet>
 
+      {jobId && (
+        <ReviewRuleModal
+          isOpen={reviewRuleModalOpen}
+          onClose={() => setReviewRuleModalOpen(false)}
+          jobId={jobId}
+          initialData={reviewRuleModalInitial}
+          onSaved={handleRuleSaved}
+        />
+      )}
+
       <DuplicateRecordsDialog
         open={showDuplicateModal}
         onOpenChange={setShowDuplicateModal}
@@ -6148,6 +6238,16 @@ function CaseGroupsReview({
   onUndo,
   pendingGroups,
   pendingUndos,
+  tabCategory = "all",
+  onTabCategoryChange,
+  selectedPresetNumber,
+  onSelectPresetNumber,
+  systemPresets = [],
+  customRules = [],
+  dynamicPatterns = [],
+  ruleCounts,
+  onOpenAddRuleModal,
+  onPromoteRule,
 }: {
   counts: Record<CaseGroupFilter, number>;
   filter: CaseGroupFilter;
@@ -6164,28 +6264,184 @@ function CaseGroupsReview({
     decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
     scope: "selected" | "group",
   ) => void;
+  tabCategory?: "all" | "system" | "custom" | "dynamic";
+  onTabCategoryChange?: (cat: "all" | "system" | "custom" | "dynamic") => void;
+  selectedPresetNumber?: number | null;
+  onSelectPresetNumber?: (num: number | null) => void;
+  systemPresets?: ReviewCaseGroup[];
+  customRules?: ReviewCaseGroup[];
+  dynamicPatterns?: ReviewCaseGroup[];
+  ruleCounts?: { all: number; system: number; custom: number; dynamic: number };
+  onOpenAddRuleModal?: () => void;
+  onPromoteRule?: (group: ReviewCaseGroup) => void;
 }) {
   const { t } = usePreferences();
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {(["open", "resolved", "all"] as CaseGroupFilter[]).map((item) => (
+    <div className="space-y-3.5">
+      {/* Aturan Review Bar */}
+      <div className="rounded-xl border border-border bg-card p-3 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2.5">
+          <div className="flex items-center gap-2">
+            <div className="flex size-6 items-center justify-center rounded-md bg-brand/10 text-brand">
+              <SlidersHorizontal className="size-3.5" />
+            </div>
+            <div>
+              <span className="text-xs font-semibold text-foreground">Aturan Review</span>
+              <span className="ml-2 text-[11px] text-muted-foreground hidden sm:inline">
+                Preset Sistem 1–6 · Aturan Kustom · Pola Dinamis
+              </span>
+            </div>
+          </div>
+          {onOpenAddRuleModal && (
+            <button
+              type="button"
+              onClick={onOpenAddRuleModal}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-2.5 py-1.5 text-xs font-semibold text-brand-foreground hover:bg-brand/90 transition-all cursor-pointer shadow-xs"
+            >
+              <Plus className="size-3.5" />
+              Tambah Aturan Review
+            </button>
+          )}
+        </div>
+
+        {/* Tab categories: Semua, Aturan Bawaan, Aturan Kustom, Pola Dinamis */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            key={item}
             type="button"
-            onClick={() => onFilterChange(item)}
+            onClick={() => {
+              onTabCategoryChange?.("all");
+              onSelectPresetNumber?.(null);
+            }}
             className={[
-              "rounded-md border px-3 py-2 text-xs font-semibold transition-colors",
-              filter === item
+              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              tabCategory === "all"
                 ? "border-brand bg-brand/10 text-foreground"
-                : "border-border text-muted-foreground hover:bg-secondary",
+                : "border-border text-muted-foreground hover:bg-secondary/70",
             ].join(" ")}
           >
-            {caseGroupFilterLabel(item, t)}
-            <span className="ml-2 tabular-nums text-muted-foreground">{counts[item]}</span>
+            Semua Kasus
+            <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
+              {ruleCounts?.all ?? 0}
+            </span>
           </button>
-        ))}
+
+          <button
+            type="button"
+            onClick={() => onTabCategoryChange?.("system")}
+            className={[
+              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              tabCategory === "system"
+                ? "border-brand bg-brand/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-secondary/70",
+            ].join(" ")}
+          >
+            Aturan Bawaan (1–6)
+            <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
+              {ruleCounts?.system ?? 0}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onTabCategoryChange?.("custom");
+              onSelectPresetNumber?.(null);
+            }}
+            className={[
+              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              tabCategory === "custom"
+                ? "border-brand bg-brand/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-secondary/70",
+            ].join(" ")}
+          >
+            Aturan Kustom
+            <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
+              {ruleCounts?.custom ?? 0}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onTabCategoryChange?.("dynamic");
+              onSelectPresetNumber?.(null);
+            }}
+            className={[
+              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              tabCategory === "dynamic"
+                ? "border-brand bg-brand/10 text-foreground"
+                : "border-border text-muted-foreground hover:bg-secondary/70",
+            ].join(" ")}
+          >
+            Pola Dinamis (Sisa)
+            <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
+              {ruleCounts?.dynamic ?? 0}
+            </span>
+          </button>
+        </div>
+
+        {/* If 'system' tab is active, display the 6 sub-preset badges / pills */}
+        {tabCategory === "system" && systemPresets.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-border/50">
+            <button
+              type="button"
+              onClick={() => onSelectPresetNumber?.(null)}
+              className={[
+                "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer",
+                selectedPresetNumber === null
+                  ? "bg-foreground text-background font-semibold"
+                  : "bg-secondary/50 text-muted-foreground hover:text-foreground",
+              ].join(" ")}
+            >
+              Semua Preset (1–6)
+            </button>
+            {systemPresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() =>
+                  onSelectPresetNumber?.(
+                    selectedPresetNumber === preset.preset_number ? null : (preset.preset_number ?? null),
+                  )
+                }
+                className={[
+                  "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] transition-colors cursor-pointer",
+                  selectedPresetNumber === preset.preset_number
+                    ? "bg-brand text-brand-foreground font-semibold"
+                    : "bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground",
+                ].join(" ")}
+              >
+                <span>{preset.label}</span>
+                <span className="rounded-full bg-black/10 dark:bg-white/10 px-1.5 py-0.2 text-[10px] font-mono">
+                  {preset.item_count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Case Group Status Filter (Open / Resolved / All) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div className="flex flex-wrap gap-2">
+          {(["open", "resolved", "all"] as CaseGroupFilter[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onFilterChange(item)}
+              className={[
+                "rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer",
+                filter === item
+                  ? "border-brand bg-brand/10 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-secondary",
+              ].join(" ")}
+            >
+              {caseGroupFilterLabel(item, t)}
+              <span className="ml-2 tabular-nums text-muted-foreground">{counts[item]}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {groups.length === 0 ? (
@@ -6306,6 +6562,17 @@ function CaseGroupsReview({
                       >
                         {t("matching.review.reviewGroup")}
                       </button>
+                      {onPromoteRule && (group.rule_type === "dynamic_fallback" || group.eligible_for_rule_promotion) && (
+                        <button
+                          type="button"
+                          onClick={() => onPromoteRule(group)}
+                          className="inline-flex items-center gap-1.5 cursor-pointer rounded-md border border-brand/40 bg-brand/5 px-2.5 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition-colors shadow-2xs"
+                          title="Promosikan pola data sisa ini menjadi aturan kustom permanen"
+                        >
+                          <Sparkles className="size-3.5" />
+                          Jadikan Aturan Baru
+                        </button>
+                      )}
                       {canDecide && (
                         <>
                           <button
@@ -7126,15 +7393,20 @@ function candidateScore(item: ReviewItem) {
 }
 
 function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
+  if (group.label) return group.label;
   const pattern = (group.pattern ?? "").toUpperCase();
-  if (pattern === "LEGAL_FORM_CONFLICT") return t("review.group.legalConflict");
-  if (pattern === "GEO_LOCATION_CONFLICT") return t("review.group.locationConflict");
+  if (pattern === "IDENTIFIER_CONFLICT") return "1. NIB Beda / Konflik Identitas";
+  if (pattern === "LEGAL_FORM_CONFLICT") return "2. Beda Bentuk Usaha (PT/CV)";
+  if (pattern === "MULTI_CANDIDATE_AMBIGUITY") return "3. Kandidat Ganda (Ambiguitas)";
+  if (pattern === "GEO_LOCATION_CONFLICT") return "4. Beda Wilayah (Kabupaten)";
+  if (pattern === "ADDRESS_CONFLICT") return "5. Beda Alamat";
+  if (pattern === "INACTIVE_BUSINESS_STATUS") return "6. Status Usaha Nonaktif";
   if (pattern === "FIELD_CONFLICT") return t("review.group.fieldConflict");
   if (pattern === "SIMILAR_NAME_REVIEW") return t("review.group.similarName");
   if (pattern === "LOW_CONFIDENCE_MATCH") return t("review.group.lowConfidence");
   if (pattern === "NO_CANDIDATE") return t("review.group.noCandidate");
   if (pattern === "NUMERIC_MISMATCH") return t("review.group.numericMismatch");
-  return group.label || t("review.group.default");
+  return t("review.group.default");
 }
 
 function caseGroupReason(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {

@@ -392,7 +392,31 @@ export type ReviewCaseGroup = {
   representative_input_key: string | null;
   representative: ReviewItem;
   representative_samples?: ReviewItem[];
+  rule_type?: "system_preset" | "custom_rule" | "dynamic_fallback";
+  preset_number?: number | null;
+  rule_name?: string;
+  description?: string;
+  eligible_for_rule_promotion?: boolean;
 };
+
+export type ReviewRuleCondition = {
+  source?: "input" | "reference" | "comparison";
+  field: string;
+  operator: "equals" | "not_equals" | "contains" | "does_not_contain" | "greater_than" | "less_than" | "is_empty" | "is_not_empty";
+  value?: string;
+};
+
+export type ReviewRuleDefinition = {
+  id: string;
+  name: string;
+  description?: string;
+  type: "system_preset" | "custom_rule" | "dynamic_fallback";
+  action_recommendation?: "accept" | "reject" | "manual";
+  conditions: ReviewRuleCondition[];
+  created_at?: string;
+};
+
+export type ReviewPresetGroup = ReviewCaseGroup;
 
 export type ReviewSafetyRecord = {
   input_record_key: string;
@@ -457,7 +481,10 @@ export type ReviewResults = {
     duplicate_details?: DuplicateDetail[];
   };
   items: ReviewItem[];
-  case_groups: ReviewCaseGroup[];
+  case_groups: ReviewPresetGroup[];
+  system_presets?: ReviewPresetGroup[];
+  custom_rules?: ReviewPresetGroup[];
+  dynamic_patterns?: ReviewPresetGroup[];
 };
 
 export type AiEnvelope<T> = {
@@ -1385,3 +1412,61 @@ export async function stopMatching(jobId: string): Promise<void> {
     },
   });
 }
+
+export async function fetchReviewRules(jobId: string): Promise<ReviewRuleDefinition[]> {
+  const response = await apiFetch(`/matching-jobs/${jobId}/review-rules`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<ReviewRuleDefinition[]>
+    | ApiFailure
+    | null;
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(payload?.message ?? "Gagal memuat aturan review.", response.status);
+  }
+  return payload.data;
+}
+
+export async function createReviewRule(
+  jobId: string,
+  rule: {
+    name: string;
+    description?: string;
+    action_recommendation?: "accept" | "reject" | "manual";
+    conditions: ReviewRuleCondition[];
+  },
+): Promise<{ success: boolean; data: ReviewRuleDefinition; rules: ReviewRuleDefinition[] }> {
+  const response = await apiFetch(`/matching-jobs/${jobId}/review-rules`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(rule),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { success: true; data: ReviewRuleDefinition; rules: ReviewRuleDefinition[] }
+    | ApiFailure
+    | null;
+  if (!response.ok || !payload || payload.success === false) {
+    const errorMsg = payload && "message" in payload ? (payload.message as string) : undefined;
+    throw new ApiError(errorMsg ?? "Gagal membuat aturan review baru.", response.status);
+  }
+  return payload;
+}
+
+export async function deleteReviewRule(jobId: string, ruleId: string): Promise<void> {
+  const response = await apiFetch(`/matching-jobs/${jobId}/review-rules/${ruleId}`, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | ApiSuccess<null>
+    | ApiFailure
+    | null;
+  if (!response.ok || !payload || payload.success === false) {
+    throw new ApiError(payload?.message ?? "Gagal menghapus aturan review.", response.status);
+  }
+}
+
