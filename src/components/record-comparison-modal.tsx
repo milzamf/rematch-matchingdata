@@ -156,10 +156,24 @@ function resolveFieldScoreDisplay(
   f: ReviewCandidate["field_scores"][number],
   inputData: Record<string, unknown>,
   referenceData: Record<string, unknown>,
+  inputName: string,
+  referenceName: string,
 ) {
   const isInputGenerated = String(f.input_column || "").startsWith("[Generated]");
   const isRefGenerated = String(f.reference_column || "").startsWith("[Generated]");
   const isGenerated = isInputGenerated || isRefGenerated;
+
+  const isBadanUsaha =
+    f.input_column.includes("Badan Usaha") ||
+    f.input_column.includes("legal_form") ||
+    f.reference_column.includes("Badan Usaha") ||
+    f.reference_column.includes("legal_form");
+
+  const isNamaInti =
+    f.input_column.includes("Nama Inti") ||
+    f.input_column.includes("core_name") ||
+    f.reference_column.includes("Nama Inti") ||
+    f.reference_column.includes("core_name");
 
   const formatColumnName = (col: string) => {
     if (col === "[Generated] Badan Usaha") return "Bentuk Badan Usaha";
@@ -176,13 +190,13 @@ function resolveFieldScoreDisplay(
   const meta = (f as { identity_metadata?: { input?: Record<string, unknown> | null; reference?: Record<string, unknown> | null } }).identity_metadata;
 
   if (isInputGenerated || inputVal === undefined || inputVal === null) {
-    if (f.input_column.includes("Badan Usaha") || f.input_column.includes("legal_form")) {
+    if (isBadanUsaha) {
       inputVal =
         meta?.input?.legal_form ??
         inputData.bentuk_usaha ??
         inputData.badan_usaha ??
         "-";
-    } else if (f.input_column.includes("Nama Inti") || f.input_column.includes("core_name")) {
+    } else if (isNamaInti) {
       inputVal =
         meta?.input?.core_name ??
         meta?.input?.raw_name ??
@@ -195,13 +209,13 @@ function resolveFieldScoreDisplay(
   }
 
   if (isRefGenerated || refVal === undefined || refVal === null) {
-    if (f.reference_column.includes("Badan Usaha") || f.reference_column.includes("legal_form")) {
+    if (isBadanUsaha) {
       refVal =
         meta?.reference?.legal_form ??
         referenceData.badan_usaha ??
         referenceData.bentuk_usaha ??
         "-";
-    } else if (f.reference_column.includes("Nama Inti") || f.reference_column.includes("core_name")) {
+    } else if (isNamaInti) {
       refVal =
         meta?.reference?.core_name ??
         meta?.reference?.raw_name ??
@@ -215,10 +229,95 @@ function resolveFieldScoreDisplay(
 
   return {
     isGenerated,
+    isBadanUsaha,
+    isNamaInti,
     inputColLabel,
     refColLabel,
     inputVal,
     refVal,
+    rawCompanyInput: inputName,
+    rawCompanyRef: referenceName,
+    rawFormInput: inputData.bentuk_usaha ? String(inputData.bentuk_usaha) : null,
+    rawFormRef: referenceData.badan_usaha ? String(referenceData.badan_usaha) : null,
+  };
+}
+
+function getOverviewFields(
+  inputData: Record<string, unknown>,
+  referenceData: Record<string, unknown>,
+  meta?: { input?: Record<string, unknown> | null; reference?: Record<string, unknown> | null } | null,
+): {
+  rows: Array<{
+    key: string;
+    label: string;
+    input: string;
+    reference: string;
+  }>;
+} {
+  // 1. Badan Usaha
+  const rawInputBU = inputData.bentuk_usaha ?? inputData.badan_usaha ?? meta?.input?.legal_form;
+  const inputBU = rawInputBU ? String(rawInputBU) : "— (kosong)";
+
+  const rawRefBU = referenceData.badan_usaha ?? referenceData.bentuk_usaha;
+  const refLegalForm = meta?.reference?.legal_form;
+  let refBU = "— (kosong)";
+  if (rawRefBU) {
+    if (refLegalForm && String(rawRefBU) !== String(refLegalForm)) {
+      refBU = `${rawRefBU} (${refLegalForm})`; // e.g. "3 (CV)"
+    } else {
+      refBU = String(rawRefBU);
+    }
+  } else if (refLegalForm) {
+    refBU = String(refLegalForm);
+  }
+
+  // 2. Alamat
+  const rawInputAlamat = inputData.alamat ?? inputData.alamat_penyedia ?? inputData.alamat_perusahaan;
+  const inputAlamat = rawInputAlamat ? String(rawInputAlamat) : "— (kosong)";
+
+  const rawRefAlamat = referenceData.alamat_perusahaan ?? referenceData.alamat_operasional ?? referenceData.alamat;
+  const refAlamat = rawRefAlamat ? String(rawRefAlamat) : "— (kosong)";
+
+  // 3. Kode kabupaten/kota - Nama Kabupaten/kota
+  const inputKodeKab = inputData.kd_kab ?? inputData.kode_kab ?? inputData.id_kab ?? "";
+  const inputNamaKab = inputData.nmkab ?? inputData.kabupaten ?? inputData.nama_kab ?? inputData.kab ?? "";
+  let inputKabText = "— (kosong)";
+  if (inputKodeKab && inputNamaKab) {
+    inputKabText = `${inputKodeKab} - ${inputNamaKab}`;
+  } else if (inputNamaKab) {
+    inputKabText = String(inputNamaKab);
+  } else if (inputKodeKab) {
+    inputKabText = String(inputKodeKab);
+  }
+
+  const refKodeKab = referenceData.kab ?? referenceData.kd_kab ?? referenceData.kode_kab ?? "";
+  const refNamaKab = referenceData.nm_kab ?? referenceData.nmkab ?? referenceData.kabupaten ?? "";
+  let refKabText = "— (kosong)";
+  if (refKodeKab && refNamaKab) {
+    refKabText = `${refKodeKab} - ${refNamaKab}`;
+  } else if (refNamaKab) {
+    refKabText = String(refNamaKab);
+  } else if (refKodeKab) {
+    refKabText = String(refKodeKab);
+  }
+
+  // 4. NIB
+  const inputNIB = String(inputData.nib ?? inputData.no_nib ?? "— (tidak terisi)");
+  const refNIB = String(referenceData.nib ?? referenceData.no_nib ?? "— (tidak terisi di acuan)");
+
+  // 5. NPWP (Symmetric)
+  const hasNPWP = Boolean(inputData.npwp_penyedia || inputData.npwp || referenceData.npwp || referenceData.npwp_penyedia);
+  const inputNPWP = String(inputData.npwp_penyedia ?? inputData.npwp ?? "— (tidak terisi)");
+  const refNPWP = String(referenceData.npwp ?? referenceData.npwp_penyedia ?? "— (tidak terisi di acuan)");
+
+  return {
+    rows: [
+      { key: "badan_usaha", label: "1. Badan Usaha", input: inputBU, reference: refBU },
+      { key: "alamat", label: "2. Alamat", input: inputAlamat, reference: refAlamat },
+      { key: "kab_kota", label: "3. Kode - Nama Kab/Kota", input: inputKabText, reference: refKabText },
+      { key: "nib", label: "4. NIB", input: inputNIB, reference: refNIB },
+      ...(hasNPWP ? [{ key: "npwp", label: "NPWP", input: inputNPWP, reference: refNPWP }] : []),
+    ],
   };
 }
 
@@ -435,6 +534,13 @@ export function RecordComparisonModal({
     currentCandidate?.reference_record_key ??
     "-";
 
+  // First field metadata for identity normalization
+  const firstFieldMeta = currentCandidate?.field_scores?.find(
+    (f) => (f as any).identity_metadata,
+  )?.identity_metadata;
+
+  const overviewData = getOverviewFields(inputData, referenceData, firstFieldMeta as any);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-5 md:p-6 animate-in fade-in duration-200"
@@ -600,126 +706,80 @@ export function RecordComparisonModal({
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {activeTab === "overview" ? (
               <>
-                {/* 1. Entity Overview Side-by-Side */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. Entity Overview Side-by-Side (Symmetric 4 Items + NPWP) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                   {/* Input Card */}
-                  <div className="rounded-xl border border-border bg-secondary/15 p-4.5 relative overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-1 text-xs font-semibold">
-                        <Database className="size-3.5" />
-                        DATA INPUT (LPSE / Mitra)
-                      </span>
-                      <span className="text-[11px] font-mono text-muted-foreground">
-                        Key: {item.input_record_key}
-                      </span>
-                    </div>
-                    <h3 className="text-base font-bold text-foreground leading-snug break-words">
-                      {inputName}
-                    </h3>
-                    <div className="mt-3.5 space-y-2 text-xs text-muted-foreground">
-                      {inputData.npwp_penyedia || inputData.npwp ? (
-                        <p className="flex items-start gap-1.5">
-                          <span className="font-semibold text-foreground shrink-0 w-28">NPWP:</span>
-                          <span className="font-mono text-foreground font-medium select-all">
-                            {formatRawValue(inputData.npwp_penyedia ?? inputData.npwp)}
-                          </span>
-                        </p>
-                      ) : null}
-                      {inputData.nib ? (
-                        <p className="flex items-start gap-1.5">
-                          <span className="font-semibold text-foreground shrink-0 w-28">NIB:</span>
-                          <span className="font-mono text-foreground font-medium select-all">
-                            {formatRawValue(inputData.nib)}
-                          </span>
-                        </p>
-                      ) : null}
-                      {inputData.bentuk_usaha ? (
-                        <p className="flex items-start gap-1.5">
-                          <span className="font-semibold text-foreground shrink-0 w-28">Bentuk Usaha:</span>
-                          <span className="text-foreground">{formatRawValue(inputData.bentuk_usaha)}</span>
-                        </p>
-                      ) : null}
-                      {inputData.alamat ? (
-                        <p className="flex items-start gap-1.5">
-                          <span className="font-semibold text-foreground shrink-0 w-28">Alamat:</span>
-                          <span className="text-foreground leading-relaxed">{formatRawValue(inputData.alamat)}</span>
-                        </p>
-                      ) : null}
-                      {inputData.nmkab || inputData.kabupaten || inputData.kab ? (
-                        <p className="flex items-start gap-1.5">
-                          <span className="font-semibold text-foreground shrink-0 w-28">Kabupaten/Kota:</span>
-                          <span className="text-foreground">
-                            {formatRawValue(inputData.nmkab ?? inputData.kabupaten ?? inputData.kab)}
-                          </span>
-                        </p>
-                      ) : null}
+                  <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4.5 relative overflow-hidden flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2.5">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-1 text-xs font-semibold">
+                          <Database className="size-3.5" />
+                          DATA INPUT (LPSE / Mitra)
+                        </span>
+                        <span className="text-[11px] font-mono text-muted-foreground">
+                          Key: {item.input_record_key}
+                        </span>
+                      </div>
+                      <h3 className="text-base font-bold text-foreground leading-snug break-words mb-3.5">
+                        {inputName}
+                      </h3>
+                      <div className="space-y-1.5 text-xs">
+                        {overviewData.rows.map((row) => (
+                          <div
+                            key={`input-${row.key}`}
+                            className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
+                          >
+                            <span className="font-semibold text-foreground shrink-0 w-36 text-xs">
+                              {row.label}:
+                            </span>
+                            <span className="text-foreground text-xs leading-relaxed select-all break-words font-medium">
+                              {row.input}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
                   {/* Reference Card */}
-                  <div className="rounded-xl border border-border bg-secondary/15 p-4.5 relative overflow-hidden">
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 text-xs font-semibold">
-                        <Database className="size-3.5" />
-                        DATA ACUAN / REFERENSI (BPS)
-                      </span>
-                      <span className="text-[11px] font-mono text-muted-foreground">
-                        Key: {currentCandidate?.reference_record_key ?? "-"}
-                      </span>
-                    </div>
-                    {currentCandidate ? (
-                      <>
-                        <h3 className="text-base font-bold text-foreground leading-snug break-words">
-                          {referenceName}
-                        </h3>
-                        <div className="mt-3.5 space-y-2 text-xs text-muted-foreground">
-                          {referenceData.npwp || referenceData.npwp_penyedia ? (
-                            <p className="flex items-start gap-1.5">
-                              <span className="font-semibold text-foreground shrink-0 w-28">NPWP:</span>
-                              <span className="font-mono text-foreground font-medium select-all">
-                                {formatRawValue(referenceData.npwp ?? referenceData.npwp_penyedia)}
-                              </span>
-                            </p>
-                          ) : null}
-                          {referenceData.nib ? (
-                            <p className="flex items-start gap-1.5">
-                              <span className="font-semibold text-foreground shrink-0 w-28">NIB:</span>
-                              <span className="font-mono text-foreground font-medium select-all">
-                                {formatRawValue(referenceData.nib)}
-                              </span>
-                            </p>
-                          ) : null}
-                          {referenceData.badan_usaha || referenceData.bentuk_usaha ? (
-                            <p className="flex items-start gap-1.5">
-                              <span className="font-semibold text-foreground shrink-0 w-28">Badan Usaha:</span>
-                              <span className="text-foreground">
-                                {formatRawValue(referenceData.badan_usaha ?? referenceData.bentuk_usaha)}
-                              </span>
-                            </p>
-                          ) : null}
-                          {referenceData.alamat_perusahaan || referenceData.alamat ? (
-                            <p className="flex items-start gap-1.5">
-                              <span className="font-semibold text-foreground shrink-0 w-28">Alamat:</span>
-                              <span className="text-foreground leading-relaxed">
-                                {formatRawValue(referenceData.alamat_perusahaan ?? referenceData.alamat)}
-                              </span>
-                            </p>
-                          ) : null}
-                          {referenceData.nm_kab || referenceData.nmkab || referenceData.kab ? (
-                            <p className="flex items-start gap-1.5">
-                              <span className="font-semibold text-foreground shrink-0 w-28">Kabupaten/Kota:</span>
-                              <span className="text-foreground">
-                                {formatRawValue(referenceData.nm_kab ?? referenceData.nmkab ?? referenceData.kab)}
-                              </span>
-                            </p>
-                          ) : null}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="py-12 text-center text-xs text-muted-foreground">
-                        Tidak ada kandidat acuan yang cocok ditemukan.
+                  <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4.5 relative overflow-hidden flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2.5">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 text-xs font-semibold">
+                          <Database className="size-3.5" />
+                          DATA ACUAN / REFERENSI (BPS)
+                        </span>
+                        <span className="text-[11px] font-mono text-muted-foreground">
+                          Key: {currentCandidate?.reference_record_key ?? "-"}
+                        </span>
                       </div>
-                    )}
+                      {currentCandidate ? (
+                        <>
+                          <h3 className="text-base font-bold text-foreground leading-snug break-words mb-3.5">
+                            {referenceName}
+                          </h3>
+                          <div className="space-y-1.5 text-xs">
+                            {overviewData.rows.map((row) => (
+                              <div
+                                key={`ref-${row.key}`}
+                                className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
+                              >
+                                <span className="font-semibold text-foreground shrink-0 w-36 text-xs">
+                                  {row.label}:
+                                </span>
+                                <span className="text-foreground text-xs leading-relaxed select-all break-words font-medium">
+                                  {row.reference}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="py-12 text-center text-xs text-muted-foreground">
+                          Tidak ada kandidat acuan yang cocok ditemukan.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -758,7 +818,7 @@ export function RecordComparisonModal({
                         <tbody className="divide-y divide-border">
                           {fieldScores.map((f, i) => {
                             const comp = comparisonLabel(f.comparison);
-                            const resolved = resolveFieldScoreDisplay(f, inputData, referenceData);
+                            const resolved = resolveFieldScoreDisplay(f, inputData, referenceData, inputName, referenceName);
 
                             return (
                               <tr key={`${f.input_column}-${f.reference_column}-${i}`} className="hover:bg-secondary/20 transition-colors">
@@ -781,25 +841,65 @@ export function RecordComparisonModal({
                                     )}
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 max-w-[220px] break-words text-muted-foreground">
-                                  <div className="flex items-start justify-between gap-1">
-                                    <span className={resolved.isGenerated ? "font-medium text-foreground uppercase text-[11px]" : ""}>
-                                      {formatRawValue(resolved.inputVal)}
-                                    </span>
-                                    {resolved.inputVal !== "-" && resolved.inputVal !== "— (kosong)" && (
-                                      <CopyButton text={formatRawValue(resolved.inputVal)} />
-                                    )}
-                                  </div>
+                                <td className="px-4 py-3 max-w-[260px] break-words text-muted-foreground">
+                                  {resolved.isGenerated ? (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-bold text-foreground text-xs uppercase select-all">
+                                          {formatRawValue(resolved.inputVal)}
+                                        </span>
+                                        <span className="rounded bg-blue-500/10 px-1.5 py-0.2 text-[9px] font-semibold text-blue-600 dark:text-blue-400">
+                                          Virtual / In-Memory
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-muted-foreground leading-tight">
+                                        <span className="text-[10px] uppercase font-semibold text-muted-foreground/70">Nama Asli: </span>
+                                        <span className="font-medium text-foreground">{resolved.rawCompanyInput}</span>
+                                      </p>
+                                      {resolved.isBadanUsaha && resolved.rawFormInput && (
+                                        <p className="text-[10px] text-muted-foreground">
+                                          Bentuk Usaha Excel: <span className="font-mono text-foreground/80">{resolved.rawFormInput}</span>
+                                        </p>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-start justify-between gap-1">
+                                      <span className="select-all">{formatRawValue(resolved.inputVal)}</span>
+                                      {resolved.inputVal !== "-" && resolved.inputVal !== "— (kosong)" && (
+                                        <CopyButton text={formatRawValue(resolved.inputVal)} />
+                                      )}
+                                    </div>
+                                  )}
                                 </td>
-                                <td className="px-4 py-3 max-w-[220px] break-words text-foreground font-medium">
-                                  <div className="flex items-start justify-between gap-1">
-                                    <span className={resolved.isGenerated ? "font-medium text-foreground uppercase text-[11px]" : ""}>
-                                      {formatRawValue(resolved.refVal)}
-                                    </span>
-                                    {resolved.refVal !== "-" && resolved.refVal !== "— (kosong)" && (
-                                      <CopyButton text={formatRawValue(resolved.refVal)} />
-                                    )}
-                                  </div>
+                                <td className="px-4 py-3 max-w-[260px] break-words text-foreground font-medium">
+                                  {resolved.isGenerated ? (
+                                    <div className="space-y-1">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-bold text-foreground text-xs uppercase select-all">
+                                          {formatRawValue(resolved.refVal)}
+                                        </span>
+                                        <span className="rounded bg-emerald-500/10 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                          Virtual / In-Memory
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-muted-foreground leading-tight">
+                                        <span className="text-[10px] uppercase font-semibold text-muted-foreground/70">Nama Asli: </span>
+                                        <span className="font-medium text-foreground">{resolved.rawCompanyRef}</span>
+                                      </p>
+                                      {resolved.isBadanUsaha && resolved.rawFormRef && (
+                                        <p className="text-[10px] text-muted-foreground">
+                                          Badan Usaha Excel: <span className="font-mono text-foreground/80">{resolved.rawFormRef}</span>
+                                        </p>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-start justify-between gap-1">
+                                      <span className="select-all">{formatRawValue(resolved.refVal)}</span>
+                                      {resolved.refVal !== "-" && resolved.refVal !== "— (kosong)" && (
+                                        <CopyButton text={formatRawValue(resolved.refVal)} />
+                                      )}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   <div className="inline-flex flex-col items-center gap-1">
