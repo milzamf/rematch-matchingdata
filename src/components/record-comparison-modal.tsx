@@ -17,6 +17,7 @@ import {
   Columns,
   FileSpreadsheet,
   Filter,
+  Sparkles,
 } from "lucide-react";
 import type { ReviewItem, ReviewCandidate } from "@/lib/api";
 import type { IdentityFieldPair } from "@/lib/result-identity";
@@ -149,6 +150,76 @@ function formatRawValue(val: unknown): string {
     }
   }
   return String(val);
+}
+
+function resolveFieldScoreDisplay(
+  f: ReviewCandidate["field_scores"][number],
+  inputData: Record<string, unknown>,
+  referenceData: Record<string, unknown>,
+) {
+  const isInputGenerated = String(f.input_column || "").startsWith("[Generated]");
+  const isRefGenerated = String(f.reference_column || "").startsWith("[Generated]");
+  const isGenerated = isInputGenerated || isRefGenerated;
+
+  const formatColumnName = (col: string) => {
+    if (col === "[Generated] Badan Usaha") return "Bentuk Badan Usaha";
+    if (col === "[Generated] Nama Inti") return "Nama Inti Perusahaan";
+    return col.replace(/^\[Generated\]\s*/i, "");
+  };
+
+  const inputColLabel = formatColumnName(f.input_column);
+  const refColLabel = formatColumnName(f.reference_column);
+
+  let inputVal: unknown = inputData[f.input_column];
+  let refVal: unknown = referenceData[f.reference_column];
+
+  const meta = (f as { identity_metadata?: { input?: Record<string, unknown> | null; reference?: Record<string, unknown> | null } }).identity_metadata;
+
+  if (isInputGenerated || inputVal === undefined || inputVal === null) {
+    if (f.input_column.includes("Badan Usaha") || f.input_column.includes("legal_form")) {
+      inputVal =
+        meta?.input?.legal_form ??
+        inputData.bentuk_usaha ??
+        inputData.badan_usaha ??
+        "-";
+    } else if (f.input_column.includes("Nama Inti") || f.input_column.includes("core_name")) {
+      inputVal =
+        meta?.input?.core_name ??
+        meta?.input?.raw_name ??
+        inputData.nama_penyedia ??
+        inputData.nama_perusahaan ??
+        "-";
+    } else {
+      inputVal = meta?.input?.core_name ?? meta?.input?.raw_name ?? "-";
+    }
+  }
+
+  if (isRefGenerated || refVal === undefined || refVal === null) {
+    if (f.reference_column.includes("Badan Usaha") || f.reference_column.includes("legal_form")) {
+      refVal =
+        meta?.reference?.legal_form ??
+        referenceData.badan_usaha ??
+        referenceData.bentuk_usaha ??
+        "-";
+    } else if (f.reference_column.includes("Nama Inti") || f.reference_column.includes("core_name")) {
+      refVal =
+        meta?.reference?.core_name ??
+        meta?.reference?.raw_name ??
+        referenceData.nama_perusahaan ??
+        referenceData.nama_penyedia ??
+        "-";
+    } else {
+      refVal = meta?.reference?.core_name ?? meta?.reference?.raw_name ?? "-";
+    }
+  }
+
+  return {
+    isGenerated,
+    inputColLabel,
+    refColLabel,
+    inputVal,
+    refVal,
+  };
 }
 
 function CopyButton({ text, title = "Salin teks" }: { text: string; title?: string }) {
@@ -661,7 +732,7 @@ export function RecordComparisonModal({
                           Nilai Per Kolom Similarity & Kontribusi Total (WLS)
                         </h4>
                         <p className="text-[11px] text-muted-foreground">
-                          Perhitungan pembobotan linier (Weighted Linear Score) berdasarkan parameter komparasi
+                          Perhitungan pembobotan linier (WLS). Kolom bertanda <em>Ekstraksi Normalisasi</em> dihasilkan otomatis oleh algoritma Entity-Aware Matching untuk memisahkan nama pokok perusahaan dari jenis badan hukum (PT/CV) agar komparasi lebih adil & akurat.
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -676,7 +747,7 @@ export function RecordComparisonModal({
                       <table className="w-full text-xs">
                         <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
                           <tr>
-                            <th className="px-4 py-2.5 text-left font-semibold">Kolom (Input ↔ Acuan)</th>
+                            <th className="px-4 py-2.5 text-left font-semibold">Kolom Evaluasi (Input ↔ Acuan)</th>
                             <th className="px-4 py-2.5 text-left font-semibold">Nilai Data Input</th>
                             <th className="px-4 py-2.5 text-left font-semibold">Nilai Data Acuan</th>
                             <th className="px-4 py-2.5 text-center font-semibold">Skor Similarity</th>
@@ -687,23 +758,48 @@ export function RecordComparisonModal({
                         <tbody className="divide-y divide-border">
                           {fieldScores.map((f, i) => {
                             const comp = comparisonLabel(f.comparison);
-                            const inputVal = inputData[f.input_column] ?? "-";
-                            const refVal = referenceData[f.reference_column] ?? "-";
+                            const resolved = resolveFieldScoreDisplay(f, inputData, referenceData);
 
                             return (
                               <tr key={`${f.input_column}-${f.reference_column}-${i}`} className="hover:bg-secondary/20 transition-colors">
                                 <td className="px-4 py-3 font-semibold text-foreground">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-muted-foreground">{f.input_column}</span>
-                                    <ArrowRight className="size-3 text-muted-foreground/60 shrink-0" />
-                                    <span className="text-foreground">{f.reference_column}</span>
+                                  <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={resolved.isGenerated ? "font-semibold text-foreground" : "text-muted-foreground"}>
+                                        {resolved.inputColLabel}
+                                      </span>
+                                      <ArrowRight className="size-3 text-muted-foreground/60 shrink-0" />
+                                      <span className="text-foreground">
+                                        {resolved.refColLabel}
+                                      </span>
+                                    </div>
+                                    {resolved.isGenerated && (
+                                      <span className="inline-flex items-center gap-1 w-fit rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                                        <Sparkles className="size-2.5" />
+                                        Ekstraksi Normalisasi Otomatis
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 max-w-[220px] break-words text-muted-foreground">
-                                  {formatRawValue(inputVal)}
+                                  <div className="flex items-start justify-between gap-1">
+                                    <span className={resolved.isGenerated ? "font-medium text-foreground uppercase text-[11px]" : ""}>
+                                      {formatRawValue(resolved.inputVal)}
+                                    </span>
+                                    {resolved.inputVal !== "-" && resolved.inputVal !== "— (kosong)" && (
+                                      <CopyButton text={formatRawValue(resolved.inputVal)} />
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3 max-w-[220px] break-words text-foreground font-medium">
-                                  {formatRawValue(refVal)}
+                                  <div className="flex items-start justify-between gap-1">
+                                    <span className={resolved.isGenerated ? "font-medium text-foreground uppercase text-[11px]" : ""}>
+                                      {formatRawValue(resolved.refVal)}
+                                    </span>
+                                    {resolved.refVal !== "-" && resolved.refVal !== "— (kosong)" && (
+                                      <CopyButton text={formatRawValue(resolved.refVal)} />
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   <div className="inline-flex flex-col items-center gap-1">
