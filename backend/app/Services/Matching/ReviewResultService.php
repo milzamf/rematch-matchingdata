@@ -969,12 +969,14 @@ class ReviewResultService
                 throw new InvalidArgumentException('Select at least one review record.');
             }
 
-            $eligibleGroup = $caseGroupsById
-                ->filter(fn (array $group) => (bool) ($group['eligible_for_bulk'] ?? false))
-                ->first(fn (array $group) => count(array_diff($keys, $group['item_keys'] ?? [])) === 0);
+            if (! empty($payload['case_group_id'])) {
+                $eligibleGroup = $caseGroupsById
+                    ->filter(fn (array $group) => (bool) ($group['eligible_for_bulk'] ?? false))
+                    ->first(fn (array $group) => count(array_diff($keys, $group['item_keys'] ?? [])) === 0);
 
-            if (! is_array($eligibleGroup)) {
-                throw new InvalidArgumentException('Selected records must belong to one high-confidence case group.');
+                if (! is_array($eligibleGroup)) {
+                    throw new InvalidArgumentException('Selected records must belong to one high-confidence case group.');
+                }
             }
 
             return $keys;
@@ -1027,6 +1029,7 @@ class ReviewResultService
         }
 
         $failures = [];
+        $isDirectManualSelection = empty($payload['case_group_id']) && $scope === 'selected';
 
         foreach ($inputKeys as $inputKey) {
             $item = $itemsByKey->get($inputKey);
@@ -1036,14 +1039,16 @@ class ReviewResultService
 
             if (! is_array($item) || ! is_array($candidate) || $referenceKey === '') {
                 $reason = 'No reference candidate is available.';
-            } elseif ((bool) data_get($item, 'case_features.conditions.legal_form_conflict', false)) {
-                $reason = 'Legal form conflict must be reviewed individually.';
             } elseif (($referenceCounts[$referenceKey] ?? 0) > 1) {
                 $reason = 'Multiple input records point to the same reference record.';
-            } elseif ($this->hasIdentifierConflict($candidate)) {
-                $reason = 'Identifier conflict must be reviewed individually.';
-            } elseif ($this->hasContradictoryStrongField($candidate)) {
-                $reason = 'A strong supporting field contradicts the candidate.';
+            } elseif (! $isDirectManualSelection) {
+                if ((bool) data_get($item, 'case_features.conditions.legal_form_conflict', false)) {
+                    $reason = 'Legal form conflict must be reviewed individually.';
+                } elseif ($this->hasIdentifierConflict($candidate)) {
+                    $reason = 'Identifier conflict must be reviewed individually.';
+                } elseif ($this->hasContradictoryStrongField($candidate)) {
+                    $reason = 'A strong supporting field contradicts the candidate.';
+                }
             }
 
             if ($reason !== null) {

@@ -39,6 +39,7 @@ import { TablePagination } from "@/components/ui/table-pagination";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
 import { ReviewRuleModal } from "@/components/review-rule-modal";
+import { RecordComparisonModal } from "@/components/record-comparison-modal";
 import {
   fetchAiMatchingConfiguration,
   fetchAiReviewAnalysis,
@@ -108,6 +109,7 @@ import {
   SlidersHorizontal,
   Settings2,
   CheckCircle2,
+  XCircle,
   ChevronDown,
   ChevronUp,
   GripVertical,
@@ -5115,6 +5117,8 @@ function StepReview({
   } | null>(null);
   const [ruleTabFilter, setRuleTabFilter] = useState<"all" | "system" | "custom" | "dynamic">("all");
   const [selectedSystemPresetNumber, setSelectedSystemPresetNumber] = useState<number | null>(null);
+  const [selectedAllRecordKeys, setSelectedAllRecordKeys] = useState<string[]>([]);
+  const [isBulkDecidingAllRecords, setIsBulkDecidingAllRecords] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const identityMappings = useMemo(
@@ -5329,6 +5333,49 @@ function StepReview({
       [groupId]: keys,
     }));
   }, []);
+
+  const toggleAllRecordKey = useCallback((key: string) => {
+    setSelectedAllRecordKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  }, []);
+
+  const toggleSelectAllAllRecords = useCallback(() => {
+    const pagedKeys = paged.map((i) => i.input_record_key);
+    const allPagedSelected =
+      pagedKeys.length > 0 && pagedKeys.every((k) => selectedAllRecordKeys.includes(k));
+    if (allPagedSelected) {
+      setSelectedAllRecordKeys((prev) => prev.filter((k) => !pagedKeys.includes(k)));
+    } else {
+      setSelectedAllRecordKeys((prev) => Array.from(new Set([...prev, ...pagedKeys])));
+    }
+  }, [paged, selectedAllRecordKeys]);
+
+  const decideBulkAllRecords = async (decision: "accept_match" | "mark_unmatched") => {
+    if (!jobId || selectedAllRecordKeys.length === 0) return;
+    setIsBulkDecidingAllRecords(decision);
+    try {
+      const next = await saveReviewDecision(jobId, {
+        inputRecordKey: selectedAllRecordKeys[0],
+        inputRecordKeys: selectedAllRecordKeys,
+        decision,
+        scope: "selected",
+      });
+      setReview((current) =>
+        mergeReviewSnapshot(current, next.review, selectedAllRecordKeys, null),
+      );
+      setSelectedAllRecordKeys([]);
+      toast.success(
+        decision === "accept_match"
+          ? `${selectedAllRecordKeys.length} record berhasil disetujui (Accept Match)`
+          : `${selectedAllRecordKeys.length} record berhasil ditandai Unmatched`,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
+    } finally {
+      setIsBulkDecidingAllRecords(null);
+    }
+  };
 
   const decide = async (
     item: ReviewItem,
@@ -5679,55 +5726,136 @@ function StepReview({
               />
             </div>
           ) : (
-            <div className="border border-border rounded-lg overflow-hidden">
-              <div className="max-h-[520px] overflow-auto">
-                <table className="w-full min-w-[1080px] text-sm" style={{ tableLayout: "fixed" }}>
-                  <colgroup>
-                    <col style={{ width: "320px" }} />
-                    <col style={{ width: "320px" }} />
-                    <col style={{ width: "100px" }} />
-                    <col style={{ width: "140px" }} />
-                    <col style={{ width: "90px" }} />
-                    <col style={{ width: "200px" }} />
-                  </colgroup>
-                  <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
-                    <tr>
-                      <th className="text-left px-4 py-2.5 font-medium">
-                        {t("matching.review.input")}
-                      </th>
-                      <th className="text-left px-4 py-2.5 font-medium">
-                        {t("matching.review.reference")}
-                      </th>
-                      <th className="text-right px-4 py-2.5 font-medium">
-                        {t("matching.review.similarity")}
-                      </th>
-                      <th className="text-left px-4 py-2.5 font-medium">
-                        {t("matching.review.group")}
-                      </th>
-                      <th className="text-right px-4 py-2.5 font-medium">
-                        {t("matching.review.topCandidates")}
-                      </th>
-                      <th className="text-right px-4 py-2.5 font-medium">{t("common.action")}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {paged?.map((item) => {
-                      const candidate = item.candidates[0] ?? null;
-                      const hasReferenceCandidate = Boolean(candidate?.reference_record_key);
-                      const summary = buildIdentitySummary(item, candidate, identityMappings);
-                      const inputIdentity = candidate
-                        ? buildSideIdentity(summary, "input")
-                        : buildRecordIdentity(item.input_record, "input", identityMappings);
-                      const referenceIdentity = hasReferenceCandidate
-                        ? buildSideIdentity(summary, "reference")
-                        : null;
-                      const rowPending = pendingRecords[item.input_record_key];
-                      return (
-                        <tr
-                          key={item.input_record_key}
-                          onClick={() => openRecord(item, candidate?.id ?? null)}
-                          className="cursor-pointer hover:bg-secondary/40"
-                        >
+            <div className="space-y-3">
+              {selectedAllRecordKeys.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand/20 bg-brand/5 px-4 py-2.5 shadow-2xs animate-in fade-in-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-foreground">
+                      {selectedAllRecordKeys.length} record dipilih
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      (untuk aksi keputusan kolektif)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => decideBulkAllRecords("accept_match")}
+                      disabled={Boolean(isBulkDecidingAllRecords)}
+                      className="cursor-pointer inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground hover:bg-brand/90 active:scale-95 transition-all disabled:opacity-50 shadow-2xs"
+                    >
+                      {isBulkDecidingAllRecords === "accept_match" ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="size-3.5 animate-spin" />
+                          <span>Memproses...</span>
+                        </span>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="size-3.5" />
+                          <span>Terima Match ({selectedAllRecordKeys.length})</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => decideBulkAllRecords("mark_unmatched")}
+                      disabled={Boolean(isBulkDecidingAllRecords)}
+                      className="cursor-pointer inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 transition-all disabled:opacity-50 shadow-2xs"
+                    >
+                      {isBulkDecidingAllRecords === "mark_unmatched" ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="size-3.5 animate-spin" />
+                          <span>Memproses...</span>
+                        </span>
+                      ) : (
+                        <>
+                          <XCircle className="size-3.5" />
+                          <span>Tandai Unmatched ({selectedAllRecordKeys.length})</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAllRecordKeys([])}
+                      className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 transition-all"
+                    >
+                      Batal
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="border border-border rounded-lg overflow-hidden">
+                <div className="max-h-[520px] overflow-auto">
+                  <table className="w-full min-w-[1120px] text-sm" style={{ tableLayout: "fixed" }}>
+                    <colgroup>
+                      <col style={{ width: "44px" }} />
+                      <col style={{ width: "310px" }} />
+                      <col style={{ width: "310px" }} />
+                      <col style={{ width: "100px" }} />
+                      <col style={{ width: "140px" }} />
+                      <col style={{ width: "90px" }} />
+                      <col style={{ width: "210px" }} />
+                    </colgroup>
+                    <thead className="bg-secondary/60 sticky top-0 z-10 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <tr>
+                        <th className="w-11 px-3 py-2.5 text-left">
+                          <input
+                            type="checkbox"
+                            checked={
+                              paged.length > 0 &&
+                              paged.every((i) => selectedAllRecordKeys.includes(i.input_record_key))
+                            }
+                            onChange={toggleSelectAllAllRecords}
+                            disabled={!canDecide || paged.length === 0 || Boolean(isBulkDecidingAllRecords)}
+                            aria-label="Pilih Semua di Halaman Ini"
+                          />
+                        </th>
+                        <th className="text-left px-4 py-2.5 font-medium">
+                          {t("matching.review.input")}
+                        </th>
+                        <th className="text-left px-4 py-2.5 font-medium">
+                          {t("matching.review.reference")}
+                        </th>
+                        <th className="text-right px-4 py-2.5 font-medium">
+                          {t("matching.review.similarity")}
+                        </th>
+                        <th className="text-left px-4 py-2.5 font-medium">
+                          {t("matching.review.group")}
+                        </th>
+                        <th className="text-right px-4 py-2.5 font-medium">
+                          {t("matching.review.topCandidates")}
+                        </th>
+                        <th className="text-right px-4 py-2.5 font-medium">{t("common.action")}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {paged?.map((item) => {
+                        const candidate = item.candidates[0] ?? null;
+                        const hasReferenceCandidate = Boolean(candidate?.reference_record_key);
+                        const summary = buildIdentitySummary(item, candidate, identityMappings);
+                        const inputIdentity = candidate
+                          ? buildSideIdentity(summary, "input")
+                          : buildRecordIdentity(item.input_record, "input", identityMappings);
+                        const referenceIdentity = hasReferenceCandidate
+                          ? buildSideIdentity(summary, "reference")
+                          : null;
+                        const rowPending = pendingRecords[item.input_record_key];
+                        return (
+                          <tr
+                            key={item.input_record_key}
+                            onClick={() => openRecord(item, candidate?.id ?? null)}
+                            className="cursor-pointer hover:bg-secondary/40"
+                          >
+                            <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selectedAllRecordKeys.includes(item.input_record_key)}
+                                disabled={!canDecide || Boolean(rowPending) || Boolean(isBulkDecidingAllRecords)}
+                                onChange={() => toggleAllRecordKey(item.input_record_key)}
+                                aria-label="Pilih Record"
+                              />
+                            </td>
                           <td className="px-4 py-3 min-w-0">
                             <IdentityCell identity={inputIdentity} />
                           </td>
@@ -5813,396 +5941,27 @@ function StepReview({
                 pageSizeOptions={[10, 25, 50]}
               />
             </div>
+            </div>
           )}
         </>
       )}
 
-      <Sheet open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <SheetContent side="right" className="overflow-y-auto sm:max-w-2xl">
-          {selected && (
-            <>
-              <SheetHeader>
-                <SheetTitle className="text-base">{t("matching.review.compare")}</SheetTitle>
-                <SheetDescription>
-                  {selected.input_record_key} ·{" "}
-                  {reviewStatusLabel(
-                    selected.status_code ?? selected.display_status ?? selected.status,
-                    t,
-                  )}
-                </SheetDescription>
-              </SheetHeader>
-
-              {selected.decision && (
-                <div className="mt-5 rounded-lg border border-success/30 bg-success/5 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold">{t("matching.review.decisionSaved")}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {reviewDecisionLabel(selected.decision.decision, t)} ·{" "}
-                        {decisionSourceLabel(selected.decision.source, t)} ·{" "}
-                        {selected.decision.decided_at ?? selected.decision.created_at ?? "-"}
-                      </p>
-                    </div>
-                    {canDecide && (
-                      <button
-                        type="button"
-                        onClick={() => undo(selected)}
-                        disabled={Boolean(selected.decision && pendingUndos[selected.decision.id])}
-                        className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {selected.decision && pendingUndos[selected.decision.id] ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <Loader2 className="size-3 animate-spin" />
-                            {t("common.loading")}
-                          </span>
-                        ) : (
-                          t("matching.review.undo")
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <RecordIdentityPanel
-                  title={t("matching.review.input")}
-                  identity={
-                    selectedSummary
-                      ? buildSideIdentity(selectedSummary, "input")
-                      : buildRecordIdentity(selected.input_record, "input", identityMappings)
-                  }
-                />
-                <RecordIdentityPanel
-                  title={t("matching.review.reference")}
-                  identity={
-                    selectedCandidate?.reference_record_key && selectedSummary
-                      ? buildSideIdentity(selectedSummary, "reference")
-                      : buildRecordIdentity({}, "reference", identityMappings)
-                  }
-                  emptyText={t("matching.review.noCandidate")}
-                />
-              </div>
-
-              {selected.candidates.length > 1 && (
-                <details className="mt-5 rounded-lg border border-border p-3" open>
-                  <summary className="cursor-pointer text-xs font-semibold">
-                    {t("matching.review.topCandidates")}
-                  </summary>
-                  <div className="mt-3 space-y-2">
-                    {selected.candidates?.map((candidate) => (
-                      <button
-                        key={candidate.id}
-                        type="button"
-                        onClick={() => setSelectedCandidateId(candidate.id)}
-                        className={[
-                          "flex w-full cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-left text-xs transition-colors active:translate-y-px",
-                          selectedCandidate?.id === candidate.id
-                            ? "border-brand bg-brand/10"
-                            : "border-border hover:bg-secondary",
-                        ].join(" ")}
-                      >
-                        <span className="min-w-0">
-                          {(() => {
-                            const candidateSummary = buildIdentitySummary(
-                              selected,
-                              candidate,
-                              identityMappings,
-                            );
-                            const candidateIdentity = buildSideIdentity(
-                              candidateSummary,
-                              "reference",
-                            );
-
-                            return (
-                              <>
-                                <span className="block truncate font-medium">
-                                  #{candidate.rank} {candidateIdentity.headline}
-                                </span>
-                                <span className="block truncate text-muted-foreground">
-                                  {candidateIdentity.meta}
-                                </span>
-                              </>
-                            );
-                          })()}
-                        </span>
-                        <span
-                          className={`tabular-nums font-semibold ${scoreTone(candidate.score)}`}
-                        >
-                          {candidate.score}%
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </details>
-              )}
-
-              {selectedCandidate?.verification_evidence && (
-                <div className="mt-5">
-                  <VerificationEvidenceBreakdown candidate={selectedCandidate} />
-                </div>
-              )}
-
-              <details className="mt-5 rounded-lg border border-border p-3" open>
-                <summary className="cursor-pointer text-xs font-semibold">
-                  {t("matching.review.supportingFields")}
-                </summary>
-                <div className="mt-3 space-y-2">
-                  {sortFieldScores(selectedCandidate?.field_scores ?? []).map((field) => (
-                    <FieldComparison
-                      key={`${field.reference_column}-${field.input_column}`}
-                      field={field}
-                      inputRecord={selected.input_record}
-                      referenceRecord={selectedCandidate?.reference_record ?? {}}
-                    />
-                  ))}
-                </div>
-              </details>
-
-              {selectedResultId && (
-                <div className="mt-5 rounded-lg border border-border p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent/15 text-accent">
-                      <Sparkles className="size-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold">{t("matching.ai.reviewTitle")}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t("matching.ai.reviewDesc")}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 space-y-3">
-                    <AiPanelSection
-                      title={t("matching.ai.analysisTitle")}
-                      loading={Boolean(aiLoadingByKey[`analysis:${selectedResultId}`])}
-                      error={aiErrorByKey[`analysis:${selectedResultId}`] ?? null}
-                      hasData={Boolean(aiAnalysisByResult[selectedResultId]?.data)}
-                      onLoad={() => loadAiPanel("analysis", selectedResultId)}
-                      actionLabel={t("matching.ai.loadAnalysis")}
-                    >
-                      {aiAnalysisByResult[selectedResultId]?.data && (
-                        <div className="space-y-3 text-xs">
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <SyncMetric
-                              label={t("matching.ai.assessment")}
-                              value={formatAiValue(
-                                aiAnalysisByResult[selectedResultId]?.data?.assessment,
-                              )}
-                            />
-                            <SyncMetric
-                              label={t("matching.ai.confidence")}
-                              value={formatAiValue(
-                                aiAnalysisByResult[selectedResultId]?.data?.confidence,
-                                "%",
-                              )}
-                            />
-                          </div>
-                          <p className="text-muted-foreground">
-                            {aiAnalysisByResult[selectedResultId]?.data?.summary}
-                          </p>
-                          <div className="grid gap-3 lg:grid-cols-2">
-                            <CompactListCard
-                              title={t("matching.ai.supportingEvidence")}
-                              items={
-                                aiAnalysisByResult[selectedResultId]?.data?.supporting_evidence ??
-                                []
-                              }
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                            <CompactListCard
-                              title={t("matching.ai.conflicts")}
-                              items={aiAnalysisByResult[selectedResultId]?.data?.conflicts ?? []}
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                            <CompactListCard
-                              title={t("matching.ai.missingInformation")}
-                              items={
-                                aiAnalysisByResult[selectedResultId]?.data?.missing_information ??
-                                []
-                              }
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                            <CompactListCard
-                              title={t("matching.ai.attentionPoints")}
-                              items={
-                                aiAnalysisByResult[selectedResultId]?.data?.attention_points ?? []
-                              }
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </AiPanelSection>
-
-                    <AiPanelSection
-                      title={t("matching.ai.recommendationTitle")}
-                      loading={Boolean(aiLoadingByKey[`recommendation:${selectedResultId}`])}
-                      error={aiErrorByKey[`recommendation:${selectedResultId}`] ?? null}
-                      hasData={Boolean(aiRecommendationByResult[selectedResultId]?.data)}
-                      onLoad={() => loadAiPanel("recommendation", selectedResultId)}
-                      actionLabel={t("matching.ai.loadRecommendation")}
-                    >
-                      {aiRecommendationByResult[selectedResultId]?.data && (
-                        <div className="space-y-3 text-xs">
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <SyncMetric
-                              label={t("matching.ai.recommendation")}
-                              value={formatAiRecommendation(
-                                aiRecommendationByResult[selectedResultId]?.data?.recommendation,
-                                t,
-                              )}
-                            />
-                            <SyncMetric
-                              label={t("matching.ai.confidence")}
-                              value={formatAiValue(
-                                aiRecommendationByResult[selectedResultId]?.data?.confidence,
-                                "%",
-                              )}
-                            />
-                          </div>
-                          <p className="text-muted-foreground">
-                            {formatAiRationale(
-                              aiRecommendationByResult[selectedResultId]?.data?.rationale,
-                              t,
-                            )}
-                          </p>
-                          <div className="grid gap-3 lg:grid-cols-2">
-                            <CompactListCard
-                              title={t("matching.ai.keyEvidence")}
-                              items={
-                                aiRecommendationByResult[selectedResultId]?.data?.key_evidence ?? []
-                              }
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                            <CompactListCard
-                              title={t("matching.ai.risks")}
-                              items={aiRecommendationByResult[selectedResultId]?.data?.risks ?? []}
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                            <CompactListCard
-                              title={t("matching.ai.suggestedChecks")}
-                              items={
-                                aiRecommendationByResult[selectedResultId]?.data
-                                  ?.suggested_checks ?? []
-                              }
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                            <CompactListCard
-                              title={t("matching.ai.historicalContext")}
-                              items={
-                                aiRecommendationByResult[selectedResultId]?.data
-                                  ?.historical_context ?? []
-                              }
-                              emptyLabel={t("matching.ai.none")}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </AiPanelSection>
-
-                    <AiPanelSection
-                      title={t("matching.ai.historyTitle")}
-                      loading={Boolean(aiLoadingByKey[`knowledge:${selectedResultId}`])}
-                      error={aiErrorByKey[`knowledge:${selectedResultId}`] ?? null}
-                      hasData={Boolean(reviewKnowledgeByResult[selectedResultId])}
-                      onLoad={() => loadAiPanel("knowledge", selectedResultId)}
-                      actionLabel={t("matching.ai.loadHistory")}
-                    >
-                      {reviewKnowledgeByResult[selectedResultId] && (
-                        <div className="space-y-3 text-xs">
-                          <SyncMetric
-                            label={t("matching.ai.totalCasesFound")}
-                            value={formatAiValue(
-                              reviewKnowledgeByResult[selectedResultId]?.total_cases_found ?? 0,
-                            )}
-                          />
-                          <div className="space-y-2">
-                            {(reviewKnowledgeByResult[selectedResultId]?.similar_cases ?? []).map(
-                              (item) => (
-                                <div
-                                  key={`${item.matching_result_id}-${item.input_record_key}`}
-                                  className="rounded-md border border-border bg-background/70 px-3 py-3"
-                                >
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <p className="font-semibold">{item.previous_human_decision}</p>
-                                    <span className="tabular-nums text-muted-foreground">
-                                      {t("matching.ai.relevanceScore")}:{" "}
-                                      {formatAiValue(item.relevance_score, "%")}
-                                    </span>
-                                  </div>
-                                  <p className="mt-1 text-muted-foreground">{item.pattern}</p>
-                                  <div className="mt-2 grid gap-2 lg:grid-cols-2">
-                                    <CompactInlineList
-                                      label={t("matching.ai.importantAgreements")}
-                                      items={item.important_agreements}
-                                    />
-                                    <CompactInlineList
-                                      label={t("matching.ai.importantConflicts")}
-                                      items={item.important_conflicts}
-                                    />
-                                  </div>
-                                </div>
-                              ),
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </AiPanelSection>
-                  </div>
-                </div>
-              )}
-
-              <DecisionHistory history={selected.decision_history ?? []} />
-
-              <div className="mt-6 flex gap-2">
-                {canDecide && (
-                  <>
-                    <button
-                      onClick={() => decide(selected, "accept_match", selectedCandidate)}
-                      disabled={
-                        !selectedCandidate?.reference_record_key ||
-                        Boolean(pendingRecords[selected.input_record_key])
-                      }
-                      className="flex-1 cursor-pointer rounded-md bg-brand px-3 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {pendingRecords[selected.input_record_key] === "accept_match" ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2 className="size-4 animate-spin" />
-                          {t("common.loading")}
-                        </span>
-                      ) : (
-                        t("matching.review.accept")
-                      )}
-                    </button>
-                    <button
-                      onClick={() => decide(selected, "mark_unmatched", null)}
-                      disabled={Boolean(pendingRecords[selected.input_record_key])}
-                      className="flex-1 cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      {pendingRecords[selected.input_record_key] === "mark_unmatched" ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2 className="size-4 animate-spin" />
-                          {t("common.loading")}
-                        </span>
-                      ) : (
-                        t("matching.review.markUnmatched")
-                      )}
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => setSelected(null)}
-                  className="cursor-pointer rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary active:translate-y-px"
-                >
-                  {t("common.skip")}
-                </button>
-              </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
+      <RecordComparisonModal
+        open={Boolean(selected)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelected(null);
+            setSelectedCandidateId(null);
+          }
+        }}
+        item={selected}
+        initialCandidateId={selectedCandidateId}
+        identityMappings={identityMappings}
+        canDecide={canDecide}
+        isPending={Boolean(selected && pendingRecords[selected.input_record_key])}
+        onDecide={decide}
+        onUndo={undo}
+      />
 
       {jobId && (
         <ReviewRuleModal
@@ -6855,7 +6614,7 @@ function GroupReviewSubview({
                 <th className="w-36 px-3 py-2 text-left font-medium">
                   {t("matching.review.decisionStatus")}
                 </th>
-                <th className="w-20 px-3 py-2 text-right font-medium">{t("common.action")}</th>
+                <th className="w-[230px] min-w-[210px] px-3 py-2 text-right font-medium">{t("common.action")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -6872,8 +6631,12 @@ function GroupReviewSubview({
                 const rowCanAccept = Boolean(candidate?.reference_record_key);
 
                 return (
-                  <tr key={item.input_record_key} className="align-top hover:bg-secondary/20">
-                    <td className="px-3 py-3">
+                  <tr
+                    key={item.input_record_key}
+                    onClick={() => onOpenRecord(item, candidate?.id ?? null)}
+                    className="align-top hover:bg-secondary/40 cursor-pointer transition-colors"
+                  >
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedSet.has(item.input_record_key)}
@@ -6912,44 +6675,41 @@ function GroupReviewSubview({
                         )}
                       </span>
                     </td>
-                    <td className="px-3 py-3">
-                      <div className="flex justify-end">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <button
-                              type="button"
-                              className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-background transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-                              disabled={Boolean(rowPending)}
-                            >
-                              {Boolean(rowPending) ? (
-                                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                              ) : (
-                                <MoreHorizontal className="size-4 text-muted-foreground" />
-                              )}
-                            </button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48">
-                            <DropdownMenuItem
-                              onClick={() => onDecideRecord(item, "accept_match", candidate)}
-                              disabled={!rowCanAccept}
-                              className="font-medium text-brand focus:bg-brand/10 focus:text-brand"
-                            >
-                              {t("matching.review.accept")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => onDecideRecord(item, "mark_unmatched", null)}
-                            >
-                              {t("matching.review.markUnmatched")}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => onOpenRecord(item, candidate?.id ?? null)}
-                            >
-                              {t("matching.review.reviewDetail")}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      {canDecide ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => onDecideRecord(item, "accept_match", candidate)}
+                            disabled={!rowCanAccept || Boolean(rowPending) || Boolean(groupPending)}
+                            className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-semibold text-brand-foreground transition-all hover:bg-brand/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
+                          >
+                            {rowPending === "accept_match" ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Loader2 className="size-3 animate-spin" />
+                                <span className="text-[11px]">{t("common.loading")}</span>
+                              </span>
+                            ) : (
+                              "Terima Match"
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDecideRecord(item, "mark_unmatched", null)}
+                            disabled={Boolean(rowPending) || Boolean(groupPending)}
+                            className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
+                          >
+                            {rowPending === "mark_unmatched" ? (
+                              <span className="inline-flex items-center gap-1">
+                                <Loader2 className="size-3 animate-spin" />
+                                <span className="text-[11px]">{t("common.loading")}</span>
+                              </span>
+                            ) : (
+                              "Tandai Unmatched"
+                            )}
+                          </button>
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 );
