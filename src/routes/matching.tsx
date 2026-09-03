@@ -5254,6 +5254,13 @@ function StepReview({
       return candidateScore(b) - candidateScore(a);
     });
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const activeReviewItems = useMemo(() => {
+    if (viewMode === "case_groups" && selectedCaseGroup) {
+      const keysSet = new Set(selectedCaseGroup.item_keys ?? []);
+      return items.filter((item) => keysSet.has(item.input_record_key));
+    }
+    return filtered;
+  }, [viewMode, selectedCaseGroup, items, filtered]);
   const selectedCandidate =
     selected?.candidates?.find((candidate) => candidate.id === selectedCandidateId) ??
     selected?.candidates[0] ??
@@ -5948,19 +5955,19 @@ function StepReview({
 
       <RecordComparisonModal
         open={Boolean(selected)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelected(null);
-            setSelectedCandidateId(null);
-          }
+        onClose={() => {
+          setSelected(null);
+          setSelectedCandidateId(null);
         }}
         item={selected}
+        items={activeReviewItems}
         initialCandidateId={selectedCandidateId}
         identityMappings={identityMappings}
         canDecide={canDecide}
         isPending={Boolean(selected && pendingRecords[selected.input_record_key])}
         onDecide={decide}
         onUndo={undo}
+        onNavigate={(nextItem) => openRecord(nextItem, nextItem.candidates?.[0]?.id ?? null)}
       />
 
       {jobId && (
