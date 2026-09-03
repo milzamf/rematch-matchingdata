@@ -14,6 +14,9 @@ import {
   RotateCcw,
   Search,
   AlertTriangle,
+  Columns,
+  FileSpreadsheet,
+  Filter,
 } from "lucide-react";
 import type { ReviewItem, ReviewCandidate } from "@/lib/api";
 import type { IdentityFieldPair } from "@/lib/result-identity";
@@ -148,7 +151,7 @@ function formatRawValue(val: unknown): string {
   return String(val);
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, title = "Salin teks" }: { text: string; title?: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -163,9 +166,50 @@ function CopyButton({ text }: { text: string }) {
       type="button"
       onClick={handleCopy}
       className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-secondary rounded text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
-      title="Salin teks"
+      title={title}
     >
       {copied ? <Check className="size-3 text-emerald-600" /> : <Copy className="size-3" />}
+    </button>
+  );
+}
+
+function CopyAllButton({
+  data,
+  label,
+}: {
+  data: Record<string, unknown>;
+  label: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tsv = Object.entries(data)
+      .map(([k, v]) => `${k}\t${formatRawValue(v)}`)
+      .join("\n");
+    navigator.clipboard.writeText(tsv);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopyAll}
+      className="cursor-pointer inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 transition-all"
+      title={`Salin semua kolom & nilai ${label} ke clipboard (format Excel/TSV)`}
+    >
+      {copied ? (
+        <>
+          <Check className="size-3 text-emerald-600" />
+          <span className="text-emerald-600 font-semibold">Tersalin!</span>
+        </>
+      ) : (
+        <>
+          <Copy className="size-3" />
+          <span>Salin Semua ({label})</span>
+        </>
+      )}
     </button>
   );
 }
@@ -186,6 +230,8 @@ export function RecordComparisonModal({
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(initialCandidateId ?? null);
   const [attributeFilter, setAttributeFilter] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "raw_table">("overview");
+  const [rawLayout, setRawLayout] = useState<"split" | "input_only" | "ref_only">("split");
+  const [hideEmptyRaw, setHideEmptyRaw] = useState(false);
 
   // Keep selected candidate in sync when item changes
   useEffect(() => {
@@ -263,25 +309,37 @@ export function RecordComparisonModal({
   const inputData = useMemo(() => item?.input_record ?? {}, [item]);
   const referenceData = useMemo(() => currentCandidate?.reference_record ?? {}, [currentCandidate]);
 
-  // Build unified list of all raw attribute keys
-  const allAttributeKeys = useMemo(() => {
-    const keys = new Set<string>();
-    Object.keys(inputData).forEach((k) => keys.add(k));
-    Object.keys(referenceData).forEach((k) => keys.add(k));
-    return Array.from(keys).sort();
-  }, [inputData, referenceData]);
-
-  // Filtered attribute keys
-  const filteredAttributeKeys = useMemo(() => {
-    if (!attributeFilter.trim()) return allAttributeKeys;
-    const q = attributeFilter.toLowerCase();
-    return allAttributeKeys.filter((key) => {
-      const inKey = key.toLowerCase().includes(q);
-      const inInput = formatRawValue(inputData[key]).toLowerCase().includes(q);
-      const inRef = formatRawValue(referenceData[key]).toLowerCase().includes(q);
-      return inKey || inInput || inRef;
+  // Pure separate entries for Data Input (Excel LPSE)
+  const inputAllEntries = useMemo(() => Object.entries(inputData), [inputData]);
+  const inputFilteredEntries = useMemo(() => {
+    const q = attributeFilter.toLowerCase().trim();
+    return inputAllEntries.filter(([k, v]) => {
+      if (hideEmptyRaw && (v === null || v === undefined || String(v).trim() === "")) return false;
+      if (!q) return true;
+      return k.toLowerCase().includes(q) || formatRawValue(v).toLowerCase().includes(q);
     });
-  }, [allAttributeKeys, attributeFilter, inputData, referenceData]);
+  }, [inputAllEntries, attributeFilter, hideEmptyRaw]);
+
+  // Pure separate entries for Data Acuan (Excel BPS)
+  const refAllEntries = useMemo(() => Object.entries(referenceData), [referenceData]);
+  const refFilteredEntries = useMemo(() => {
+    const q = attributeFilter.toLowerCase().trim();
+    return refAllEntries.filter(([k, v]) => {
+      if (hideEmptyRaw && (v === null || v === undefined || String(v).trim() === "")) return false;
+      if (!q) return true;
+      return k.toLowerCase().includes(q) || formatRawValue(v).toLowerCase().includes(q);
+    });
+  }, [refAllEntries, attributeFilter, hideEmptyRaw]);
+
+  const filledInputCount = useMemo(
+    () => inputAllEntries.filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== "").length,
+    [inputAllEntries],
+  );
+
+  const filledRefCount = useMemo(
+    () => refAllEntries.filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== "").length,
+    [refAllEntries],
+  );
 
   if (!open || !item) return null;
 
@@ -429,7 +487,7 @@ export function RecordComparisonModal({
               </div>
             )}
 
-            {/* Navigation View Switcher (Overview vs Raw Table) */}
+            {/* Navigation View Switcher (Overview vs Raw Separate Tables) */}
             <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/50 pt-2.5">
               <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-xs font-medium">
                 <button
@@ -446,26 +504,22 @@ export function RecordComparisonModal({
                 <button
                   type="button"
                   onClick={() => setActiveTab("raw_table")}
-                  className={`cursor-pointer rounded-md px-3.5 py-1.5 transition-all ${
+                  className={`cursor-pointer rounded-md px-3.5 py-1.5 transition-all flex items-center gap-1.5 ${
                     activeTab === "raw_table"
                       ? "bg-secondary text-foreground shadow-2xs font-semibold"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Tabel Perbandingan Data Asli Lengkap ({allAttributeKeys.length} Kolom)
+                  <FileSpreadsheet className="size-3.5 text-brand" />
+                  <span>Data Asli Excel (Input & Acuan Terpisah)</span>
                 </button>
               </div>
 
               {activeTab === "raw_table" && (
-                <div className="relative w-72">
-                  <Search className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Cari kolom atau nilai..."
-                    value={attributeFilter}
-                    onChange={(e) => setAttributeFilter(e.target.value)}
-                    className="w-full rounded-md border border-border bg-background pl-8 pr-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand"
-                  />
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground hidden md:inline">
+                    Input: <strong>{inputAllEntries.length}</strong> kolom • Acuan: <strong>{refAllEntries.length}</strong> kolom
+                  </span>
                 </div>
               )}
             </div>
@@ -682,89 +736,235 @@ export function RecordComparisonModal({
                 )}
               </>
             ) : (
-              /* 3. Tabel Perbandingan Lengkap Data Asli (Raw Attributes) */
-              <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
-                <div className="border-b border-border bg-muted/20 px-4 py-3 flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                      Perbandingan Lengkap Data Asli (Raw Attributes)
-                    </h4>
-                    <p className="text-[11px] text-muted-foreground">
-                      Menampilkan nilai asli seluruh kolom dari data input dan acuan secara utuh
-                    </p>
+              /* 3. DATA ASLI LENGKAP - DIPISAH SESUAI SUMBER EXCEL MASING-MASING */
+              <div className="space-y-4">
+                {/* Toolbar Data Asli */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-secondary/20 p-3.5 rounded-xl border border-border">
+                  {/* Left: Layout view selector */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                      <Columns className="size-3.5" />
+                      Tata Letak:
+                    </span>
+                    <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setRawLayout("split")}
+                        className={`cursor-pointer rounded px-3 py-1 font-medium transition-all ${
+                          rawLayout === "split"
+                            ? "bg-secondary text-foreground font-semibold shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Berdampingan (Input & Acuan)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRawLayout("input_only")}
+                        className={`cursor-pointer rounded px-3 py-1 font-medium transition-all ${
+                          rawLayout === "input_only"
+                            ? "bg-secondary text-foreground font-semibold shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Hanya Data Input ({inputFilteredEntries.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRawLayout("ref_only")}
+                        className={`cursor-pointer rounded px-3 py-1 font-medium transition-all ${
+                          rawLayout === "ref_only"
+                            ? "bg-secondary text-foreground font-semibold shadow-2xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        Hanya Data Acuan ({refFilteredEntries.length})
+                      </button>
+                    </div>
                   </div>
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {filteredAttributeKeys.length} dari {allAttributeKeys.length} kolom
-                  </span>
+
+                  {/* Right: Filter & Search */}
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={hideEmptyRaw}
+                        onChange={(e) => setHideEmptyRaw(e.target.checked)}
+                        className="rounded border-border accent-brand"
+                      />
+                      <span>Sembunyikan Kolom Kosong</span>
+                    </label>
+
+                    <div className="relative w-64">
+                      <Search className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Cari kolom atau nilai..."
+                        value={attributeFilter}
+                        onChange={(e) => setAttributeFilter(e.target.value)}
+                        className="w-full rounded-md border border-border bg-background pl-8 pr-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand"
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <colgroup>
-                      <col style={{ width: "25%" }} />
-                      <col style={{ width: "37.5%" }} />
-                      <col style={{ width: "37.5%" }} />
-                    </colgroup>
-                    <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
-                      <tr>
-                        <th className="px-4 py-2.5 text-left font-semibold">Nama Kolom / Atribut</th>
-                        <th className="px-4 py-2.5 text-left font-semibold text-blue-600 dark:text-blue-400">
-                          Data Asli Input
-                        </th>
-                        <th className="px-4 py-2.5 text-left font-semibold text-emerald-600 dark:text-emerald-400">
-                          Data Asli Acuan (Referensi)
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border font-sans">
-                      {filteredAttributeKeys.map((key) => {
-                        const inputRaw = inputData[key];
-                        const refRaw = referenceData[key];
-                        const hasInput = inputRaw !== undefined && inputRaw !== null && String(inputRaw).trim() !== "";
-                        const hasRef = refRaw !== undefined && refRaw !== null && String(refRaw).trim() !== "";
-                        const isMatch = hasInput && hasRef && String(inputRaw).trim().toLowerCase() === String(refRaw).trim().toLowerCase();
+                {/* Side-by-Side or Full-Width Tables */}
+                <div
+                  className={`grid gap-4 items-start ${
+                    rawLayout === "split" ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"
+                  }`}
+                >
+                  {/* TABEL DATA ASLI INPUT */}
+                  {(rawLayout === "split" || rawLayout === "input_only") && (
+                    <div className="rounded-xl border border-blue-500/30 bg-card overflow-hidden shadow-xs">
+                      {/* Card Header */}
+                      <div className="border-b border-border bg-blue-500/10 px-4 py-3 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="grid size-7 place-items-center rounded-md bg-blue-500/20 text-blue-600 dark:text-blue-400">
+                            <Database className="size-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-blue-950 dark:text-blue-200">
+                              DATA ASLI INPUT (Excel LPSE / Mitra)
+                            </h4>
+                            <p className="text-[11px] text-muted-foreground">
+                              {filledInputCount} dari {inputAllEntries.length} kolom terisi di file aslinya
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CopyAllButton data={inputData} label="Input" />
+                        </div>
+                      </div>
 
-                        return (
-                          <tr
-                            key={key}
-                            className={`group hover:bg-secondary/20 transition-colors ${
-                              isMatch ? "bg-emerald-500/5" : ""
-                            }`}
-                          >
-                            <td className="px-4 py-2.5 align-top font-semibold text-foreground">
-                              <span className="font-mono text-[11px] bg-secondary/60 rounded px-1.5 py-0.5 border border-border">
-                                {key}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 align-top">
-                              <div className="flex items-start justify-between gap-1">
-                                <span
-                                  className={`break-words select-text ${
-                                    hasInput ? "text-foreground font-medium" : "text-muted-foreground/60 italic"
-                                  }`}
-                                >
-                                  {formatRawValue(inputRaw)}
-                                </span>
-                                {hasInput && <CopyButton text={formatRawValue(inputRaw)} />}
-                              </div>
-                            </td>
-                            <td className="px-4 py-2.5 align-top">
-                              <div className="flex items-start justify-between gap-1">
-                                <span
-                                  className={`break-words select-text ${
-                                    hasRef ? "text-foreground font-medium" : "text-muted-foreground/60 italic"
-                                  }`}
-                                >
-                                  {formatRawValue(refRaw)}
-                                </span>
-                                {hasRef && <CopyButton text={formatRawValue(refRaw)} />}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                      {/* Table Contents */}
+                      <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <colgroup>
+                            <col style={{ width: "40%" }} />
+                            <col style={{ width: "60%" }} />
+                          </colgroup>
+                          <thead className="bg-secondary/50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 z-10 backdrop-blur-xs">
+                            <tr>
+                              <th className="px-3.5 py-2 text-left font-semibold">Nama Kolom Excel Input</th>
+                              <th className="px-3.5 py-2 text-left font-semibold">Isian Data Asli</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border font-sans">
+                            {inputFilteredEntries.length === 0 ? (
+                              <tr>
+                                <td colSpan={2} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                                  Tidak ada kolom yang cocok dengan filter.
+                                </td>
+                              </tr>
+                            ) : (
+                              inputFilteredEntries.map(([k, v]) => {
+                                const hasVal = v !== null && v !== undefined && String(v).trim() !== "";
+                                return (
+                                  <tr key={`input-${k}`} className="group hover:bg-blue-500/5 transition-colors">
+                                    <td className="px-3.5 py-2 align-top font-semibold text-foreground">
+                                      <span className="font-mono text-[11px] bg-secondary/70 rounded px-1.5 py-0.5 border border-border break-words">
+                                        {k}
+                                      </span>
+                                    </td>
+                                    <td className="px-3.5 py-2 align-top">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <span
+                                          className={`break-words select-text ${
+                                            hasVal ? "text-foreground font-medium" : "text-muted-foreground/60 italic"
+                                          }`}
+                                        >
+                                          {formatRawValue(v)}
+                                        </span>
+                                        {hasVal && <CopyButton text={formatRawValue(v)} />}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TABEL DATA ASLI ACUAN (REFERENSI) */}
+                  {(rawLayout === "split" || rawLayout === "ref_only") && (
+                    <div className="rounded-xl border border-emerald-500/30 bg-card overflow-hidden shadow-xs">
+                      {/* Card Header */}
+                      <div className="border-b border-border bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="grid size-7 place-items-center rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                            <Database className="size-4" />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-emerald-950 dark:text-emerald-200">
+                              DATA ASLI ACUAN (Excel Referensi BPS)
+                            </h4>
+                            <p className="text-[11px] text-muted-foreground">
+                              {filledRefCount} dari {refAllEntries.length} kolom terisi di file aslinya
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CopyAllButton data={referenceData} label="Acuan" />
+                        </div>
+                      </div>
+
+                      {/* Table Contents */}
+                      <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                        <table className="w-full text-xs">
+                          <colgroup>
+                            <col style={{ width: "40%" }} />
+                            <col style={{ width: "60%" }} />
+                          </colgroup>
+                          <thead className="bg-secondary/50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 z-10 backdrop-blur-xs">
+                            <tr>
+                              <th className="px-3.5 py-2 text-left font-semibold">Nama Kolom Excel Acuan</th>
+                              <th className="px-3.5 py-2 text-left font-semibold">Isian Data Asli</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border font-sans">
+                            {refFilteredEntries.length === 0 ? (
+                              <tr>
+                                <td colSpan={2} className="px-4 py-8 text-center text-xs text-muted-foreground">
+                                  {currentCandidate
+                                    ? "Tidak ada kolom yang cocok dengan filter."
+                                    : "Tidak ada data kandidat acuan."}
+                                </td>
+                              </tr>
+                            ) : (
+                              refFilteredEntries.map(([k, v]) => {
+                                const hasVal = v !== null && v !== undefined && String(v).trim() !== "";
+                                return (
+                                  <tr key={`ref-${k}`} className="group hover:bg-emerald-500/5 transition-colors">
+                                    <td className="px-3.5 py-2 align-top font-semibold text-foreground">
+                                      <span className="font-mono text-[11px] bg-secondary/70 rounded px-1.5 py-0.5 border border-border break-words">
+                                        {k}
+                                      </span>
+                                    </td>
+                                    <td className="px-3.5 py-2 align-top">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <span
+                                          className={`break-words select-text ${
+                                            hasVal ? "text-foreground font-medium" : "text-muted-foreground/60 italic"
+                                          }`}
+                                        >
+                                          {formatRawValue(v)}
+                                        </span>
+                                        {hasVal && <CopyButton text={formatRawValue(v)} />}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
