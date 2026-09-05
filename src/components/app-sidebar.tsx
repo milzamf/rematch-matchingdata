@@ -24,6 +24,7 @@ import { getInitials, useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 import { LogoutDialog } from "@/components/logout-dialog";
+import { LogoIcon } from "@/components/ui/logo";
 
 const nav = [
   { labelKey: "nav.dashboard", url: "/", icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
@@ -71,13 +72,16 @@ export function AppSidebar() {
 
   return (
     <aside className="hidden lg:flex w-60 shrink-0 border-r border-border bg-sidebar flex-col sticky top-0 h-screen">
-      <div className="px-5 h-16 flex items-center gap-2.5 border-b border-border">
-        <div className="size-8 bg-brand rounded-lg grid place-items-center">
-          <div className="size-3 bg-brand-foreground rounded-[3px]" />
-        </div>
-        <div className="flex flex-col leading-tight">
-          <span className="font-semibold text-[15px] tracking-tight text-foreground">RE-MATCH</span>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="px-5 h-16 flex items-center gap-3 border-b border-border">
+        <LogoIcon className="w-8 h-8 shrink-0" />
+        <div className="flex flex-col leading-tight min-w-0">
+          <span className="font-extrabold text-[15px] tracking-tight text-foreground">
+            RE-<span className="text-brand">MATCH</span>
+          </span>
+          <span
+            className="text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground truncate"
+            title={t("brand.subtitle")}
+          >
             {t("brand.subtitle")}
           </span>
         </div>

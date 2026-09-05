@@ -181,10 +181,12 @@ function DashboardPage() {
           </div>
         )}
 
-        <div className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">{t("dashboard.real.poweredBy")}</p>
-          <p className="mt-1">{t("brand.organizationUnit")}</p>
-          <p>{t("brand.organization")}</p>
+        <div className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold text-foreground">RE-MATCH — {t("brand.subtitle")}</p>
+            <p className="mt-0.5">{t("brand.organizationUnit")}</p>
+          </div>
+          <span className="text-[11px] text-muted-foreground font-mono">v1.0.0</span>
         </div>
       </div>
     </AppLayout>

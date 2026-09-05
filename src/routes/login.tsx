@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { defaultRouteForRole } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
+import { LogoIcon } from "@/components/ui/logo";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -118,21 +119,18 @@ export function AuthShell({
   return (
     <div className="min-h-screen bg-background px-4 py-12 flex items-center justify-center">
       <div className="w-full max-w-md">
-        <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <div className="size-11 rounded-xl bg-brand grid place-items-center">
-            <div className="size-4 rounded-[4px] bg-brand-foreground" />
-          </div>
+        <div className="mb-8 flex flex-col items-center gap-3.5 text-center">
+          <LogoIcon className="w-16 h-16" />
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+            <h1 className="text-3xl font-black tracking-tight text-foreground">
+              RE-<span className="text-brand">MATCH</span>
+            </h1>
+            <p className="mt-1 text-xs font-bold uppercase tracking-wider text-brand">
               {t("brand.subtitle")}
             </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-              RE-MATCH
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-xs font-medium text-muted-foreground max-w-xs mx-auto leading-relaxed">
               {t("brand.organizationUnit")}
             </p>
-            <p className="text-sm text-muted-foreground">{t("brand.organization")}</p>
           </div>
         </div>
 

@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
 import { LogoutDialog } from "@/components/logout-dialog";
+import { Logo } from "@/components/ui/logo";
 
 export function Topbar() {
   const { t } = usePreferences();
@@ -28,7 +29,11 @@ export function Topbar() {
   return (
     <>
       <header className="h-16 border-b border-border bg-card sticky top-0 z-20 flex items-center justify-between px-6 gap-4">
-        <div className="min-w-0" />
+        <div className="min-w-0 flex items-center">
+          <div className="lg:hidden">
+            <Logo variant="horizontal" size="sm" showDirectorate={false} />
+          </div>
+        </div>
 
         <div className="flex items-center gap-2">
           {can(PERMISSIONS.MATCHING_CREATE) && (

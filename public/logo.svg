@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 96" fill="none">
+  <defs>
+    <linearGradient id="rm-h-primary" x1="16" y1="16" x2="84" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E3A8A"/>
+      <stop offset="50%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="rm-h-accent" x1="40" y1="46" x2="78" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7"/>
+      <stop offset="50%" stop-color="#0D9488"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+    <linearGradient id="rm-h-node" x1="42" y1="46" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="rm-text-match" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="60%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ================= ICON EMBLEM (Left: 0 - 90) ================= -->
+  <g transform="translate(4, 4)">
+    <!-- Squircle Backdrop -->
+    <rect x="0" y="0" width="88" height="88" rx="22" fill="#0F172A"/>
+    
+    <!-- Grid Matrix overlay -->
+    <path d="M0 30 H88 M0 58 H88" stroke="#334155" stroke-width="1" stroke-dasharray="2 4" stroke-opacity="0.35"/>
+    <path d="M30 0 V88 M58 0 V88" stroke="#334155" stroke-width="1" stroke-dasharray="2 4" stroke-opacity="0.35"/>
+
+    <!-- Left Pillar (Sampling Frame Reference) -->
+    <rect x="18" y="16" width="13" height="56" rx="6.5" fill="url(#rm-h-primary)"/>
+    <!-- Precision ticks on master pillar -->
+    <rect x="22" y="28" width="5" height="2" rx="1" fill="#93C5FD" fill-opacity="0.8"/>
+    <rect x="22" y="44" width="5" height="2" rx="1" fill="#93C5FD" fill-opacity="0.8"/>
+    <rect x="22" y="60" width="5" height="2" rx="1" fill="#93C5FD" fill-opacity="0.8"/>
+
+    <!-- Top Loop (Input Stream Reconciliation) -->
+    <path d="M26 16 H50 C62.5 16 72 23.5 72 34 C72 44.5 62.5 52 50 52 H31" 
+          stroke="url(#rm-h-primary)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Diagonal Leg (Linkage Result) -->
+    <path d="M38 48 L61 72" 
+          stroke="url(#rm-h-accent)" stroke-width="11" stroke-linecap="round"/>
+
+    <!-- Intersection Node (Exact Match Point) -->
+    <circle cx="39" cy="48" r="6" fill="#0F172A"/>
+    <circle cx="39" cy="48" r="4.5" fill="url(#rm-h-node)"/>
+    <circle cx="39" cy="48" r="1.8" fill="#ECFDF5"/>
+
+    <!-- Target Anchors -->
+    <circle cx="70" cy="34" r="2.8" fill="#38BDF8"/>
+    <circle cx="61" cy="72" r="2.8" fill="#34D399"/>
+  </g>
+
+  <!-- ================= TYPOGRAPHY & BRANDING (Right: 108 - 420) ================= -->
+  <g transform="translate(108, 0)">
+    <!-- Logotype (Without BPS badge beside it) -->
+    <text x="0" y="44" font-family="'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="33" letter-spacing="-0.03em">
+      <tspan fill="#0F172A">RE-</tspan>
+      <tspan fill="url(#rm-text-match)">MATCH</tspan>
+    </text>
+
+    <!-- Subtitle / Tagline: Sistem Matching Data -->
+    <text x="1" y="65" font-family="'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="700" font-size="11" fill="#2563EB" letter-spacing="0.08em">
+      SISTEM MATCHING DATA
+    </text>
+
+    <!-- Directorate Specification: Direktorat Statistik Sumber Daya Mineral dan Konstruksi -->
+    <text x="1" y="80" font-family="'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="500" font-size="9" fill="#64748B" letter-spacing="0.01em">
+      Direktorat Statistik Sumber Daya Mineral dan Konstruksi
+    </text>
+  </g>
+</svg>
