@@ -91,6 +91,57 @@ class EntityNameParser
             && $referenceLegalForm !== $inputLegalForm;
     }
 
+    public function normalizeLegalForm(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $str = mb_strtolower(trim((string) $value));
+
+        // Exact code or text matches
+        if (in_array($str, ['1', '01', 'pt', 'perseroan terbatas'], true) || str_contains($str, 'perseroan terbatas') || str_contains($str, 'pt perorangan')) {
+            return 'PT';
+        }
+        if (in_array($str, ['2', '02'], true)) {
+            return 'PT';
+        }
+        if (in_array($str, ['3', '03', 'cv'], true) || str_contains($str, 'komanditer') || str_contains($str, 'commandit')) {
+            return 'CV';
+        }
+        if (in_array($str, ['4', '04', 'fa', 'firma'], true) || str_contains($str, 'firma')) {
+            return 'Firma';
+        }
+        if (in_array($str, ['5', '05', 'koperasi'], true) || str_contains($str, 'koperasi')) {
+            return 'Koperasi';
+        }
+        if (in_array($str, ['6', '06', 'yayasan'], true) || str_contains($str, 'yayasan')) {
+            return 'Yayasan';
+        }
+        if (in_array($str, ['7', '07', 'bumn', 'bumd', 'perum'], true) || str_contains($str, 'bumn') || str_contains($str, 'bumd')) {
+            return 'BUMN';
+        }
+        if (in_array($str, ['8', '08', 'ud', 'usaha dagang', 'perorangan'], true) || str_contains($str, 'usaha dagang') || str_contains($str, 'perorangan')) {
+            return 'Perorangan';
+        }
+
+        // Regex boundary match
+        if (preg_match('/\b(pt|perseroan)\b/i', $str)) {
+            return 'PT';
+        }
+        if (preg_match('/\b(cv|komanditer)\b/i', $str)) {
+            return 'CV';
+        }
+        if (preg_match('/\b(fa|firma)\b/i', $str)) {
+            return 'Firma';
+        }
+        if (preg_match('/\b(ud)\b/i', $str)) {
+            return 'UD';
+        }
+
+        return null;
+    }
+
     private function normalizeText(string $value): string
     {
         $text = mb_strtolower($value);

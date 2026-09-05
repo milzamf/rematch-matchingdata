@@ -33,4 +33,29 @@ class EntityNameParserTest extends TestCase
             $parser->parse('Satu Data'),
         ));
     }
+
+    public function test_it_normalizes_various_legal_forms(): void
+    {
+        $parser = new EntityNameParser();
+
+        $this->assertSame('CV', $parser->normalizeLegalForm('Persekutuan Komanditer (CV / Commanditer Venoschaap )'));
+        $this->assertSame('CV', $parser->normalizeLegalForm('3'));
+        $this->assertSame('CV', $parser->normalizeLegalForm('03'));
+        $this->assertSame('CV', $parser->normalizeLegalForm('cv'));
+
+        $this->assertSame('PT', $parser->normalizeLegalForm('Perseroan Terbatas (PT)'));
+        $this->assertSame('PT', $parser->normalizeLegalForm('1'));
+        $this->assertSame('PT', $parser->normalizeLegalForm('01'));
+        $this->assertSame('PT', $parser->normalizeLegalForm('PT'));
+
+        $this->assertSame('Firma', $parser->normalizeLegalForm('4'));
+        $this->assertSame('Koperasi', $parser->normalizeLegalForm('5'));
+        $this->assertSame('Yayasan', $parser->normalizeLegalForm('6'));
+        $this->assertSame('BUMN', $parser->normalizeLegalForm('7'));
+        $this->assertSame('Perorangan', $parser->normalizeLegalForm('8'));
+
+        $this->assertNull($parser->normalizeLegalForm(''));
+        $this->assertNull($parser->normalizeLegalForm(null));
+        $this->assertNull($parser->normalizeLegalForm('Unknown Random String'));
+    }
 }

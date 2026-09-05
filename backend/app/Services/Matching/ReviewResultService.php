@@ -643,12 +643,47 @@ class ReviewResultService
         }
 
         // 2. Legal form conflict check (PT vs CV)
-        $legalConflict = $identityConflict;
-        if (! $legalConflict) {
-            $legalInp = mb_strtolower(trim((string) ($inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? '')));
-            $legalRef = mb_strtolower(trim((string) ($ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? '')));
-            if (!empty($legalInp) && !empty($legalRef) && $legalInp !== $legalRef && $coreNameScore >= 85) {
-                $legalConflict = true;
+        $legalField = $fieldScores->first(function (array $s) {
+            $col = strtolower((string) ($s['reference_column'] ?? '').' '.(string) ($s['input_column'] ?? ''));
+            return Str::contains($col, ['badan usaha', 'bentuk usaha', 'legal_form', 'legal form']);
+        });
+
+        $legalConflict = false;
+        if ($legalField !== null) {
+            $comparison = $legalField['comparison'] ?? null;
+            $fieldScore = (float) ($legalField['score'] ?? 0);
+            $hasFieldIdConflict = (bool) ($legalField['identity_conflict'] ?? false);
+
+            if ($comparison === 'same' || $fieldScore >= 90) {
+                $legalConflict = false;
+            } else {
+                $normInp = $this->normalizeLegalForm($inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? null);
+                $normRef = $this->normalizeLegalForm($ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? null);
+
+                if ($normInp !== null && $normRef !== null) {
+                    $legalConflict = ($normInp !== $normRef);
+                } else {
+                    $legalConflict = $hasFieldIdConflict || ($comparison === 'different');
+                }
+            }
+        } else {
+            $legalConflict = $identityConflict;
+            if (! $legalConflict) {
+                $normInp = $this->normalizeLegalForm($inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? null);
+                $normRef = $this->normalizeLegalForm($ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? null);
+
+                if ($normInp === null && ! empty($inp['nama_penyedia'] ?? $inp['nama'] ?? '')) {
+                    $parsedInp = (new EntityNameParser())->parse((string) ($inp['nama_penyedia'] ?? $inp['nama'] ?? ''));
+                    $normInp = $parsedInp['legal_form'] ?? null;
+                }
+                if ($normRef === null && ! empty($ref['nama_perusahaan'] ?? $ref['nama'] ?? '')) {
+                    $parsedRef = (new EntityNameParser())->parse((string) ($ref['nama_perusahaan'] ?? $ref['nama'] ?? ''));
+                    $normRef = $parsedRef['legal_form'] ?? null;
+                }
+
+                if ($normInp !== null && $normRef !== null && $normInp !== $normRef && $coreNameScore >= 80) {
+                    $legalConflict = true;
+                }
             }
         }
 
@@ -1237,5 +1272,10 @@ class ReviewResultService
         }
 
         return 'different';
+    }
+
+    public function normalizeLegalForm(mixed $value): ?string
+    {
+        return (new EntityNameParser())->normalizeLegalForm($value);
     }
 }
