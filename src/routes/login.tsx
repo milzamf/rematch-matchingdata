@@ -99,6 +99,7 @@ export function authError(error: string, t: ReturnType<typeof usePreferences>["t
   const map: Record<string, Parameters<typeof t>[0]> = {
     "Email or password is incorrect": "auth.error.invalid",
     "Unable to connect to the server": "auth.error.server",
+    "All fields are required": "auth.error.required",
     "All fields are required.": "auth.error.required",
   };
 

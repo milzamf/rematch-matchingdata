@@ -138,7 +138,6 @@ export function AppSidebar() {
         )}
       </nav>
 
-      {/* Modern Gemini-Style Compact Profile Row */}
       <div className="p-2 border-t border-border">
         {currentUser ? (
           <DropdownMenu>
@@ -147,7 +146,6 @@ export function AppSidebar() {
                 type="button"
                 className="flex items-center gap-3 w-full p-2 rounded-xl hover:bg-secondary/70 transition-colors text-left group cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
               >
-                {/* 1. Avatar */}
                 <Avatar className="h-9 w-9 shrink-0 border border-border/60">
                   <AvatarImage alt={currentUser.name} src={currentUser.avatar_url ?? undefined} />
                   <AvatarFallback className="bg-brand/10 text-brand font-semibold text-xs">
@@ -155,7 +153,6 @@ export function AppSidebar() {
                   </AvatarFallback>
                 </Avatar>
 
-                {/* 2. Text Container (Must handle long names gracefully with truncation) */}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate leading-tight">
                     {currentUser.name || "Administrator"}
@@ -165,7 +162,6 @@ export function AppSidebar() {
                   </p>
                 </div>
 
-                {/* 3. Action Icon */}
                 <Settings className="size-4 text-muted-foreground/70 group-hover:text-foreground transition-colors shrink-0" />
               </button>
             </DropdownMenuTrigger>
@@ -176,7 +172,6 @@ export function AppSidebar() {
               sideOffset={8}
               className="w-64 p-1.5 shadow-xl border-border bg-popover text-popover-foreground rounded-xl"
             >
-              {/* Header: Full Name and Email address (no truncation, wrap text) */}
               <div className="px-2.5 py-2">
                 <p className="text-sm font-semibold text-foreground break-words leading-snug">
                   {currentUser.name}
@@ -193,7 +188,6 @@ export function AppSidebar() {
 
               <DropdownMenuSeparator className="my-1" />
 
-              {/* Action items */}
               <DropdownMenuItem
                 onClick={() => navigate({ to: "/settings", search: { tab: "akun" } })}
                 className="flex items-center gap-2.5 px-2.5 py-2 text-xs rounded-lg cursor-pointer hover:bg-secondary focus:bg-secondary"
@@ -212,7 +206,6 @@ export function AppSidebar() {
 
               <DropdownMenuSeparator className="my-1" />
 
-              {/* Destructive Action */}
               <DropdownMenuItem
                 onSelect={(e) => {
                   e.preventDefault();

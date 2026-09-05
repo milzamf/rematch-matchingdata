@@ -1423,7 +1423,7 @@ export async function fetchReviewRules(jobId: string): Promise<ReviewRuleDefinit
     | ApiFailure
     | null;
   if (!response.ok || !payload || payload.success === false) {
-    throw new ApiError(payload?.message ?? "Gagal memuat aturan review.", response.status);
+    throw new ApiError(payload?.message ?? "Gagal memuat aturan review", response.status);
   }
   return payload.data;
 }
@@ -1451,7 +1451,7 @@ export async function createReviewRule(
     | null;
   if (!response.ok || !payload || payload.success === false) {
     const errorMsg = payload && "message" in payload ? (payload.message as string) : undefined;
-    throw new ApiError(errorMsg ?? "Gagal membuat aturan review baru.", response.status);
+    throw new ApiError(errorMsg ?? "Gagal membuat aturan review baru", response.status);
   }
   return payload;
 }
@@ -1466,7 +1466,7 @@ export async function deleteReviewRule(jobId: string, ruleId: string): Promise<v
     | ApiFailure
     | null;
   if (!response.ok || !payload || payload.success === false) {
-    throw new ApiError(payload?.message ?? "Gagal menghapus aturan review.", response.status);
+    throw new ApiError(payload?.message ?? "Gagal menghapus aturan review", response.status);
   }
 }
 

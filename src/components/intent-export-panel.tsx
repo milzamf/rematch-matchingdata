@@ -6,7 +6,7 @@ import {
   FileText,
   AlertCircle,
   CheckCircle2,
-  Sparkles,
+  Layers,
   Eye,
   Loader2,
 } from "lucide-react";
@@ -169,7 +169,7 @@ export function IntentExportPanel({
                 {t("matching.export.autoEnrichLabel")}
               </span>
               <span className="inline-flex items-center gap-1 rounded bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
-                <Sparkles className="size-3" />
+                <Layers className="size-3" />
                 Auto-Enrich
               </span>
             </div>
@@ -180,7 +180,6 @@ export function IntentExportPanel({
         </label>
       </Card>
 
-      {/* SECTION 2: Intent-Based Export Presets */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-foreground">

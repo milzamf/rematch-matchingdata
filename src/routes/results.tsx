@@ -460,7 +460,6 @@ function ResultsPage() {
                 ))}
               </div>
 
-              {/* TABS CONTENT WITH PRESERVED STATE (CSS HIDDEN) */}
               <div className={tab === "overview" ? "block" : "hidden"}>
                 <OverviewTab
                   workspace={workspace}
@@ -671,7 +670,6 @@ function OverviewTab({
 
   return (
     <div className="space-y-6 p-6">
-      {/* Deduplication Summary Banner */}
       {(totalDuplicates ?? 0) > 0 && (
         <DuplicateSummaryBanner
           totalRaw={totalRaw ?? inputRecordCount}
@@ -682,7 +680,6 @@ function OverviewTab({
         />
       )}
 
-      {/* Top Level Aggregate Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-lg border border-border bg-card p-4">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -749,7 +746,6 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* Pareto Failure Chart */}
       {items.length > 0 && (
         <ParetoFailureChart
           items={items}
@@ -758,7 +754,6 @@ function OverviewTab({
         />
       )}
 
-      {/* Visual Proportional Distribution Bar */}
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between text-xs font-semibold mb-2">
           <span>{t("results.summary.distributionTitle")}</span>
@@ -1031,7 +1026,6 @@ function CasesTab({
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-          {/* Master List */}
           <div className="flex flex-col rounded-lg border border-border overflow-hidden">
             <div className="max-h-[640px] overflow-y-auto divide-y divide-border">
               {paginatedItems.map((item) => {
@@ -1086,11 +1080,11 @@ function CasesTab({
                     </div>
 
                     <p className="mt-2 font-medium text-xs text-foreground truncate">
-                      {identity.primary?.inputValue || "—"}
+                      {identity.primary?.inputValue || "-"}
                     </p>
                     {candidate && (
                       <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
-                        ↔ {identity.primary?.referenceValue || "—"}
+                        ↔ {identity.primary?.referenceValue || "-"}
                       </p>
                     )}
 
@@ -1116,7 +1110,6 @@ function CasesTab({
             />
           </div>
 
-          {/* Detailed Side-by-Side Comparison & Evidence Breakdown */}
           {selectedItem && (
             <div className="space-y-4">
               <Card className="p-5 border-border">
@@ -1139,7 +1132,6 @@ function CasesTab({
                   />
                 </div>
 
-                {/* Side-by-Side Values Comparison */}
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <div className="rounded-lg border border-border bg-secondary/15 p-3.5">
                     <p className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">
@@ -1149,7 +1141,7 @@ function CasesTab({
                       {Object.entries(selectedItem.input_record).map(([key, val]) => (
                         <div key={key} className="flex flex-col">
                           <span className="text-[11px] text-muted-foreground">{key}</span>
-                          <span className="font-medium text-foreground">{String(val ?? "—")}</span>
+                          <span className="font-medium text-foreground">{String(val ?? "-")}</span>
                         </div>
                       ))}
                     </div>
@@ -1164,7 +1156,7 @@ function CasesTab({
                         {Object.entries(selectedCandidate.reference_record).map(([key, val]) => (
                           <div key={key} className="flex flex-col">
                             <span className="text-[11px] text-muted-foreground">{key}</span>
-                            <span className="font-medium text-foreground">{String(val ?? "—")}</span>
+                            <span className="font-medium text-foreground">{String(val ?? "-")}</span>
                           </div>
                         ))}
                       </div>
@@ -1174,7 +1166,6 @@ function CasesTab({
                   </div>
                 </div>
 
-                {/* Field Similarity Scores */}
                 {selectedCandidate?.field_scores && selectedCandidate.field_scores.length > 0 && (
                   <div className="mt-4">
                     <p className="text-xs font-semibold text-foreground mb-2">{t("results.evidence.fieldSimilarities") || "Field Similarities"}</p>
@@ -1197,7 +1188,6 @@ function CasesTab({
                 )}
               </Card>
 
-              {/* Evidence Breakdown */}
               <VerificationEvidenceBreakdown candidate={selectedCandidate} />
             </div>
           )}
@@ -1395,7 +1385,6 @@ function NeedReviewTab({
 
   return (
     <div className="space-y-6 p-6">
-      {/* Pareto Diagnostic Chart */}
       <ParetoFailureChart
         items={allReviewItems.length > 0 ? allReviewItems : items}
         onFilterRule={onFilterRule}
@@ -1889,7 +1878,6 @@ function ExportTab({
 
   return (
     <div className="space-y-6 p-6">
-      {/* Intent-Based Streamlined Export Panel */}
       <IntentExportPanel
         jobId={jobId ?? null}
         items={items}
@@ -1901,7 +1889,6 @@ function ExportTab({
         onExportHistoryChange={onExportHistoryChange}
       />
 
-      {/* Export History Table */}
       {exportHistory.length > 0 && (
         <div className="space-y-3 pt-6 border-t border-border">
           <div className="flex items-center justify-between">

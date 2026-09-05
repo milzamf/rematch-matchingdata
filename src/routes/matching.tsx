@@ -103,7 +103,6 @@ import {
   Plus,
   Trash2,
   X,
-  Sparkles,
   Building2,
   Sliders,
   SlidersHorizontal,
@@ -115,6 +114,9 @@ import {
   GripVertical,
   Search,
   RefreshCw,
+  Split,
+  BookmarkPlus,
+  Activity,
 } from "lucide-react";
 import {
   Sheet,
@@ -141,7 +143,7 @@ export const Route = createFileRoute("/matching")({
       {
         name: "description",
         content:
-          "Step-by-step matching workflow: upload datasets, profile columns, configure rules, run, review, synchronize, and export results.",
+          "Step-by-step matching workflow: upload datasets, profile columns, configure rules, run, review, synchronize, and export results",
       },
     ],
   }),
@@ -1063,9 +1065,9 @@ function MatchingPage() {
           },
         });
       }
-      toast.success("Proses matching berhasil dibatalkan.");
+      toast.success("Proses matching berhasil dibatalkan");
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : "Gagal menghentikan matching.");
+      toast.error(error instanceof ApiError ? error.message : "Gagal menghentikan matching");
     }
   };
 
@@ -2049,7 +2051,7 @@ function DatasetProfileCard({
                   className="px-3.5 py-2.5 text-muted-foreground truncate max-w-[240px]"
                   title={column.sample_values.join(", ")}
                 >
-                  {column.sample_values.length > 0 ? column.sample_values.join(", ") : "—"}
+                  {column.sample_values.length > 0 ? column.sample_values.join(", ") : "-"}
                 </td>
               </tr>
             ))}
@@ -2749,12 +2751,12 @@ function StepColumnMapping({
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-secondary/20 p-3.5">
               <div className="flex items-center gap-3">
                 <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-                  <Sparkles className="size-4.5" />
+                  <Split className="size-4.5" />
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-foreground">Ekstraksi Bentuk Badan Usaha & Nama Inti</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Opsi cerdas untuk memisahkan token badan usaha (PT, CV, UD) dan nama inti perusahaan secara otomatis
+                    Pemisahan bentuk badan usaha (PT, CV, UD) dan nama inti perusahaan untuk perbandingan nama yang lebih akurat
                   </p>
                 </div>
               </div>
@@ -2764,7 +2766,6 @@ function StepColumnMapping({
                 disabled={!hasColumns}
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs"
               >
-                <Sparkles className="size-3.5 text-brand" />
                 <span>Ekstrak Entitas</span>
               </button>
             </div>
@@ -2961,7 +2962,6 @@ function recommendComparison(
   const completeness =
     100 - Math.max(mapping.referenceNullPercentage ?? 0, mapping.inputNullPercentage ?? 0);
 
-  // 1. Identifiers (NPWP/NIB/NIK/ID) -> Normalized Exact, ~30% weight
   if (isIdentifierField(names) || isGenericIdentifierName(names)) {
     return {
       family: "Exact",
@@ -2972,7 +2972,6 @@ function recommendComparison(
     };
   }
 
-  // 2. Name / Entity Fields -> Jaro-Winkler (Character Similarity) to punish reversed word orders! ~40% weight
   if (isEntityNameField(names) || names.includes("Nama Inti") || names.includes("Badan Usaha")) {
     return {
       family: "Character Similarity",
@@ -2983,7 +2982,6 @@ function recommendComparison(
     };
   }
 
-  // 3. Location / Category -> Normalized Exact, ~15% weight
   if (isLocationField(names)) {
     return {
       family: "Exact",
@@ -2994,7 +2992,6 @@ function recommendComparison(
     };
   }
 
-  // 4. Address -> Jaro-Winkler, ~15% weight
   if (isAddressField(names)) {
     return {
       family: "Character Similarity",
@@ -3443,7 +3440,7 @@ function StepConfigV2({
         setAiSuggestion(next);
         if (!next.success) setAiError(next.error.message ?? t("matching.ai.unavailable"));
       } else {
-        // Smart AI suggestion generated directly from mapped dataset schema
+        // Heuristic configuration suggestion generated from mapped dataset schema
         const recommended_fields = fields?.map((f) => {
           const colName = (f.reference || f.input || "").toLowerCase();
           const isIdentifier =
@@ -3512,7 +3509,7 @@ function StepConfigV2({
           },
           data: {
             rationale:
-              "Rekomendasi konfigurasi cerdas dihitung berdasarkan tipe data, nama kolom, dan profil dataset yang telah dipetakan.",
+              "Rekomendasi konfigurasi dihitung berdasarkan tipe data, nama kolom, dan profil dataset yang dipetakan",
             suggested_thresholds: {
               auto_match: 90,
               needs_review: 70,
@@ -3642,7 +3639,6 @@ function StepConfigV2({
           !coreNameFields.includes(f),
       );
 
-      // 1. Assign algorithms and comparison families
       setMethods((current) => {
         const next = { ...current };
         coreNameFields.forEach((f) => {
@@ -3660,7 +3656,6 @@ function StepConfigV2({
         return next;
       });
 
-      // 2. Assign weights: Nama Inti (55%), Alamat (30%), Badan Usaha (10%), Kode Kab/Kota (5%)
       similarityFields.forEach((f) => {
         if (coreNameFields.some((item) => item.id === f.id)) {
           newWeights[f.id] = 55;
@@ -3676,7 +3671,6 @@ function StepConfigV2({
       });
       setWeights(normalizeIntegerWeights(similarityFields, newWeights));
 
-      // 3. Verification thresholds: Kode Kab (100%), Badan Usaha (100%), Nama Inti (90%), Alamat (90%)
       fields.forEach((f) => {
         if (locationFields.some((item) => item.id === f.id)) {
           newThresholds[f.id] = 100;
@@ -3692,7 +3686,6 @@ function StepConfigV2({
       });
       setVerificationThresholds(newThresholds);
 
-      // 4. Verification order: Location -> Legal Form -> Core Name -> Address -> Others
       [...locationFields, ...legalFormFields, ...coreNameFields, ...addressFields, ...otherFields].forEach((f) => {
         if (!newOrder.includes(f.id)) newOrder.push(f.id);
       });
@@ -3708,9 +3701,7 @@ function StepConfigV2({
     <>
       <SectionTitle title={t("matching.config.title")} desc={t("matching.configV2.desc")} />
 
-      {/* PRESET CARDS SELECTOR */}
       <div className="grid gap-3 sm:grid-cols-3">
-        {/* Preset 1: Standar (Default) */}
         <button
           type="button"
           onClick={() => applyPreset("default")}
@@ -3746,7 +3737,6 @@ function StepConfigV2({
           </div>
         </button>
 
-        {/* Preset 2: Konstruksi */}
         <button
           type="button"
           onClick={() => applyPreset("construction")}
@@ -3785,7 +3775,6 @@ function StepConfigV2({
           </div>
         </button>
 
-        {/* Preset 3: Kustom Penuh */}
         <button
           type="button"
           onClick={() => applyPreset("custom")}
@@ -4298,7 +4287,7 @@ function StepConfigV2({
         <section className="rounded-lg border border-accent/25 bg-accent/5 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex gap-3">
-              <Sparkles className="mt-0.5 size-4 shrink-0 text-accent" />
+              <SlidersHorizontal className="mt-0.5 size-4 shrink-0 text-accent" />
               <div>
                 <p className="text-sm font-semibold">{t("matching.ai.configTitle")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -4764,7 +4753,7 @@ function StepRunCard({
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
                 <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-                  <Sparkles className="w-3 h-3 text-emerald-500"/>
+                  <Activity className="w-3 h-3 text-emerald-500"/>
                   Engine: Meilisearch MultiSearch Active (Batch Mode)
                 </span>
               </div>
@@ -6335,7 +6324,7 @@ function CaseGroupsReview({
                           className="inline-flex items-center gap-1.5 cursor-pointer rounded-md border border-brand/40 bg-brand/5 px-2.5 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition-colors shadow-2xs"
                           title="Promosikan pola data sisa ini menjadi aturan kustom permanen"
                         >
-                          <Sparkles className="size-3.5" />
+                          <BookmarkPlus className="size-3.5" />
                           Jadikan Aturan Baru
                         </button>
                       )}
@@ -6800,26 +6789,23 @@ function IdentityCell({
   }
 
   // Fallback: If secondLine or thirdLine are empty, use parts of identity.meta
-  let thirdLine = locParts.join(" — ") || null;
+  let thirdLine = locParts.join(" · ") || null;
   if (!secondLine && !thirdLine && identity.meta && identity.meta !== "-") {
     thirdLine = identity.meta;
   }
 
   return (
     <div className={`flex flex-col gap-0.5 max-w-[340px] min-w-0 ${className}`}>
-      {/* Baris 1: Nama Entitas */}
       <p className="truncate text-xs font-bold text-foreground" title={headline}>
         {headline}
       </p>
 
-      {/* Baris 2: Identifier / NPWP / Kontak */}
       {secondLine && (
         <p className="truncate text-[11px] font-medium text-muted-foreground" title={secondLine}>
           {secondLine}
         </p>
       )}
 
-      {/* Baris 3: Alamat / Wilayah */}
       {thirdLine && (
         <p
           className="line-clamp-2 text-[11px] leading-tight text-muted-foreground/80"
@@ -7210,7 +7196,7 @@ function formatAiRecommendation(
   recommendation: string | undefined | null,
   t: ReturnType<typeof usePreferences>["t"],
 ) {
-  if (!recommendation) return "—";
+  if (!recommendation) return "-";
   const lower = recommendation.toLowerCase();
   if (lower === "accept_match" || lower === "accept") return t("matching.review.recApprove");
   if (lower === "reject_match" || lower === "reject") return t("matching.review.recReject");

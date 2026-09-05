@@ -1,4 +1,4 @@
-﻿export const kpis = [
+export const kpis = [
   { label: "Total Records", value: "1,248,302", delta: "+12% vs last sync", tone: "success" as const },
   { label: "Matched Records", value: "842,091", delta: "67.4% of dataset", tone: "success" as const, progress: 67 },
   { label: "Possible Matches", value: "14,203", delta: "Requires manual review", tone: "warning" as const },
@@ -33,7 +33,7 @@ export const recentJobs = [
     input: "hasil_pendataan.csv",
     records: "3,204",
     status: "Running",
-    accuracy: "—",
+    accuracy: "-",
     date: "Today, 09:14",
   },
   {

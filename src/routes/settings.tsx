@@ -9,7 +9,6 @@ import {
   Building2,
   Mail,
   Shield,
-  Sparkles,
   Lock,
   Save,
   RotateCcw,
@@ -187,7 +186,6 @@ function SettingsPage() {
           onValueChange={handleTabChange}
           className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-8 items-start"
         >
-          {/* LEFT VERTICAL NAVIGATION */}
           <div className="space-y-3">
             <div className="rounded-xl border border-border bg-card p-1.5 shadow-xs">
               <TabsList className="flex flex-col w-full h-auto bg-transparent p-0 space-y-1">
@@ -225,10 +223,9 @@ function SettingsPage() {
               </TabsList>
             </div>
 
-            {/* Quick Enterprise Pill */}
             <div className="rounded-xl border border-border/80 bg-secondary/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground flex items-center gap-1.5">
-                <Sparkles className="size-3.5 text-brand" />
+                <ShieldCheck className="size-3.5 text-brand" />
                 <span>{t("settings.enterpriseTitle")}</span>
               </p>
               <p className="text-[11px] leading-relaxed">
@@ -237,11 +234,8 @@ function SettingsPage() {
             </div>
           </div>
 
-          {/* RIGHT ACTIVE CONTENT */}
           <div className="space-y-6 min-w-0">
-            {/* TAB 1: AKUN & TAMPILAN */}
             <TabsContent value="akun" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
-              {/* Profil Pengguna */}
               <Card className="p-6 space-y-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -251,7 +245,6 @@ function SettingsPage() {
                     </p>
                   </div>
 
-                  {/* UBAH PROFIL BUTTON (OUTLINE VARIANT WITH PENCIL ICON) */}
                   <Dialog open={isEditProfileOpen} onOpenChange={setIsEditProfileOpen}>
                     <DialogTrigger asChild>
                       <button
@@ -349,7 +342,6 @@ function SettingsPage() {
                   </div>
                 </div>
 
-                {/* PERFECT HORIZONTAL ALIGNMENT FOR ORGANISASI & UNIT KERJA */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                   <div className="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-4">
                     <Building2 className="size-4 shrink-0 text-muted-foreground mt-0.5" />
@@ -377,7 +369,6 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              {/* Preferensi Tampilan */}
               <Card className="p-6 space-y-6">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
@@ -429,7 +420,6 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              {/* Keamanan Akun (Ubah Password) */}
               <Card className="p-6 space-y-5">
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -494,7 +484,6 @@ function SettingsPage() {
               </Card>
             </TabsContent>
 
-            {/* TAB 2: MESIN MATCHING (PURGED COLUMN-SPECIFIC CONFIGS) */}
             <TabsContent value="engine" className="mt-0 space-y-6">
               <Card className="p-6 space-y-5">
                 <div>
@@ -526,7 +515,6 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              {/* NEW FEATURE: DAFTAR KATA ABAIKAN (STOPWORDS) */}
               <Card className="p-6 space-y-4">
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -558,7 +546,6 @@ function SettingsPage() {
               </Card>
             </TabsContent>
 
-            {/* TAB 3: KEAMANAN & AI */}
             <TabsContent value="keamanan" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
               <SettingsSection
                 title={t("settings.aiPreferences")}
@@ -634,7 +621,6 @@ function SettingsPage() {
                 />
               </SettingsSection>
 
-              {/* NEW FEATURE: RETENSI WORKSPACE (AUTO-CLEANUP) */}
               <Card className="p-6 space-y-4">
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -662,7 +648,6 @@ function SettingsPage() {
               </Card>
             </TabsContent>
 
-            {/* TAB 4: EKSPOR DATA */}
             <TabsContent value="ekspor" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
               <Card className="p-6 space-y-5">
                 <div>
@@ -684,7 +669,6 @@ function SettingsPage() {
                     options={["Excel (.xlsx)", "CSV (.csv)", "JSON (.json)", "Parquet (.parquet)"]}
                   />
 
-                  {/* NEW FEATURE: DELIMITER CSV */}
                   <Select
                     label={t("settings.csvDelimiter")}
                     value={exportPreferences.csvDelimiter}
@@ -734,7 +718,6 @@ function SettingsPage() {
               </SettingsSection>
             </TabsContent>
 
-            {/* Error and Loading panels */}
             {settingsError && (
               <ErrorPanel
                 title={t("feedback.error.title")}
@@ -757,7 +740,6 @@ function SettingsPage() {
               />
             )}
 
-            {/* ACTION BUTTONS */}
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"

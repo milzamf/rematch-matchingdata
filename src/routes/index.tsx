@@ -183,7 +183,7 @@ function DashboardPage() {
 
         <div className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-semibold text-foreground">RE-MATCH — {t("brand.subtitle")}</p>
+            <p className="font-semibold text-foreground">RE-MATCH - {t("brand.subtitle")}</p>
             <p className="mt-0.5">{t("brand.organizationUnit")}</p>
           </div>
           <span className="text-[11px] text-muted-foreground font-mono">v1.0.0</span>

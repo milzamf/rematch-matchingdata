@@ -237,7 +237,7 @@ export function DataPreviewTable({
       } catch (err) {
         if (!isCancelled) {
           console.error("fetch dataset preview rows error:", err);
-          setServerError(err instanceof Error ? err.message : "Gagal memuat baris dataset.");
+          setServerError(err instanceof Error ? err.message : "Gagal memuat baris dataset");
         }
       } finally {
         if (!isCancelled) {
@@ -387,7 +387,6 @@ export function DataPreviewTable({
 
   return (
     <>
-      {/* BASE COMPACT VIEW */}
       <div className={`rounded-lg border border-border bg-card p-4 space-y-3 ${className}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
           <div className="min-w-0">
@@ -508,7 +507,6 @@ export function DataPreviewTable({
         )}
       </div>
 
-      {/* EXPANDED MODAL DIALOG WITH PAGINATION & SEARCH */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="max-w-[94vw] w-[94vw] h-[88vh] max-h-[88vh] flex flex-col p-6 gap-3">
           <DialogHeader className="border-b border-border/70 pb-3">
@@ -530,7 +528,6 @@ export function DataPreviewTable({
                 </DialogDescription>
               </div>
 
-              {/* SEARCH & PAGE SIZE CONTROLS */}
               <div className="flex items-center gap-2.5">
                 <div className="relative">
                   <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -578,7 +575,6 @@ export function DataPreviewTable({
             </div>
           )}
 
-          {/* MODAL TABLE CONTENT */}
           <div className="relative flex-1 overflow-auto rounded-md border border-border">
             {isLoadingServer && (
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
@@ -652,7 +648,6 @@ export function DataPreviewTable({
             )}
           </div>
 
-          {/* MODAL FOOTER WITH PAGINATION */}
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/70 text-xs">
             <div className="text-muted-foreground">
               {t("preview.paginationShowing", {

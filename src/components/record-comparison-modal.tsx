@@ -17,12 +17,11 @@ import {
   Columns,
   FileSpreadsheet,
   Filter,
-  Sparkles,
+  Split,
 } from "lucide-react";
 import type { ReviewItem, ReviewCandidate } from "@/lib/api";
 import type { IdentityFieldPair } from "@/lib/result-identity";
 
-// Internal ErrorBoundary to prevent any modal render issues from bubbling to root
 class ModalErrorBoundary extends Component<
   { children: ReactNode; onClose: () => void },
   { hasError: boolean; error: Error | null }
@@ -140,7 +139,7 @@ function comparisonLabel(comparison?: string | null): { text: string; className:
 }
 
 function formatRawValue(val: unknown): string {
-  if (val === null || val === undefined || val === "") return "— (kosong)";
+  if (val === null || val === undefined || val === "") return "- (kosong)";
   if (typeof val === "boolean") return val ? "True" : "False";
   if (typeof val === "object") {
     try {
@@ -256,11 +255,11 @@ function getOverviewFields(
 } {
   // 1. Badan Usaha
   const rawInputBU = inputData.bentuk_usaha ?? inputData.badan_usaha ?? meta?.input?.legal_form;
-  const inputBU = rawInputBU ? String(rawInputBU) : "— (kosong)";
+  const inputBU = rawInputBU ? String(rawInputBU) : "- (kosong)";
 
   const rawRefBU = referenceData.badan_usaha ?? referenceData.bentuk_usaha;
   const refLegalForm = meta?.reference?.legal_form;
-  let refBU = "— (kosong)";
+  let refBU = "- (kosong)";
   if (rawRefBU) {
     if (refLegalForm && String(rawRefBU) !== String(refLegalForm)) {
       refBU = `${rawRefBU} (${refLegalForm})`; // e.g. "3 (CV)"
@@ -273,15 +272,15 @@ function getOverviewFields(
 
   // 2. Alamat
   const rawInputAlamat = inputData.alamat ?? inputData.alamat_penyedia ?? inputData.alamat_perusahaan;
-  const inputAlamat = rawInputAlamat ? String(rawInputAlamat) : "— (kosong)";
+  const inputAlamat = rawInputAlamat ? String(rawInputAlamat) : "- (kosong)";
 
   const rawRefAlamat = referenceData.alamat_perusahaan ?? referenceData.alamat_operasional ?? referenceData.alamat;
-  const refAlamat = rawRefAlamat ? String(rawRefAlamat) : "— (kosong)";
+  const refAlamat = rawRefAlamat ? String(rawRefAlamat) : "- (kosong)";
 
   // 3. Kode kabupaten/kota - Nama Kabupaten/kota
   const inputKodeKab = inputData.kd_kab ?? inputData.kode_kab ?? inputData.id_kab ?? "";
   const inputNamaKab = inputData.nmkab ?? inputData.kabupaten ?? inputData.nama_kab ?? inputData.kab ?? "";
-  let inputKabText = "— (kosong)";
+  let inputKabText = "- (kosong)";
   if (inputKodeKab && inputNamaKab) {
     inputKabText = `${inputKodeKab} - ${inputNamaKab}`;
   } else if (inputNamaKab) {
@@ -292,7 +291,7 @@ function getOverviewFields(
 
   const refKodeKab = referenceData.kab ?? referenceData.kd_kab ?? referenceData.kode_kab ?? "";
   const refNamaKab = referenceData.nm_kab ?? referenceData.nmkab ?? referenceData.kabupaten ?? "";
-  let refKabText = "— (kosong)";
+  let refKabText = "- (kosong)";
   if (refKodeKab && refNamaKab) {
     refKabText = `${refKodeKab} - ${refNamaKab}`;
   } else if (refNamaKab) {
@@ -302,13 +301,13 @@ function getOverviewFields(
   }
 
   // 4. NIB
-  const inputNIB = String(inputData.nib ?? inputData.no_nib ?? "— (tidak terisi)");
-  const refNIB = String(referenceData.nib ?? referenceData.no_nib ?? "— (tidak terisi di acuan)");
+  const inputNIB = String(inputData.nib ?? inputData.no_nib ?? "- (tidak terisi)");
+  const refNIB = String(referenceData.nib ?? referenceData.no_nib ?? "- (tidak terisi di acuan)");
 
   // 5. NPWP (Symmetric)
   const hasNPWP = Boolean(inputData.npwp_penyedia || inputData.npwp || referenceData.npwp || referenceData.npwp_penyedia);
-  const inputNPWP = String(inputData.npwp_penyedia ?? inputData.npwp ?? "— (tidak terisi)");
-  const refNPWP = String(referenceData.npwp ?? referenceData.npwp_penyedia ?? "— (tidak terisi di acuan)");
+  const inputNPWP = String(inputData.npwp_penyedia ?? inputData.npwp ?? "- (tidak terisi)");
+  const refNPWP = String(referenceData.npwp ?? referenceData.npwp_penyedia ?? "- (tidak terisi di acuan)");
 
   return {
     rows: [
@@ -430,7 +429,6 @@ export function RecordComparisonModal({
     return item.candidates[0] ?? null;
   }, [item, selectedCandidateId]);
 
-  // Navigation: Next and Prev calculation
   const currentIndex = useMemo(() => {
     if (!item || items.length === 0) return -1;
     return items.findIndex((entry) => entry.input_record_key === item.input_record_key);
@@ -453,7 +451,6 @@ export function RecordComparisonModal({
     }
   }, [hasNext, onNavigate, items, currentIndex]);
 
-  // Keyboard navigation: Escape, ArrowLeft, ArrowRight
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -479,7 +476,7 @@ export function RecordComparisonModal({
   const inputData = useMemo(() => item?.input_record ?? {}, [item]);
   const referenceData = useMemo(() => currentCandidate?.reference_record ?? {}, [currentCandidate]);
 
-  // Pure separate entries for Data Input (Excel LPSE)
+  // Separate entries for input dataset
   const inputAllEntries = useMemo(() => Object.entries(inputData), [inputData]);
   const inputFilteredEntries = useMemo(() => {
     const q = attributeFilter.toLowerCase().trim();
@@ -706,15 +703,13 @@ export function RecordComparisonModal({
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {activeTab === "overview" ? (
               <>
-                {/* 1. Entity Overview Side-by-Side (Symmetric 4 Items + NPWP) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-                  {/* Input Card */}
                   <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4.5 relative overflow-hidden flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between gap-2 mb-2.5">
                         <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-1 text-xs font-semibold">
                           <Database className="size-3.5" />
-                          DATA INPUT (LPSE / Mitra)
+                          Data Input (Excel / CSV)
                         </span>
                         <span className="text-[11px] font-mono text-muted-foreground">
                           Key: {item.input_record_key}
@@ -741,13 +736,12 @@ export function RecordComparisonModal({
                     </div>
                   </div>
 
-                  {/* Reference Card */}
                   <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4.5 relative overflow-hidden flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between gap-2 mb-2.5">
                         <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 text-xs font-semibold">
                           <Database className="size-3.5" />
-                          DATA ACUAN / REFERENSI (BPS)
+                          Data Acuan (Referensi)
                         </span>
                         <span className="text-[11px] font-mono text-muted-foreground">
                           Key: {currentCandidate?.reference_record_key ?? "-"}
@@ -776,14 +770,13 @@ export function RecordComparisonModal({
                         </>
                       ) : (
                         <div className="py-12 text-center text-xs text-muted-foreground">
-                          Tidak ada kandidat acuan yang cocok ditemukan.
+                          Tidak ada kandidat acuan yang cocok ditemukan
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* 2. Nilai Per Kolom Similarity & Total WLS */}
                 {currentCandidate && (
                   <div className="rounded-xl border border-border bg-card overflow-hidden shadow-xs">
                     <div className="border-b border-border bg-muted/20 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -835,7 +828,7 @@ export function RecordComparisonModal({
                                     </div>
                                     {resolved.isGenerated && (
                                       <span className="inline-flex items-center gap-1 w-fit rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                                        <Sparkles className="size-2.5" />
+                                        <Split className="size-2.5" />
                                         Ekstraksi Normalisasi Otomatis
                                       </span>
                                     )}
@@ -858,14 +851,14 @@ export function RecordComparisonModal({
                                       </p>
                                       {resolved.isBadanUsaha && resolved.rawFormInput && (
                                         <p className="text-[10px] text-muted-foreground">
-                                          Bentuk Usaha Excel: <span className="font-mono text-foreground/80">{resolved.rawFormInput}</span>
+                                          Bentuk Usaha: <span className="font-mono text-foreground/80">{resolved.rawFormInput}</span>
                                         </p>
                                       )}
                                     </div>
                                   ) : (
                                     <div className="flex items-start justify-between gap-1">
                                       <span className="select-all">{formatRawValue(resolved.inputVal)}</span>
-                                      {resolved.inputVal !== "-" && resolved.inputVal !== "— (kosong)" && (
+                                      {resolved.inputVal !== "-" && resolved.inputVal !== "- (kosong)" && (
                                         <CopyButton text={formatRawValue(resolved.inputVal)} />
                                       )}
                                     </div>
@@ -888,14 +881,14 @@ export function RecordComparisonModal({
                                       </p>
                                       {resolved.isBadanUsaha && resolved.rawFormRef && (
                                         <p className="text-[10px] text-muted-foreground">
-                                          Badan Usaha Excel: <span className="font-mono text-foreground/80">{resolved.rawFormRef}</span>
+                                          Badan Usaha: <span className="font-mono text-foreground/80">{resolved.rawFormRef}</span>
                                         </p>
                                       )}
                                     </div>
                                   ) : (
                                     <div className="flex items-start justify-between gap-1">
                                       <span className="select-all">{formatRawValue(resolved.refVal)}</span>
-                                      {resolved.refVal !== "-" && resolved.refVal !== "— (kosong)" && (
+                                      {resolved.refVal !== "-" && resolved.refVal !== "- (kosong)" && (
                                         <CopyButton text={formatRawValue(resolved.refVal)} />
                                       )}
                                     </div>
@@ -932,11 +925,8 @@ export function RecordComparisonModal({
                 )}
               </>
             ) : (
-              /* 3. DATA ASLI LENGKAP - DIPISAH SESUAI SUMBER EXCEL MASING-MASING */
               <div className="space-y-4">
-                {/* Toolbar Data Asli */}
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-secondary/20 p-3.5 rounded-xl border border-border">
-                  {/* Left: Layout view selector */}
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
                       <Columns className="size-3.5" />
@@ -979,7 +969,6 @@ export function RecordComparisonModal({
                     </div>
                   </div>
 
-                  {/* Right: Filter & Search */}
                   <div className="flex items-center gap-3">
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
                       <input
@@ -1004,16 +993,13 @@ export function RecordComparisonModal({
                   </div>
                 </div>
 
-                {/* Side-by-Side or Full-Width Tables */}
                 <div
                   className={`grid gap-4 items-start ${
                     rawLayout === "split" ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"
                   }`}
                 >
-                  {/* TABEL DATA ASLI INPUT */}
                   {(rawLayout === "split" || rawLayout === "input_only") && (
                     <div className="rounded-xl border border-blue-500/30 bg-card overflow-hidden shadow-xs">
-                      {/* Card Header */}
                       <div className="border-b border-border bg-blue-500/10 px-4 py-3 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <div className="grid size-7 place-items-center rounded-md bg-blue-500/20 text-blue-600 dark:text-blue-400">
@@ -1021,7 +1007,7 @@ export function RecordComparisonModal({
                           </div>
                           <div>
                             <h4 className="text-xs font-bold text-blue-950 dark:text-blue-200">
-                              DATA ASLI INPUT (Excel LPSE / Mitra)
+                              Data Asli Input (Excel / CSV)
                             </h4>
                             <p className="text-[11px] text-muted-foreground">
                               {filledInputCount} dari {inputAllEntries.length} kolom terisi di file aslinya
@@ -1033,7 +1019,6 @@ export function RecordComparisonModal({
                         </div>
                       </div>
 
-                      {/* Table Contents */}
                       <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
                         <table className="w-full text-xs">
                           <colgroup>
@@ -1042,7 +1027,7 @@ export function RecordComparisonModal({
                           </colgroup>
                           <thead className="bg-secondary/50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 z-10 backdrop-blur-xs">
                             <tr>
-                              <th className="px-3.5 py-2 text-left font-semibold">Nama Kolom Excel Input</th>
+                              <th className="px-3.5 py-2 text-left font-semibold">Nama Kolom File Input</th>
                               <th className="px-3.5 py-2 text-left font-semibold">Isian Data Asli</th>
                             </tr>
                           </thead>
@@ -1050,7 +1035,7 @@ export function RecordComparisonModal({
                             {inputFilteredEntries.length === 0 ? (
                               <tr>
                                 <td colSpan={2} className="px-4 py-8 text-center text-xs text-muted-foreground">
-                                  Tidak ada kolom yang cocok dengan filter.
+                                  Tidak ada kolom yang cocok dengan filter
                                 </td>
                               </tr>
                             ) : (
@@ -1085,10 +1070,8 @@ export function RecordComparisonModal({
                     </div>
                   )}
 
-                  {/* TABEL DATA ASLI ACUAN (REFERENSI) */}
                   {(rawLayout === "split" || rawLayout === "ref_only") && (
                     <div className="rounded-xl border border-emerald-500/30 bg-card overflow-hidden shadow-xs">
-                      {/* Card Header */}
                       <div className="border-b border-border bg-emerald-500/10 px-4 py-3 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <div className="grid size-7 place-items-center rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
@@ -1096,7 +1079,7 @@ export function RecordComparisonModal({
                           </div>
                           <div>
                             <h4 className="text-xs font-bold text-emerald-950 dark:text-emerald-200">
-                              DATA ASLI ACUAN (Excel Referensi BPS)
+                              Data Asli Acuan (Referensi)
                             </h4>
                             <p className="text-[11px] text-muted-foreground">
                               {filledRefCount} dari {refAllEntries.length} kolom terisi di file aslinya
@@ -1108,7 +1091,6 @@ export function RecordComparisonModal({
                         </div>
                       </div>
 
-                      {/* Table Contents */}
                       <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
                         <table className="w-full text-xs">
                           <colgroup>
@@ -1117,7 +1099,7 @@ export function RecordComparisonModal({
                           </colgroup>
                           <thead className="bg-secondary/50 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border sticky top-0 z-10 backdrop-blur-xs">
                             <tr>
-                              <th className="px-3.5 py-2 text-left font-semibold">Nama Kolom Excel Acuan</th>
+                              <th className="px-3.5 py-2 text-left font-semibold">Nama Kolom File Acuan</th>
                               <th className="px-3.5 py-2 text-left font-semibold">Isian Data Asli</th>
                             </tr>
                           </thead>
@@ -1126,8 +1108,8 @@ export function RecordComparisonModal({
                               <tr>
                                 <td colSpan={2} className="px-4 py-8 text-center text-xs text-muted-foreground">
                                   {currentCandidate
-                                    ? "Tidak ada kolom yang cocok dengan filter."
-                                    : "Tidak ada data kandidat acuan."}
+                                    ? "Tidak ada kolom yang cocok dengan filter"
+                                    : "Tidak ada data kandidat acuan"}
                                 </td>
                               </tr>
                             ) : (
@@ -1165,7 +1147,6 @@ export function RecordComparisonModal({
               </div>
             )}
 
-            {/* 4. Decision History if available */}
             {item.decision_history && item.decision_history.length > 0 && (
               <div className="rounded-xl border border-border bg-card p-4 space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -1192,9 +1173,7 @@ export function RecordComparisonModal({
             )}
           </div>
 
-          {/* Footer Actions */}
           <div className="border-t border-border bg-secondary/30 px-6 py-4 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            {/* Left: Navigation & Undo */}
             <div className="flex items-center gap-2">
               {items.length > 0 && (
                 <div className="flex items-center gap-1.5 mr-2">
@@ -1232,7 +1211,6 @@ export function RecordComparisonModal({
               )}
             </div>
 
-            {/* Right: Decision Actions & Close */}
             <div className="flex items-center gap-2">
               <button
                 type="button"

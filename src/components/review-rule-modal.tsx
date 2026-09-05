@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Plus, Trash2, Sparkles, Loader2, SlidersHorizontal } from "lucide-react";
+import { X, Plus, Trash2, Filter, Loader2, SlidersHorizontal } from "lucide-react";
 import {
   createReviewRule,
   type ReviewRuleCondition,
@@ -110,7 +110,7 @@ export function ReviewRuleModal({
       onSaved(res.data);
       onClose();
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : "Gagal menyimpan aturan.");
+      setErrorMessage(err instanceof Error ? err.message : "Gagal menyimpan aturan");
     } finally {
       setIsSubmitting(false);
     }
@@ -184,7 +184,7 @@ export function ReviewRuleModal({
           <div className="space-y-2 pt-2 border-t border-border">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <Sparkles className="size-3.5 text-brand" />
+                <Filter className="size-3.5 text-brand" />
                 Kondisi Pemicu Evaluasi
               </label>
               <button

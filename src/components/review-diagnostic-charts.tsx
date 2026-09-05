@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronUp,
   Layers,
-  Sparkles,
   TrendingUp,
 } from "lucide-react";
 import {
@@ -356,8 +355,7 @@ export function ReviewDiagnosticCharts({
               <h3 className="text-sm font-semibold text-foreground">
                 {t("review.diagnostics.title")}
               </h3>
-              <span className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand">
-                <Sparkles className="size-3" />
+              <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                 AI / Heuristic
               </span>
             </div>

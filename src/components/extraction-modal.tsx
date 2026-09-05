@@ -42,7 +42,7 @@ export function ExtractionModal({
         <DialogHeader>
           <DialogTitle>Ekstrak Entitas & Nama Inti</DialogTitle>
           <DialogDescription>
-            Ekstrak Badan Usaha (PT/CV) dan Nama Inti secara otomatis dari kolom nama perusahaan.
+            Ekstrak Badan Usaha (PT/CV) dan Nama Inti dari kolom nama perusahaan
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
