@@ -4,10 +4,10 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
+    "dev": "node --max-http-header-size=65536 ./node_modules/vite/bin/vite.js dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
-    "preview": "vite preview",
+    "preview": "node --max-http-header-size=65536 ./node_modules/vite/bin/vite.js preview",
     "lint": "eslint .",
     "test:e2e": "playwright test",
     "review:screenshots": "playwright test playwright/screenshots.spec.ts",
