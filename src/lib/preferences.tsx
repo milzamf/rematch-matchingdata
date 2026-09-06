@@ -1065,6 +1065,11 @@ const translations = {
     "matching.export.autoEnrichLabel": "Auto-enrich empty reference fields with input data",
     "matching.export.autoEnrichDesc":
       "Fill empty or null reference columns with values from matched input records",
+    "matching.export.splitSheetsLabel": "Separate sheets by status (XLSX)",
+    "matching.export.splitSheetsDesc":
+      "Split results into separate sheets (Matched, New Entity / Unmatched, and All Data) in Excel",
+    "matching.export.previewSheet": "Preview Sheet",
+    "matching.export.activeSheetHint": "CSV export will download the currently selected sheet ({sheet}).",
     "matching.export.presetsTitle": "Choose Export Preset & Format",
     "matching.export.presetMasterUpdate": "Master Data Update",
     "matching.export.presetMasterUpdateDesc":
@@ -2491,6 +2496,11 @@ const translations = {
     "matching.export.autoEnrichLabel": "Lengkapi data referensi yang kosong dengan data input",
     "matching.export.autoEnrichDesc":
       "Mengisi kolom data referensi yang bernilai kosong dengan nilai dari data input pada record yang cocok",
+    "matching.export.splitSheetsLabel": "Pisahkan sheet per status (XLSX)",
+    "matching.export.splitSheetsDesc":
+      "Pisahkan hasil ke sheet terpisah (Matched, Entitas Baru / Unmatched, dan Semua Data) dalam Excel",
+    "matching.export.previewSheet": "Pratinjau Sheet",
+    "matching.export.activeSheetHint": "Ekspor CSV akan mengunduh sheet yang sedang aktif ({sheet}).",
     "matching.export.presetsTitle": "Pilih Format & Tujuan Ekspor",
     "matching.export.presetMasterUpdate": "Pemutakhiran Master Data",
     "matching.export.presetMasterUpdateDesc":

@@ -184,6 +184,92 @@ export function buildIntentExportRows(
   };
 }
 
+export function buildIntentExportTables(
+  items: ReviewItem[],
+  options: IntentExportOptions & { splitSheets?: boolean },
+): ExportTable[] {
+  const mainTable = buildIntentExportRows(items, options);
+  if (!options.splitSheets) {
+    return [mainTable];
+  }
+
+  const tables: ExportTable[] = [];
+
+  if (options.preset === "master_update") {
+    const matchedRows = mainTable.rows.filter((r) => r.match_status === "MATCHED");
+    const newEntityRows = mainTable.rows.filter((r) => r.match_status === "NEW_ENTITY");
+
+    if (matchedRows.length > 0) {
+      tables.push({
+        name: "Matched",
+        columns: mainTable.columns,
+        rows: matchedRows,
+      });
+    }
+
+    if (newEntityRows.length > 0) {
+      tables.push({
+        name: "New Entity (Unmatched)",
+        columns: mainTable.columns,
+        rows: newEntityRows,
+      });
+    }
+
+    tables.push({
+      name: "Semua Data",
+      columns: mainTable.columns,
+      rows: mainTable.rows,
+    });
+  } else if (options.preset === "full_audit") {
+    const matchedRows = mainTable.rows.filter((r) => r.match_status === "MATCHED");
+    const unmatchedRows = mainTable.rows.filter((r) => r.match_status === "UNMATCHED");
+    const reviewRows = mainTable.rows.filter((r) => r.match_status === "NEED_REVIEW");
+    const rejectedRows = mainTable.rows.filter((r) => r.match_status === "REJECTED");
+
+    if (matchedRows.length > 0) {
+      tables.push({
+        name: "Matched",
+        columns: mainTable.columns,
+        rows: matchedRows,
+      });
+    }
+
+    if (unmatchedRows.length > 0) {
+      tables.push({
+        name: "Unmatched",
+        columns: mainTable.columns,
+        rows: unmatchedRows,
+      });
+    }
+
+    if (reviewRows.length > 0) {
+      tables.push({
+        name: "Need Review",
+        columns: mainTable.columns,
+        rows: reviewRows,
+      });
+    }
+
+    if (rejectedRows.length > 0) {
+      tables.push({
+        name: "Rejected",
+        columns: mainTable.columns,
+        rows: rejectedRows,
+      });
+    }
+
+    tables.push({
+      name: "Semua Data Audit",
+      columns: mainTable.columns,
+      rows: mainTable.rows,
+    });
+  } else {
+    tables.push(mainTable);
+  }
+
+  return tables.length > 0 ? tables : [mainTable];
+}
+
 export function buildIntentExportPreview(
   items: ReviewItem[],
   options: IntentExportOptions,

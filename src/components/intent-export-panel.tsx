@@ -16,6 +16,7 @@ import { downloadCsv, downloadXlsx } from "@/lib/export-files";
 import { usePreferences } from "@/lib/preferences";
 import {
   buildIntentExportRows,
+  buildIntentExportTables,
   buildIntentExportPreview,
   buildStoredExportHistoryEntry,
   type ExportFormat,
@@ -54,6 +55,8 @@ export function IntentExportPanel({
   const { t } = usePreferences();
   const [preset, setPreset] = useState<ExportPreset>("master_update");
   const [autoEnrich, setAutoEnrich] = useState(true);
+  const [splitSheets, setSplitSheets] = useState(true);
+  const [activeSheetIndex, setActiveSheetIndex] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
   // Calculate quick metrics for the preset cards
@@ -91,6 +94,14 @@ export function IntentExportPanel({
     return buildIntentExportRows(items, { preset, autoEnrich });
   }, [items, preset, autoEnrich]);
 
+  // Multi-sheet export tables per status
+  const exportTables = useMemo(() => {
+    return buildIntentExportTables(items, { preset, autoEnrich, splitSheets });
+  }, [items, preset, autoEnrich, splitSheets]);
+
+  const safeSheetIndex = Math.min(activeSheetIndex, Math.max(0, exportTables.length - 1));
+  const activeTable = exportTables[safeSheetIndex] ?? fullExportTable;
+
   const handleDownload = (format: ExportFormat) => {
     if (items.length === 0) {
       toast.error(t("results.export.emptyDesc"));
@@ -110,16 +121,31 @@ export function IntentExportPanel({
       const fileName = `batchmatch-${baseName}-${presetSuffix}-${dateStr}.${format}`;
 
       if (format === "csv") {
-        downloadCsv(fileName, fullExportTable);
+        const tableToExport = splitSheets && exportTables.length > 1 ? activeTable : fullExportTable;
+        const sheetSlug =
+          splitSheets && exportTables.length > 1
+            ? `-${tableToExport.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`
+            : "";
+        const csvFileName = `batchmatch-${baseName}-${presetSuffix}${sheetSlug}-${dateStr}.csv`;
+        downloadCsv(csvFileName, tableToExport);
       } else {
-        downloadXlsx(fileName, [fullExportTable]);
+        const tablesToExport = splitSheets ? exportTables : [fullExportTable];
+        downloadXlsx(fileName, tablesToExport);
       }
 
       if (onExportHistoryChange) {
+        const exportedRowsCount =
+          format === "csv" && splitSheets && exportTables.length > 1
+            ? activeTable.rows.length
+            : fullExportTable.rows.length;
+
         const historyEntry = buildStoredExportHistoryEntry({
-          fileName,
+          fileName:
+            format === "csv" && splitSheets && exportTables.length > 1
+              ? `batchmatch-${baseName}-${presetSuffix}-${activeTable.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${dateStr}.csv`
+              : fileName,
           format,
-          recordCount: fullExportTable.rows.length,
+          recordCount: exportedRowsCount,
           mode: "intent",
           statuses:
             preset === "master_update"
@@ -127,7 +153,7 @@ export function IntentExportPanel({
               : preset === "pending_review"
                 ? ["pending"]
                 : ["matched", "new", "rejected", "pending"],
-          columns: fullExportTable.columns,
+          columns: activeTable.columns,
           includeReferenceKey: true,
           includeReviewFields: preset !== "master_update",
           includeScore: preset !== "master_update",
@@ -139,10 +165,15 @@ export function IntentExportPanel({
         onExportHistoryChange((current) => [historyEntry, ...current]);
       }
 
+      const exportedCount =
+        format === "csv" && splitSheets && exportTables.length > 1
+          ? activeTable.rows.length
+          : fullExportTable.rows.length;
+
       toast.success(
         t("matching.export.success", {
           format: format.toUpperCase(),
-          count: fullExportTable.rows.length,
+          count: exportedCount,
         }),
       );
     } catch (err) {
@@ -154,31 +185,61 @@ export function IntentExportPanel({
 
   return (
     <div className="space-y-6">
-      {/* SECTION 1: Auto-Enrichment Toggle Card */}
-      <Card className="p-5 border-border bg-card">
-        <label className="flex items-start gap-3.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={autoEnrich}
-            onChange={(e) => setAutoEnrich(e.target.checked)}
-            className="mt-1 size-4 rounded border-border text-brand focus:ring-brand focus:ring-offset-background cursor-pointer"
-          />
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-foreground">
-                {t("matching.export.autoEnrichLabel")}
-              </span>
-              <span className="inline-flex items-center gap-1 rounded bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
-                <Layers className="size-3" />
-                Auto-Enrich
-              </span>
+      {/* SECTION 1: Export Options (Auto-Enrichment & Multi-Sheet Excel) */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card className="p-4 border-border bg-card">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoEnrich}
+              onChange={(e) => setAutoEnrich(e.target.checked)}
+              className="mt-1 size-4 rounded border-border text-brand focus:ring-brand focus:ring-offset-background cursor-pointer"
+            />
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-foreground">
+                  {t("matching.export.autoEnrichLabel")}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand">
+                  <Layers className="size-3" />
+                  Auto-Enrich
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {t("matching.export.autoEnrichDesc")}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {t("matching.export.autoEnrichDesc")}
-            </p>
-          </div>
-        </label>
-      </Card>
+          </label>
+        </Card>
+
+        <Card className="p-4 border-border bg-card">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={splitSheets}
+              onChange={(e) => {
+                setSplitSheets(e.target.checked);
+                setActiveSheetIndex(0);
+              }}
+              className="mt-1 size-4 rounded border-border text-emerald-600 focus:ring-emerald-500 focus:ring-offset-background cursor-pointer"
+            />
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-foreground">
+                  {t("matching.export.splitSheetsLabel")}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  <FileSpreadsheet className="size-3" />
+                  Multi-Sheet
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {t("matching.export.splitSheetsDesc")}
+              </p>
+            </div>
+          </label>
+        </Card>
+      </div>
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -334,20 +395,67 @@ export function IntentExportPanel({
 
       {/* SECTION 3: Live Table Preview with Safe Expansion Modal */}
       <div className="space-y-4">
+        {splitSheets && exportTables.length > 1 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg border border-border bg-card">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <FileSpreadsheet className="size-4 text-emerald-600 dark:text-emerald-400" />
+                {t("matching.export.previewSheet")}:
+              </span>
+              {exportTables.map((table, idx) => {
+                const isSelected = safeSheetIndex === idx;
+                return (
+                  <button
+                    key={table.name}
+                    type="button"
+                    onClick={() => setActiveSheetIndex(idx)}
+                    className={[
+                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer",
+                      isSelected
+                        ? "bg-brand text-brand-foreground shadow-sm ring-1 ring-brand font-semibold"
+                        : "bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground",
+                    ].join(" ")}
+                  >
+                    <span>{table.name}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.2 text-[10px] font-semibold ${
+                        isSelected
+                          ? "bg-brand-foreground/20 text-brand-foreground"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {table.rows.length}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              {t("matching.export.activeSheetHint", { sheet: activeTable.name })}
+            </div>
+          </div>
+        )}
+
         <DataPreviewTable
-          title={t("matching.export.livePreviewTitle")}
+          title={
+            splitSheets && exportTables.length > 1
+              ? `${t("matching.export.livePreviewTitle")} (${activeTable.name})`
+              : t("matching.export.livePreviewTitle")
+          }
           subtitle={t("matching.export.livePreviewDesc")}
-          columns={fullExportTable.columns}
-          rows={fullExportTable.rows}
-          totalRows={fullExportTable.rows.length}
+          columns={activeTable.columns}
+          rows={activeTable.rows}
+          totalRows={activeTable.rows.length}
           previewLimit={3}
           badgeColor="brand"
           badgeText={
-            preset === "master_update"
-              ? t("matching.export.presetMaster")
-              : preset === "full_audit"
-                ? t("matching.export.presetAudit")
-                : t("matching.export.presetPending")
+            splitSheets && exportTables.length > 1
+              ? activeTable.name
+              : preset === "master_update"
+                ? t("matching.export.presetMaster")
+                : preset === "full_audit"
+                  ? t("matching.export.presetAudit")
+                  : t("matching.export.presetPending")
           }
           emptyMessage={t("matching.export.presetEmptyMessage")}
         />
@@ -355,9 +463,19 @@ export function IntentExportPanel({
         {/* SECTION 4: Final Download Action Buttons */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-border bg-card">
           <div className="text-xs text-muted-foreground">
-            {t("matching.export.downloadHint", {
-              count: fullExportTable.rows.length.toLocaleString(),
-            })}
+            {splitSheets && exportTables.length > 1 ? (
+              <span className="flex items-center gap-1.5">
+                <FileSpreadsheet className="size-3.5 text-emerald-600 shrink-0" />
+                <span>
+                  XLSX akan berisi <strong>{exportTables.length} sheet</strong> (
+                  {exportTables.map((t) => `${t.name}: ${t.rows.length}`).join(", ")}).
+                </span>
+              </span>
+            ) : (
+              t("matching.export.downloadHint", {
+                count: fullExportTable.rows.length.toLocaleString(),
+              })
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -377,7 +495,7 @@ export function IntentExportPanel({
 
             <button
               type="button"
-              disabled={!canExecute || isExporting || fullExportTable.rows.length === 0}
+              disabled={!canExecute || isExporting || activeTable.rows.length === 0}
               onClick={() => handleDownload("csv")}
               className="inline-flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-4 py-2 text-sm font-semibold text-foreground hover:bg-secondary disabled:opacity-50 transition-colors cursor-pointer"
             >
