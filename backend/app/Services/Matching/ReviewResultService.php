@@ -1244,12 +1244,19 @@ class ReviewResultService
      */
     private function statusForGroup($group): string
     {
-        if ($group->contains('result_type', 'possible_match')) {
-            return 'possible_match';
+        $sorted = $group->sortBy('candidate_rank')->values();
+        $primary = $sorted->first();
+
+        if ($primary) {
+            return $primary->result_type;
         }
 
         if ($group->contains('result_type', 'matched')) {
             return 'matched';
+        }
+
+        if ($group->contains('result_type', 'possible_match')) {
+            return 'possible_match';
         }
 
         return 'unmatched';

@@ -808,23 +808,15 @@ export function RecordComparisonModal({
                     </div>
 
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs table-fixed">
-                        <colgroup>
-                          <col className="w-[22%]" />
-                          <col className="w-[27%]" />
-                          <col className="w-[27%]" />
-                          <col className="w-[9%]" />
-                          <col className="w-[5%]" />
-                          <col className="w-[10%]" />
-                        </colgroup>
+                      <table className="w-full text-xs min-w-[760px]">
                         <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
                           <tr>
-                            <th className="px-3.5 py-2.5 text-left font-semibold">Kolom Evaluasi (Input ↔ Acuan)</th>
-                            <th className="px-3.5 py-2.5 text-left font-semibold">Nilai Data Input</th>
-                            <th className="px-3.5 py-2.5 text-left font-semibold">Nilai Data Acuan</th>
-                            <th className="px-3.5 py-2.5 text-center font-semibold whitespace-nowrap">Skor Similarity</th>
-                            <th className="px-3.5 py-2.5 text-center font-semibold whitespace-nowrap">Bobot</th>
-                            <th className="px-3.5 py-2.5 text-right font-semibold whitespace-nowrap">Status Evaluasi</th>
+                            <th className="px-3.5 py-2.5 text-left font-semibold w-[22%]">Kolom Evaluasi (Input ↔ Acuan)</th>
+                            <th className="px-3.5 py-2.5 text-left font-semibold w-[26%]">Nilai Data Input</th>
+                            <th className="px-3.5 py-2.5 text-left font-semibold w-[26%]">Nilai Data Acuan</th>
+                            <th className="px-3.5 py-2.5 text-center font-semibold w-[10%] whitespace-nowrap">Skor Similarity</th>
+                            <th className="px-3.5 py-2.5 text-center font-semibold w-[6%] whitespace-nowrap">Bobot</th>
+                            <th className="px-3.5 py-2.5 text-right font-semibold w-[10%] whitespace-nowrap">Status Evaluasi</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">

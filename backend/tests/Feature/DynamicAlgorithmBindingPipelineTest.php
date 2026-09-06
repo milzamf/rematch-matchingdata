@@ -108,9 +108,9 @@ class DynamicAlgorithmBindingPipelineTest extends TestCase
 
         $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
 
-        // Name is 100%, Token Set on Address is 81.25%
-        // Weighted score is (100 * 0.5) + (81.25 * 0.5) = 90.63%
-        $this->assertEquals(90.63, (float) $result->overall_score);
+        // Name is 100%, Token Set with containment on Address is 100%
+        // Weighted score is (100 * 0.5) + (100 * 0.5) = 100.0%
+        $this->assertEquals(100.0, (float) $result->overall_score);
         $this->assertSame('matched', $result->result_type);
     }
 
