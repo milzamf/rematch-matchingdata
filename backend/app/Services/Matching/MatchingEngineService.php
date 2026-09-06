@@ -1165,10 +1165,11 @@ class MatchingEngineService
                 $cityScore = $this->extractFieldScore($fieldScores, ['kab', 'kota', 'city', 'location', 'wilayah', 'kdkab']);
                 $nameScore = $this->extractFieldScore($fieldScores, ['nama inti', 'core name', 'nama_perusahaan', 'nama_penyedia', 'nama', 'name', 'company']);
                 $addrScore = $this->extractFieldScore($fieldScores, ['alamat', 'address']);
-                $isActive = $this->resolveRecordActiveStatus($candidate);
 
                 $cityPassed = (round($cityScore, 2) >= 100.0);
-                $nameAddrPassed = (round($nameScore, 2) >= 100.0 && round($addrScore, 2) >= 100.0);
+                $nameHighSimilarity = (round($nameScore, 2) >= 90.0);
+                $addrHighSimilarity = (round($addrScore, 2) >= 90.0);
+                $nameAddrPassed = ($nameHighSimilarity && $addrHighSimilarity);
 
                 // Step 1: Evaluasi 1 (similarity_total >= 90%?)
                 $rulesEvaluated[] = [
@@ -1182,26 +1183,43 @@ class MatchingEngineService
                 ];
 
                 if ($ws < 90.0) {
-                    // Evaluasi 1.1 (Ambang Sedang: similarity_total antara 80% - 89%?)
-                    $inReviewRange = ($ws >= 80.0);
-                    $rulesEvaluated[] = [
-                        'order' => 2,
-                        'field' => 'Pemeriksaan Ambang Sedang (80% - 89%)',
-                        'method' => 'Range Check (80% - 89%)',
-                        'required_threshold' => 80.0,
-                        'actual_score' => $ws,
-                        'passed' => $inReviewRange,
-                        'is_mandatory' => false,
-                    ];
-
-                    if ($inReviewRange) {
+                    if ($nameHighSimilarity && $addrHighSimilarity && ! $cityPassed) {
+                        $rulesEvaluated[] = [
+                            'order' => 2,
+                            'field' => 'Evaluasi: Nama Perusahaan & Alamat Sama / Tinggi (>= 90%) dengan Kota Berbeda',
+                            'method' => 'Dual High Similarity (>= 90%)',
+                            'required_threshold' => 90.0,
+                            'actual_score' => min($nameScore, $addrScore),
+                            'passed' => true,
+                            'is_mandatory' => true,
+                        ];
                         $allRulesPassed = false;
                         $finalClassification = 'possible_match';
-                        $decisionReason = "Skor total kemiripan {$ws}% berada pada ambang sedang (80% - 89%) -> Reviu Manual (Keputusan di tangan User)";
+                        $downgraded = true;
+                        $downgradeReason = "Nama perusahaan ({$nameScore}%) dan alamat ({$addrScore}%) sama/kemiripan tinggi (>= 90%), namun Kabupaten/Kota berbeda ({$cityScore}%) -> Perlu Reviu Manual";
+                        $decisionReason = "Nama perusahaan ({$nameScore}%) dan alamat ({$addrScore}%) sama/kemiripan tinggi (>= 90%), namun Kabupaten/Kota berbeda ({$cityScore}%) -> Perlu Reviu Manual";
                     } else {
-                        $allRulesPassed = false;
-                        $finalClassification = 'unmatched';
-                        $decisionReason = "Skor total kemiripan {$ws}% < 80% -> Tidak Cocok (Masukkan record ke tabel Referensi)";
+                        // Evaluasi 1.1 (Ambang Sedang: similarity_total antara 80% - 89%?)
+                        $inReviewRange = ($ws >= 80.0);
+                        $rulesEvaluated[] = [
+                            'order' => 2,
+                            'field' => 'Pemeriksaan Ambang Sedang (80% - 89%)',
+                            'method' => 'Range Check (80% - 89%)',
+                            'required_threshold' => 80.0,
+                            'actual_score' => $ws,
+                            'passed' => $inReviewRange,
+                            'is_mandatory' => false,
+                        ];
+
+                        if ($inReviewRange) {
+                            $allRulesPassed = false;
+                            $finalClassification = 'possible_match';
+                            $decisionReason = "Skor total kemiripan {$ws}% berada pada ambang sedang (80% - 89%) -> Reviu Manual (Keputusan di tangan User)";
+                        } else {
+                            $allRulesPassed = false;
+                            $finalClassification = 'unmatched';
+                            $decisionReason = "Skor total kemiripan {$ws}% < 80% -> Tidak Cocok (Masukkan record ke tabel Referensi)";
+                        }
                     }
                 } else {
                     // ws >= 90% -> Masuk ke pemeriksaan variabel pendukung
@@ -1222,42 +1240,27 @@ class MatchingEngineService
                         $finalClassification = 'matched';
                         $decisionReason = "Skor total kemiripan {$ws}% >= 90% dan Kemiripan Kota 100% -> Cocok (Drop record duplikat)";
                     } else {
-                        // Evaluasi 3: Apakah kemiripan_nama_perusahaan == 100% DAN kemiripan_alamat == 100%?
+                        // Evaluasi 3: Apakah Nama Perusahaan >= 90% DAN Alamat Perusahaan >= 90%?
                         $rulesEvaluated[] = [
                             'order' => 3,
-                            'field' => 'Evaluasi 3: Syarat Ganda (Nama Perusahaan 100% DAN Alamat 100%)',
-                            'method' => 'Exact Dual Match',
-                            'required_threshold' => 100.0,
+                            'field' => 'Evaluasi 3: Nama Perusahaan & Alamat Sama / Tinggi (>= 90%) dengan Kota Berbeda',
+                            'method' => 'Dual High Similarity (>= 90%)',
+                            'required_threshold' => 90.0,
                             'actual_score' => min($nameScore, $addrScore),
                             'passed' => $nameAddrPassed,
                             'is_mandatory' => true,
                         ];
 
-                        if (! $nameAddrPassed) {
+                        if ($nameAddrPassed) {
+                            $allRulesPassed = false;
+                            $finalClassification = 'possible_match';
+                            $downgraded = true;
+                            $downgradeReason = "Nama perusahaan ({$nameScore}%) dan alamat ({$addrScore}%) sama/kemiripan tinggi (>= 90%), namun Kabupaten/Kota berbeda ({$cityScore}%) -> Perlu Reviu Manual";
+                            $decisionReason = "Nama perusahaan ({$nameScore}%) dan alamat ({$addrScore}%) sama/kemiripan tinggi (>= 90%), namun Kabupaten/Kota berbeda ({$cityScore}%) -> Perlu Reviu Manual";
+                        } else {
                             $allRulesPassed = false;
                             $finalClassification = 'unmatched';
-                            $decisionReason = "Kemiripan kota {$cityScore}% < 100% dan syarat ganda (Nama {$nameScore}%, Alamat {$addrScore}%) tidak terpenuhi -> Tidak Cocok (Masukkan record ke tabel Referensi)";
-                        } else {
-                            // Evaluasi 4: Apakah Referensi.is_active == 1?
-                            $rulesEvaluated[] = [
-                                'order' => 4,
-                                'field' => 'Evaluasi 4: Status Referensi Aktif (is_active == 1)',
-                                'method' => 'Active Status Flag',
-                                'required_threshold' => 100.0,
-                                'actual_score' => $isActive ? 100.0 : 0.0,
-                                'passed' => $isActive,
-                                'is_mandatory' => true,
-                            ];
-
-                            if ($isActive) {
-                                $allRulesPassed = true;
-                                $finalClassification = 'matched';
-                                $decisionReason = "Nama & Alamat 100% dan Status Referensi Aktif (is_active == 1) -> Cocok (Drop record duplikat)";
-                            } else {
-                                $allRulesPassed = false;
-                                $finalClassification = 'unmatched';
-                                $decisionReason = "Nama & Alamat 100% namun Status Referensi Tidak Aktif (is_active == 0) -> Tidak Cocok (Masukkan record ke tabel Referensi)";
-                            }
+                            $decisionReason = "Kemiripan kota {$cityScore}% < 100% dan syarat kemiripan nama & alamat (Nama: {$nameScore}%, Alamat: {$addrScore}%) tidak memenuhi batas >= 90% -> Tidak Cocok (Masukkan record ke tabel Referensi)";
                         }
                     }
                 }

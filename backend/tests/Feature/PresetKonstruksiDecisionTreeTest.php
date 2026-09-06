@@ -106,9 +106,10 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
     }
 
     /**
-     * Case 2: Total WLS >= 90%, City != 100%, Name == 100%, Address == 100%, is_active == 1 -> MATCH
+     * Case 2: Total WLS >= 90%, City != 100%, Name >= 90%, Address >= 90% -> NEED REVIEW (possible_match)
+     * (Routes to review when name and address have high similarity despite different city)
      */
-    public function test_preset_konstruksi_matches_when_city_differs_but_name_addr_100_and_active(): void
+    public function test_preset_konstruksi_needs_review_when_city_differs_but_name_and_addr_high(): void
     {
         $reference = Dataset::create([
             'user_id' => $this->user->id,
@@ -185,17 +186,16 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
         $response->assertOk();
         $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
 
-        // WLS = (100*0.55) + (100*0.30) + (100*0.10) + (0*0.05) = 95.0% >= 90%
-        // City != 100%, but Name == 100%, Addr == 100%, is_active == 1 -> MATCH
-        $this->assertSame('matched', $result->result_type);
+        // City != 100%, but Name >= 90% AND Addr >= 90% -> possible_match (Perlu Reviu Manual)
+        $this->assertSame('possible_match', $result->result_type);
         $this->assertEquals(95.0, (float) $result->overall_score);
-        $this->assertStringContainsString('Status Referensi Aktif', $result->decision_reason);
+        $this->assertStringContainsString('Perlu Reviu Manual', $result->decision_reason);
     }
 
     /**
-     * Case 3: Total WLS >= 90%, City != 100%, Name == 100%, Address == 100%, is_active == 0 -> UNMATCH
+     * Case 3: Reference active status check is bypassed; Name >= 90% & Addr >= 90% with different city routes to review
      */
-    public function test_preset_konstruksi_unmatches_when_city_differs_and_reference_is_inactive(): void
+    public function test_preset_konstruksi_skips_reference_active_status_and_needs_review(): void
     {
         $reference = Dataset::create([
             'user_id' => $this->user->id,
@@ -215,7 +215,7 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
                     'alamat' => 'Jl. Sudirman No. 10',
                     'badan_usaha' => 'PT',
                     'kdkab' => '3171',
-                    'status_perusahaan' => '0', // Inactive reference!
+                    'status_perusahaan' => '0', // Inactive reference status should be ignored
                 ],
             ],
         ]);
@@ -272,9 +272,9 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
         $response->assertOk();
         $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
 
-        // WLS is 95% >= 90%, City != 100%, Name 100%, Addr 100%, but is_active == 0 -> UNMATCH
-        $this->assertSame('unmatched', $result->result_type);
-        $this->assertStringContainsString('Tidak Aktif', $result->decision_reason);
+        // Reference status is skipped; Name >= 90% and Addr >= 90% with different city -> possible_match
+        $this->assertSame('possible_match', $result->result_type);
+        $this->assertStringContainsString('Perlu Reviu Manual', $result->decision_reason);
     }
 
     /**
@@ -363,9 +363,9 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
     }
 
     /**
-     * Case 5: Total WLS >= 90%, City != 100%, Name 100% but Address != 100% -> UNMATCH (INSERT record)
+     * Case 5: Total WLS >= 90%, City != 100%, Name 100% but Address < 90% -> UNMATCH (INSERT record)
      */
-    public function test_preset_konstruksi_unmatches_when_city_differs_and_address_is_not_100_percent(): void
+    public function test_preset_konstruksi_unmatches_when_city_differs_and_address_is_below_90_percent(): void
     {
         $reference = Dataset::create([
             'user_id' => $this->user->id,
@@ -404,7 +404,7 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
             'preview_rows' => [
                 [
                     'nama_inti' => 'Maju Jaya',
-                    'alamat' => 'Jalan Jendral Sudirman No. 10', // Token Set is 80%, not 100%
+                    'alamat' => 'Jalan Jendral Sudirman No. 10', // Token Set is ~81.25%, not >= 90%
                     'badan_usaha' => 'PT',
                     'kdkab' => '3273', // Different city
                 ],
@@ -420,9 +420,8 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
         $reference->columns()->create(['name' => 'kdkab', 'normalized_name' => 'kdkab', 'data_type' => 'text', 'position' => 4]);
         $input->columns()->create(['name' => 'kdkab', 'normalized_name' => 'kdkab', 'data_type' => 'text', 'position' => 4]);
 
-        // Name is 100% (55%), Addr Token Set is 81.25% (24.375%), BU is 100% (10%), City is 0% (0%)
-        // Total WLS = 55 + 24.375 + 10 = 89.375% (or with higher addr weight >= 90%)
-        // If we configure weights: Name 60%, Addr 30%, BU 10% -> WLS = 60 + 24.375 + 10 = 94.375% >= 90%
+        // Name is 100% (60%), Addr Token Set is ~81.25% (24.375%), BU is 100% (10%), City is 0% (0%)
+        // Total WLS = 60 + 24.375 + 10 = 94.375% >= 90%
         $response = $this->actingAs($this->user)->postJson('/api/matching-jobs/run', [
             'name' => 'Konstruksi Not 100% Addr Test',
             'reference_dataset_id' => $reference->id,
@@ -444,9 +443,9 @@ class PresetKonstruksiDecisionTreeTest extends TestCase
         $response->assertOk();
         $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
 
-        // City != 100%, and Dual condition (Name 100% AND Addr 100%) fails because Addr < 100% -> UNMATCH
+        // City != 100%, and Dual condition fails because Addr < 90% -> UNMATCH
         $this->assertSame('unmatched', $result->result_type);
-        $this->assertStringContainsString('syarat ganda', $result->decision_reason);
+        $this->assertStringContainsString('tidak memenuhi batas >= 90%', $result->decision_reason);
     }
 
     /**

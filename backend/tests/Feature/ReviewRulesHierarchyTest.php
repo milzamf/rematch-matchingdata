@@ -141,19 +141,21 @@ class ReviewRulesHierarchyTest extends TestCase
             ],
         ]);
 
-        // 6. Preset 6: Inactive Business Status
+        // 6. Preset 6: Same Name & Address, Different Regency/City
         $job->results()->create([
             'input_record_key' => 'rec_6',
             'reference_record_key' => 'ref_6',
             'result_type' => 'possible_match',
-            'overall_score' => 83,
+            'overall_score' => 88,
             'candidate_rank' => 1,
             'field_scores' => [
-                ['reference_column' => 'name', 'input_column' => 'name', 'score' => 83],
+                ['reference_column' => 'nama inti', 'input_column' => 'nama inti', 'score' => 95, 'comparison' => 'same'],
+                ['reference_column' => 'alamat_perusahaan', 'input_column' => 'alamat', 'score' => 95, 'comparison' => 'same'],
+                ['reference_column' => 'kab', 'input_column' => 'kd_kab', 'score' => 0, 'comparison' => 'different'],
             ],
             'candidate_metadata' => [
-                'input_record' => ['name' => 'Gemilang Abadi', 'status' => 'aktif'],
-                'reference_record' => ['name' => 'Gemilang Abadi', 'status_perusahaan' => '2'],
+                'input_record' => ['name' => 'Gemilang Abadi', 'alamat' => 'Jl Mawar No 10', 'kd_kab' => '3171'],
+                'reference_record' => ['name' => 'Gemilang Abadi', 'alamat' => 'Jl Mawar No 10', 'kab' => '3273'],
             ],
         ]);
 

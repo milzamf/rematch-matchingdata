@@ -7153,7 +7153,8 @@ function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof useP
   if (pattern === "MULTI_CANDIDATE_AMBIGUITY") return "3. Kandidat Ganda (Ambiguitas)";
   if (pattern === "GEO_LOCATION_CONFLICT") return "4. Beda Wilayah (Kabupaten)";
   if (pattern === "ADDRESS_CONFLICT") return "5. Beda Alamat";
-  if (pattern === "INACTIVE_BUSINESS_STATUS") return "6. Status Usaha Nonaktif";
+  if (pattern === "SAME_NAME_ADDRESS_DIFF_CITY") return "6. Nama & Alamat Sama, Beda Kabupaten/Kota";
+  if (pattern === "INACTIVE_BUSINESS_STATUS") return "Status Usaha Nonaktif";
   if (pattern === "FIELD_CONFLICT") return t("review.group.fieldConflict");
   if (pattern === "SIMILAR_NAME_REVIEW") return t("review.group.similarName");
   if (pattern === "LOW_CONFIDENCE_MATCH") return t("review.group.lowConfidence");
@@ -7164,6 +7165,7 @@ function caseGroupDisplayLabel(group: ReviewCaseGroup, t: ReturnType<typeof useP
 
 function caseGroupReason(group: ReviewCaseGroup, t: ReturnType<typeof usePreferences>["t"]) {
   const pattern = (group.pattern ?? "").toUpperCase();
+  if (pattern === "SAME_NAME_ADDRESS_DIFF_CITY") return "Nama perusahaan dan alamat sama persis atau kemiripan tinggi (>= 90%), namun Kabupaten/Kota berbeda";
   if (pattern === "LEGAL_FORM_CONFLICT") return t("review.reason.legalConflict");
   if (pattern === "GEO_LOCATION_CONFLICT") return t("review.reason.locationConflict");
   if (pattern === "FIELD_CONFLICT") return t("review.reason.fieldConflict");

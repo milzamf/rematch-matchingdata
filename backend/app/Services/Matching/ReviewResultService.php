@@ -371,13 +371,13 @@ class ReviewResultService
                 'recommendation' => 'Verifikasi keabsahan relokasi kantor sebelum menyetujui.',
             ],
             [
-                'id' => 'system_preset_6_inactive',
+                'id' => 'system_preset_6_same_name_addr_diff_city',
                 'preset_number' => 6,
-                'name' => '6. Status Usaha Nonaktif',
-                'pattern' => 'INACTIVE_BUSINESS_STATUS',
-                'description' => 'Data acuan menunjukkan status tutup, belum beroperasi, atau tidak aktif pada direktori usaha.',
+                'name' => '6. Nama & Alamat Sama, Beda Kabupaten/Kota',
+                'pattern' => 'SAME_NAME_ADDRESS_DIFF_CITY',
+                'description' => 'Nama perusahaan dan alamat sama persis atau kemiripan tinggi (>= 90%), namun Kabupaten/Kota atau kode wilayah berbeda.',
                 'type' => 'system_preset',
-                'recommendation' => 'Konfirmasi apakah perusahaan kembali aktif atau merupakan entitas lama.',
+                'recommendation' => 'Periksa apakah entitas memiliki kantor cabang, berpindah domisili wilayah, atau terdapat kesalahan kode kabupaten/kota pada data input.',
             ],
         ];
     }
@@ -714,16 +714,24 @@ class ReviewResultService
             }
         }
 
-        // 5. Address conflict check
-        $addressConflict = false;
+        // 5. Address evaluation
         $addrScore = null;
         foreach ($fieldScores as $fs) {
-            $col = strtolower((string) ($fs['reference_column'] ?? ''));
+            $col = strtolower((string) ($fs['reference_column'] ?? '').' '.(string) ($fs['input_column'] ?? ''));
             if (str_contains($col, 'alamat') || str_contains($col, 'address')) {
-                $addrScore = (float) ($fs['score'] ?? 0);
-                break;
+                $addrScore = max($addrScore ?? 0.0, (float) ($fs['score'] ?? 0));
             }
         }
+        if ($addrScore === null) {
+            $addrInp = trim((string) ($inp['alamat'] ?? $inp['alamat_perusahaan'] ?? $inp['address'] ?? ''));
+            $addrRef = trim((string) ($ref['alamat'] ?? $ref['alamat_perusahaan'] ?? $ref['address'] ?? ''));
+            if ($addrInp !== '' && $addrRef !== '' && strcasecmp($addrInp, $addrRef) === 0) {
+                $addrScore = 100.0;
+            }
+        }
+
+        // Address conflict check for Preset 5
+        $addressConflict = false;
         if ($coreNameScore >= 80 && ! $locationConflict) {
             if ($addrScore !== null && $addrScore < 60) {
                 $addressConflict = true;
@@ -732,13 +740,12 @@ class ReviewResultService
             }
         }
 
-        // 6. Inactive status check
-        $statusPerusahaan = mb_strtolower(trim((string) ($ref['status_perusahaan'] ?? $ref['status'] ?? $ref['is_active'] ?? '')));
-        $isInactive = in_array($statusPerusahaan, ['2', '0', 'tutup', 'tidak aktif', 'nonaktif', 't', 'false'], true)
-            || str_contains($statusPerusahaan, 'tutup')
-            || str_contains($statusPerusahaan, 'tidak aktif');
+        // Special case: Nama & Alamat sama persis / tinggi (>= 90%) namun Kabupaten/Kota berbeda
+        $nameHighSimilarity = ($coreNameScore >= 90.0);
+        $addrHighSimilarity = ($addrScore !== null && $addrScore >= 90.0);
+        $sameNameAndAddressDiffCity = ($locationConflict && $nameHighSimilarity && $addrHighSimilarity);
 
-        // Sequential Priority 1 to 6
+        // Sequential Priority
         if ($hasIdConflict) {
             $pattern = 'IDENTIFIER_CONFLICT';
             $reason = 'Nomor NIB atau NPWP di kedua data terisi tetapi nilainya berbeda, atau terjadi konflik pada identifier legal unik.';
@@ -760,6 +767,13 @@ class ReviewResultService
             $presetNumber = 3;
             $groupId = 'system_preset_3_multi_candidate';
             $label = '3. Kandidat Ganda (Ambiguitas)';
+        } elseif ($sameNameAndAddressDiffCity) {
+            $pattern = 'SAME_NAME_ADDRESS_DIFF_CITY';
+            $reason = "Nama perusahaan ({$coreNameScore}%) dan alamat ({$addrScore}%) sama persis atau kemiripan tinggi (>= 90%), namun Kabupaten/Kota berbeda.";
+            $ruleType = 'system_preset';
+            $presetNumber = 6;
+            $groupId = 'system_preset_6_same_name_addr_diff_city';
+            $label = '6. Nama & Alamat Sama, Beda Kabupaten/Kota';
         } elseif ($locationConflict) {
             $pattern = 'GEO_LOCATION_CONFLICT';
             $reason = 'Kemiripan nama perusahaan tinggi (>= 80%), namun kolom Kabupaten/Kota berbeda antardata.';
@@ -774,13 +788,6 @@ class ReviewResultService
             $presetNumber = 5;
             $groupId = 'system_preset_5_address';
             $label = '5. Beda Alamat';
-        } elseif ($isInactive) {
-            $pattern = 'INACTIVE_BUSINESS_STATUS';
-            $reason = 'Data acuan menunjukkan status tutup, belum beroperasi, atau tidak aktif pada direktori usaha.';
-            $ruleType = 'system_preset';
-            $presetNumber = 6;
-            $groupId = 'system_preset_6_inactive';
-            $label = '6. Status Usaha Nonaktif';
         } else {
             // Check Custom Rules
             $matchedCustom = null;
@@ -824,9 +831,9 @@ class ReviewResultService
                 'legal_form_conflict' => $legalConflict,
                 'location_conflict' => $locationConflict,
                 'address_conflict' => $addressConflict,
+                'same_name_address_diff_city' => $sameNameAndAddressDiffCity,
                 'multi_candidate' => $hasMultiCandidate,
                 'has_identifier_conflict' => $hasIdConflict,
-                'is_inactive' => $isInactive,
                 'different_fields' => $differentFields,
                 'similar_fields' => $similarFields,
             ],
@@ -919,7 +926,8 @@ class ReviewResultService
             'MULTI_CANDIDATE_AMBIGUITY' => '3. Kandidat Ganda (Ambiguitas)',
             'GEO_LOCATION_CONFLICT' => '4. Beda Wilayah (Kabupaten)',
             'ADDRESS_CONFLICT' => '5. Beda Alamat',
-            'INACTIVE_BUSINESS_STATUS' => '6. Status Usaha Nonaktif',
+            'SAME_NAME_ADDRESS_DIFF_CITY' => '6. Nama & Alamat Sama, Beda Kabupaten/Kota',
+            'INACTIVE_BUSINESS_STATUS' => 'Status Usaha Nonaktif',
             'FIELD_CONFLICT' => 'Supporting field conflict',
             'SIMILAR_NAME_REVIEW' => 'Similar name review',
             'NO_CANDIDATE' => 'No candidate',
@@ -948,6 +956,7 @@ class ReviewResultService
             'MULTI_CANDIDATE_AMBIGUITY' => 'Pilih manual salah satu kandidat acuan yang paling sesuai.',
             'GEO_LOCATION_CONFLICT' => 'Periksa apakah entitas memiliki kantor cabang atau berpindah domisili wilayah.',
             'ADDRESS_CONFLICT' => 'Verifikasi keabsahan relokasi kantor sebelum menyetujui.',
+            'SAME_NAME_ADDRESS_DIFF_CITY' => 'Periksa apakah entitas memiliki kantor cabang, berpindah domisili wilayah, atau terdapat kesalahan kode kabupaten/kota pada data input.',
             'INACTIVE_BUSINESS_STATUS' => 'Konfirmasi apakah perusahaan kembali aktif atau merupakan entitas lama.',
             'NO_CANDIDATE' => 'Tandai sebagai tidak cocok (unmatched) atau periksa sumber data mentah.',
             default => 'Tinjau sampel perwakilan, kemudian terapkan keputusan kelompok.',

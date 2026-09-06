@@ -36,7 +36,10 @@ backend/.env.*
 *.sqlite-journal
 backend/database/*.sqlite
 backend/database/*.sqlite-journal
+# Executables & Search Engines
+*.exe
 data.ms/
+backend/data.ms/
 
 # Backend storage & vendor
 backend/vendor/
