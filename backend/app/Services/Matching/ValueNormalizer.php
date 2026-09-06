@@ -99,6 +99,7 @@ class ValueNormalizer
             $text = preg_replace('/\bkec\b/u', 'kecamatan', $text) ?? $text;
             $text = preg_replace('/\bkel\b/u', 'kelurahan', $text) ?? $text;
             $text = preg_replace('/\bprov\b/u', 'provinsi', $text) ?? $text;
+            $text = preg_replace('/[^\pL\pN\s]+/u', ' ', $text) ?? $text;
             $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
 
             return trim($text);
@@ -115,7 +116,7 @@ class ValueNormalizer
      */
     public function tokens(string $value): array
     {
-        $tokens = preg_split('/\s+/', $value, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $tokens = preg_split('/[^\pL\pN]+/u', mb_strtolower($value), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
         return array_values(array_unique(array_filter($tokens, fn (string $token) => mb_strlen($token) >= 2)));
     }

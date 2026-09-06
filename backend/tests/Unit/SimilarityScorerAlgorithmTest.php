@@ -29,6 +29,22 @@ class SimilarityScorerAlgorithmTest extends TestCase
         $this->assertEquals(80.0, $tokenSetScore);
     }
 
+    public function test_token_set_ratio_scores_100_percent_when_short_address_is_contained_in_long_detailed_address(): void
+    {
+        $normalizer = new ValueNormalizer();
+        $rawDetailed = 'Jl. Trans TV. RT 12. RW 06 Kelurahan Jati Kota Ternate';
+        $rawShort = 'JL TRANS TV';
+
+        $detailed = $normalizer->normalizeByType($rawDetailed, 'text', 'alamat');
+        $short = $normalizer->normalizeByType($rawShort, 'text', 'alamat_perusahaan');
+
+        $tokenSetScore = $this->scorer->score('Token Set', $short, $detailed);
+        $partialScore = $this->scorer->score('Partial Ratio', $short, $detailed);
+
+        $this->assertEquals(100.0, $tokenSetScore);
+        $this->assertEquals(100.0, $partialScore);
+    }
+
     public function test_token_sort_and_token_set_handle_word_order_permutations(): void
     {
         $left = 'PT Maju Jaya Abadi';
