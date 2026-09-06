@@ -33,6 +33,7 @@ class MatchingConfigResolver
             ],
             'candidateGeneration' => [
                 'topN' => max(1, min(25, (int) ($candidateGeneration['topN'] ?? 3))),
+                'searchLimit' => max(30, (int) ($candidateGeneration['searchLimit'] ?? 30)),
             ],
             'searchOptimization' => $configuration['searchOptimization'] ?? [
                 'enabled' => true,

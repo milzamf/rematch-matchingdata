@@ -402,32 +402,43 @@ export function RecordComparisonModal({
   const [rawLayout, setRawLayout] = useState<"split" | "input_only" | "ref_only">("split");
   const [hideEmptyRaw, setHideEmptyRaw] = useState(false);
 
+  // Always sort candidates by rank ascending, then score descending
+  const sortedCandidates = useMemo(() => {
+    if (!item?.candidates || !Array.isArray(item.candidates)) return [];
+    return [...item.candidates].sort((a, b) => {
+      const rankA = a?.rank ?? 999;
+      const rankB = b?.rank ?? 999;
+      if (rankA !== rankB) return rankA - rankB;
+      return (b?.score ?? 0) - (a?.score ?? 0);
+    });
+  }, [item?.candidates]);
+
   // Keep selected candidate in sync when item changes
   useEffect(() => {
-    if (item?.candidates && Array.isArray(item.candidates) && item.candidates.length > 0) {
+    if (sortedCandidates.length > 0) {
       if (initialCandidateId) {
-        const matchingCand = item.candidates.find((c) => c && c.id === initialCandidateId);
+        const matchingCand = sortedCandidates.find((c) => c && c.id === initialCandidateId);
         if (matchingCand) {
           setSelectedCandidateId(matchingCand.id);
           return;
         }
       }
-      setSelectedCandidateId(item.candidates[0].id);
+      setSelectedCandidateId(sortedCandidates[0].id);
     } else {
       setSelectedCandidateId(null);
     }
-  }, [item?.input_record_key, initialCandidateId]);
+  }, [item?.input_record_key, initialCandidateId, sortedCandidates]);
 
   const currentCandidate = useMemo(() => {
-    if (!item || !item.candidates || !Array.isArray(item.candidates) || item.candidates.length === 0) {
+    if (sortedCandidates.length === 0) {
       return null;
     }
     if (selectedCandidateId) {
-      const found = item.candidates.find((c) => c && c.id === selectedCandidateId);
+      const found = sortedCandidates.find((c) => c && c.id === selectedCandidateId);
       if (found) return found;
     }
-    return item.candidates[0] ?? null;
-  }, [item, selectedCandidateId]);
+    return sortedCandidates[0] ?? null;
+  }, [sortedCandidates, selectedCandidateId]);
 
   const currentIndex = useMemo(() => {
     if (!item || items.length === 0) return -1;
@@ -628,13 +639,13 @@ export function RecordComparisonModal({
             </div>
 
             {/* Candidate Selector Tabs (if multiple candidates) */}
-            {item.candidates && item.candidates.length > 1 && (
+            {sortedCandidates.length > 1 && (
               <div className="mt-3 flex items-center gap-2 overflow-x-auto pt-2.5 border-t border-border/50 text-xs">
                 <span className="text-muted-foreground font-medium shrink-0">
-                  Pilih Kandidat Acuan ({item.candidates.length}):
+                  Pilih Kandidat Acuan ({sortedCandidates.length}):
                 </span>
                 <div className="flex items-center gap-1.5">
-                  {item.candidates.map((cand, idx) => {
+                  {sortedCandidates.map((cand, idx) => {
                     const isSelected = currentCandidate?.id === cand.id;
                     const candName =
                       (cand.reference_record?.nama_perusahaan as string) ??
@@ -651,9 +662,9 @@ export function RecordComparisonModal({
                             : "border border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground"
                         }`}
                       >
-                        <span className="font-bold">#{cand.rank ?? idx + 1}</span>
-                        <span className="max-w-[150px] truncate">{candName}</span>
-                        <span className="font-bold tabular-nums">({cand.score}%)</span>
+                        <span className="font-bold shrink-0">#{cand.rank ?? idx + 1}</span>
+                        <span className="max-w-[160px] truncate">{candName}</span>
+                        <span className="font-bold tabular-nums shrink-0">({cand.score}%)</span>
                       </button>
                     );
                   })}
@@ -797,15 +808,23 @@ export function RecordComparisonModal({
                     </div>
 
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
+                      <table className="w-full text-xs table-fixed">
+                        <colgroup>
+                          <col className="w-[22%]" />
+                          <col className="w-[27%]" />
+                          <col className="w-[27%]" />
+                          <col className="w-[9%]" />
+                          <col className="w-[5%]" />
+                          <col className="w-[10%]" />
+                        </colgroup>
                         <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground border-b border-border">
                           <tr>
-                            <th className="px-4 py-2.5 text-left font-semibold">Kolom Evaluasi (Input ↔ Acuan)</th>
-                            <th className="px-4 py-2.5 text-left font-semibold">Nilai Data Input</th>
-                            <th className="px-4 py-2.5 text-left font-semibold">Nilai Data Acuan</th>
-                            <th className="px-4 py-2.5 text-center font-semibold">Skor Similarity</th>
-                            <th className="px-4 py-2.5 text-center font-semibold">Bobot</th>
-                            <th className="px-4 py-2.5 text-right font-semibold">Status Evaluasi</th>
+                            <th className="px-3.5 py-2.5 text-left font-semibold">Kolom Evaluasi (Input ↔ Acuan)</th>
+                            <th className="px-3.5 py-2.5 text-left font-semibold">Nilai Data Input</th>
+                            <th className="px-3.5 py-2.5 text-left font-semibold">Nilai Data Acuan</th>
+                            <th className="px-3.5 py-2.5 text-center font-semibold whitespace-nowrap">Skor Similarity</th>
+                            <th className="px-3.5 py-2.5 text-center font-semibold whitespace-nowrap">Bobot</th>
+                            <th className="px-3.5 py-2.5 text-right font-semibold whitespace-nowrap">Status Evaluasi</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
@@ -815,9 +834,9 @@ export function RecordComparisonModal({
 
                             return (
                               <tr key={`${f.input_column}-${f.reference_column}-${i}`} className="hover:bg-secondary/20 transition-colors">
-                                <td className="px-4 py-3 font-semibold text-foreground">
+                                <td className="px-3.5 py-2.5 font-semibold text-foreground align-middle">
                                   <div className="flex flex-col gap-1">
-                                    <div className="flex items-center gap-1.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className={resolved.isGenerated ? "font-semibold text-foreground" : "text-muted-foreground"}>
                                         {resolved.inputColLabel}
                                       </span>
@@ -827,79 +846,85 @@ export function RecordComparisonModal({
                                       </span>
                                     </div>
                                     {resolved.isGenerated && (
-                                      <span className="inline-flex items-center gap-1 w-fit rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                                        <Split className="size-2.5" />
+                                      <span className="inline-flex items-center gap-1 w-fit rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                        <Split className="size-2.5 shrink-0" />
                                         Ekstraksi Normalisasi Otomatis
                                       </span>
                                     )}
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 max-w-[260px] break-words text-muted-foreground">
+                                <td className="px-3.5 py-2.5 text-muted-foreground align-middle">
                                   {resolved.isGenerated ? (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="font-bold text-foreground text-xs uppercase select-all">
+                                    <div className="space-y-0.5">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="font-bold text-foreground text-xs uppercase select-all tracking-wide">
                                           {formatRawValue(resolved.inputVal)}
                                         </span>
-                                        <span className="rounded bg-blue-500/10 px-1.5 py-0.2 text-[9px] font-semibold text-blue-600 dark:text-blue-400">
+                                        <span className="whitespace-nowrap shrink-0 inline-flex items-center rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-blue-600 dark:text-blue-400">
                                           Virtual / In-Memory
                                         </span>
                                       </div>
-                                      <p className="text-[11px] text-muted-foreground leading-tight">
-                                        <span className="text-[10px] uppercase font-semibold text-muted-foreground/70">Nama Asli: </span>
-                                        <span className="font-medium text-foreground">{resolved.rawCompanyInput}</span>
-                                      </p>
-                                      {resolved.isBadanUsaha && resolved.rawFormInput && (
-                                        <p className="text-[10px] text-muted-foreground">
-                                          Bentuk Usaha: <span className="font-mono text-foreground/80">{resolved.rawFormInput}</span>
+                                      {resolved.isNamaInti && resolved.rawCompanyInput && resolved.rawCompanyInput !== String(resolved.inputVal) && (
+                                        <p className="text-[10.5px] text-muted-foreground leading-tight truncate" title={`Nama Asli: ${resolved.rawCompanyInput}`}>
+                                          <span className="text-[9.5px] uppercase font-semibold text-muted-foreground/70">Asli: </span>
+                                          <span className="font-medium text-foreground">{resolved.rawCompanyInput}</span>
+                                        </p>
+                                      )}
+                                      {resolved.isBadanUsaha && resolved.rawFormInput && resolved.rawFormInput !== String(resolved.inputVal) && (
+                                        <p className="text-[10.5px] text-muted-foreground leading-tight truncate" title={`Nilai Asli: ${resolved.rawFormInput}`}>
+                                          <span className="text-[9.5px] uppercase font-semibold text-muted-foreground/70">Asli: </span>
+                                          <span className="font-mono text-foreground/80">{resolved.rawFormInput}</span>
                                         </p>
                                       )}
                                     </div>
                                   ) : (
-                                    <div className="flex items-start justify-between gap-1">
-                                      <span className="select-all">{formatRawValue(resolved.inputVal)}</span>
+                                    <div className="flex items-center justify-between gap-1.5">
+                                      <span className="select-all break-words leading-relaxed text-xs">{formatRawValue(resolved.inputVal)}</span>
                                       {resolved.inputVal !== "-" && resolved.inputVal !== "- (kosong)" && (
                                         <CopyButton text={formatRawValue(resolved.inputVal)} />
                                       )}
                                     </div>
                                   )}
                                 </td>
-                                <td className="px-4 py-3 max-w-[260px] break-words text-foreground font-medium">
+                                <td className="px-3.5 py-2.5 text-foreground font-medium align-middle">
                                   {resolved.isGenerated ? (
-                                    <div className="space-y-1">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="font-bold text-foreground text-xs uppercase select-all">
+                                    <div className="space-y-0.5">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="font-bold text-foreground text-xs uppercase select-all tracking-wide">
                                           {formatRawValue(resolved.refVal)}
                                         </span>
-                                        <span className="rounded bg-emerald-500/10 px-1.5 py-0.2 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                        <span className="whitespace-nowrap shrink-0 inline-flex items-center rounded bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">
                                           Virtual / In-Memory
                                         </span>
                                       </div>
-                                      <p className="text-[11px] text-muted-foreground leading-tight">
-                                        <span className="text-[10px] uppercase font-semibold text-muted-foreground/70">Nama Asli: </span>
-                                        <span className="font-medium text-foreground">{resolved.rawCompanyRef}</span>
-                                      </p>
-                                      {resolved.isBadanUsaha && resolved.rawFormRef && (
-                                        <p className="text-[10px] text-muted-foreground">
-                                          Badan Usaha: <span className="font-mono text-foreground/80">{resolved.rawFormRef}</span>
+                                      {resolved.isNamaInti && resolved.rawCompanyRef && resolved.rawCompanyRef !== String(resolved.refVal) && (
+                                        <p className="text-[10.5px] text-muted-foreground leading-tight truncate" title={`Nama Asli: ${resolved.rawCompanyRef}`}>
+                                          <span className="text-[9.5px] uppercase font-semibold text-muted-foreground/70">Asli: </span>
+                                          <span className="font-medium text-foreground">{resolved.rawCompanyRef}</span>
+                                        </p>
+                                      )}
+                                      {resolved.isBadanUsaha && resolved.rawFormRef && resolved.rawFormRef !== String(resolved.refVal) && (
+                                        <p className="text-[10.5px] text-muted-foreground leading-tight truncate" title={`Nilai Asli: ${resolved.rawFormRef}`}>
+                                          <span className="text-[9.5px] uppercase font-semibold text-muted-foreground/70">Asli: </span>
+                                          <span className="font-mono text-foreground/80">{resolved.rawFormRef}</span>
                                         </p>
                                       )}
                                     </div>
                                   ) : (
-                                    <div className="flex items-start justify-between gap-1">
-                                      <span className="select-all">{formatRawValue(resolved.refVal)}</span>
+                                    <div className="flex items-center justify-between gap-1.5">
+                                      <span className="select-all break-words leading-relaxed text-xs">{formatRawValue(resolved.refVal)}</span>
                                       {resolved.refVal !== "-" && resolved.refVal !== "- (kosong)" && (
                                         <CopyButton text={formatRawValue(resolved.refVal)} />
                                       )}
                                     </div>
                                   )}
                                 </td>
-                                <td className="px-4 py-3 text-center">
+                                <td className="px-3.5 py-2.5 text-center align-middle">
                                   <div className="inline-flex flex-col items-center gap-1">
-                                    <span className={`font-bold tabular-nums ${scoreTextColor(f.score)}`}>
+                                    <span className={`font-bold tabular-nums text-xs ${scoreTextColor(f.score)}`}>
                                       {Math.round(typeof f.score === "number" ? f.score : 0)}%
                                     </span>
-                                    <div className="w-16 h-1.5 rounded-full bg-secondary overflow-hidden">
+                                    <div className="w-14 h-1.5 rounded-full bg-secondary overflow-hidden">
                                       <div
                                         className={`h-full rounded-full ${scoreProgressBarClass(f.score)}`}
                                         style={{ width: `${Math.min(100, Math.max(0, typeof f.score === "number" ? f.score : 0))}%` }}
@@ -907,11 +932,11 @@ export function RecordComparisonModal({
                                     </div>
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-center tabular-nums text-muted-foreground">
+                                <td className="px-3.5 py-2.5 text-center tabular-nums text-muted-foreground align-middle font-medium text-xs">
                                   {(f as { weight?: number }).weight !== undefined ? `${(f as { weight?: number }).weight}%` : "-"}
                                 </td>
-                                <td className="px-4 py-3 text-right">
-                                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${comp.className}`}>
+                                <td className="px-3.5 py-2.5 text-right align-middle">
+                                  <span className={`inline-flex items-center justify-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide ${comp.className}`}>
                                     {comp.text}
                                   </span>
                                 </td>

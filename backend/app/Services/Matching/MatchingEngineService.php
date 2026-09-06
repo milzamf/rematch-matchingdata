@@ -699,6 +699,7 @@ class MatchingEngineService
         $chunkSize = max(500, (int) ($configuration['runOptions']['chunkSize'] ?? 500));
         $workerCount = ($configuration['runOptions']['workerCount'] ?? 1);
         $topN = (int) data_get($configuration, 'candidateGeneration.topN', 3);
+        $candidatePoolLimit = max(30, (int) data_get($configuration, 'candidateGeneration.searchLimit', 30));
 
         $summary = [
             'matched' => 0,
@@ -874,7 +875,7 @@ class MatchingEngineService
                     $queries[] = (new \Meilisearch\Contracts\SearchQuery())
                         ->setIndexUid($indexes['uid'])
                         ->setQuery($meta['query'])
-                        ->setLimit(max($topN, 3));
+                        ->setLimit($candidatePoolLimit);
                     $idxMap[] = $idx;
                 }
                 

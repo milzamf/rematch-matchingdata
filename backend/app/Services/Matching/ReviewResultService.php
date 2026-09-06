@@ -25,7 +25,6 @@ class ReviewResultService
     {
         $job = $this->ownership->findMatchingJob($user, $jobId);
         $results = $job->results()
-            ->orderByRaw("case result_type when 'possible_match' then 0 when 'matched' then 1 else 2 end")
             ->orderBy('input_record_key')
             ->orderBy('candidate_rank')
             ->get();
@@ -46,6 +45,7 @@ class ReviewResultService
 
         $items = $results->groupBy('input_record_key')->map(function ($group, string $inputKey) use ($latestDecisions, $decisionHistory, $customRules) {
             /** @var \Illuminate\Support\Collection<int, MatchingResult> $group */
+            $group = $group->sortBy('candidate_rank')->values();
             $primary = $group->first();
             $decision = $latestDecisions->get($inputKey);
             $history = $decisionHistory->get($inputKey, collect());
@@ -117,7 +117,11 @@ class ReviewResultService
                 'total_duplicates' => $totalDuplicates,
                 'duplicate_details' => $duplicateDetails,
             ],
-            'items' => $items->all(),
+            'items' => $items->sortBy(fn (array $item) => match ($item['status']) {
+                'possible_match' => 0,
+                'matched' => 1,
+                default => 2,
+            })->values()->all(),
             'system_presets' => $reviewGroups['system_presets'],
             'custom_rules' => $reviewGroups['custom_rules'],
             'dynamic_patterns' => $reviewGroups['dynamic_patterns'],
