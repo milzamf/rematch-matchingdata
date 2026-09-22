@@ -60,7 +60,7 @@ function MonitoringPage() {
   if (!canView) {
     return (
       <AppLayout>
-        <div className="mx-auto max-w-[1400px] px-8 py-8">
+        <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
           <AccessDeniedState />
         </div>
       </AppLayout>
@@ -69,7 +69,7 @@ function MonitoringPage() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-[1400px] px-8 py-8">
+      <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <PageHeader
           title={t("monitoring.title")}
           description={t("monitoring.description")}
@@ -109,7 +109,7 @@ function MonitoringPage() {
           </Card>
         ) : (
           <div className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryCard label={t("monitoring.workspaceTotal")} value={data.summary.workspace_total} />
               <SummaryCard label={t("monitoring.userTotal")} value={data.summary.user_total} />
               <SummaryCard label={t("monitoring.jobTotal")} value={data.summary.matching_job_total} />
@@ -123,7 +123,7 @@ function MonitoringPage() {
                   description={t("monitoring.recentWorkspacesDesc")}
                 />
                 <div className="overflow-x-auto">
-                  <table className="w-full table-fixed text-sm">
+                  <table className="w-full table-fixed text-sm min-w-[750px]">
                     <colgroup>
                       <col />
                       <col style={{ width: "170px" }} />

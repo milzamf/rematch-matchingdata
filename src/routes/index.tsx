@@ -80,7 +80,7 @@ function DashboardPage() {
   if (!canViewDashboard) {
     return (
       <AppLayout>
-        <div className="mx-auto max-w-[1400px] px-8 py-8">
+        <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
           <AccessDeniedState />
         </div>
       </AppLayout>
@@ -89,12 +89,12 @@ function DashboardPage() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-[1400px] px-8 py-8">
+      <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <PageHeader
           title={t("dashboard.real.title")}
           description={t("dashboard.real.description")}
           actions={
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => loadDashboard("refresh")}
                 disabled={refreshing || loading}
@@ -197,7 +197,7 @@ function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
   const { t } = usePreferences();
 
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -317,7 +317,7 @@ function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
         </Link>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full table-fixed text-sm">
+        <table className="w-full table-fixed text-sm min-w-[640px]">
           <colgroup>
             <col />
             <col style={{ width: "120px" }} />

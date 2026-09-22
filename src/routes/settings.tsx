@@ -174,7 +174,7 @@ function SettingsPage() {
 
   return (
     <AppLayout>
-      <div className="px-6 lg:px-10 py-8 max-w-[1100px] mx-auto space-y-6">
+      <div className="px-3 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8 max-w-[1100px] mx-auto space-y-5 sm:space-y-6">
         <PageHeader
           title={t("settings.title")}
           description={t("settings.description")}
@@ -184,14 +184,14 @@ function SettingsPage() {
           orientation="vertical"
           value={activeTab}
           onValueChange={handleTabChange}
-          className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-8 items-start"
+          className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-6 md:gap-8 items-start"
         >
           <div className="space-y-3">
-            <div className="rounded-xl border border-border bg-card p-1.5 shadow-xs">
-              <TabsList className="flex flex-col w-full h-auto bg-transparent p-0 space-y-1">
+            <div className="rounded-xl border border-border bg-card p-1 sm:p-1.5 shadow-xs">
+              <TabsList className="flex flex-row md:flex-col w-full h-auto bg-transparent p-0 gap-1 overflow-x-auto no-scrollbar">
                 <TabsTrigger
                   value="akun"
-                  className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
+                  className="shrink-0 md:w-full justify-start gap-2.5 px-3 py-2 md:py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer whitespace-nowrap"
                 >
                   <User className="size-4 shrink-0" />
                   <span>{t("settings.tabAccount")}</span>
@@ -199,7 +199,7 @@ function SettingsPage() {
 
                 <TabsTrigger
                   value="engine"
-                  className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
+                  className="shrink-0 md:w-full justify-start gap-2.5 px-3 py-2 md:py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer whitespace-nowrap"
                 >
                   <Cpu className="size-4 shrink-0" />
                   <span>{t("settings.tabEngine")}</span>
@@ -207,7 +207,7 @@ function SettingsPage() {
 
                 <TabsTrigger
                   value="keamanan"
-                  className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
+                  className="shrink-0 md:w-full justify-start gap-2.5 px-3 py-2 md:py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer whitespace-nowrap"
                 >
                   <ShieldCheck className="size-4 shrink-0" />
                   <span>{t("settings.tabSecurity")}</span>
@@ -215,7 +215,7 @@ function SettingsPage() {
 
                 <TabsTrigger
                   value="ekspor"
-                  className="w-full justify-start gap-3 px-3 py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer"
+                  className="shrink-0 md:w-full justify-start gap-2.5 px-3 py-2 md:py-2.5 rounded-lg text-xs font-semibold data-[state=active]:bg-brand data-[state=active]:text-brand-foreground transition-all cursor-pointer whitespace-nowrap"
                 >
                   <FileSpreadsheet className="size-4 shrink-0" />
                   <span>{t("settings.tabExport")}</span>
@@ -223,7 +223,7 @@ function SettingsPage() {
               </TabsList>
             </div>
 
-            <div className="rounded-xl border border-border/80 bg-secondary/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
+            <div className="hidden md:block rounded-xl border border-border/80 bg-secondary/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
               <p className="font-semibold text-foreground flex items-center gap-1.5">
                 <ShieldCheck className="size-3.5 text-brand" />
                 <span>{t("settings.enterpriseTitle")}</span>

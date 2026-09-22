@@ -259,7 +259,7 @@ function ResultsPage() {
   if (!canViewResults) {
     return (
       <AppLayout>
-        <div className="mx-auto max-w-[1400px] px-8 py-8">
+        <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
           <AccessDeniedState />
         </div>
       </AppLayout>
@@ -268,7 +268,7 @@ function ResultsPage() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-[1400px] px-8 py-8">
+      <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <PageHeader
           title={t("results.title")}
           description={t("results.description")}
@@ -371,7 +371,7 @@ function ResultsPage() {
           <>
             <ResultsContextHeader workspace={workspace} />
 
-            <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mb-6 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
                 label={t("results.metric.input")}
                 value={formatNumber(uniqueInputTotal)}

@@ -1358,7 +1358,7 @@ function MatchingPage() {
   if (!canViewMatching) {
     return (
       <AppLayout>
-        <div className="px-8 py-8 max-w-[1400px] mx-auto">
+        <div className="px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 max-w-[1400px] mx-auto">
           <AccessDeniedState />
         </div>
       </AppLayout>
@@ -1367,7 +1367,7 @@ function MatchingPage() {
 
   return (
     <AppLayout>
-      <div className="px-8 py-8 max-w-[1400px] mx-auto">
+      <div className="px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 max-w-[1400px] mx-auto">
         <PageHeader
           title={t("matching.title")}
           description={t("matching.description")}
@@ -1383,20 +1383,20 @@ function MatchingPage() {
           }
         />
 
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-xs">
+        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-border bg-card p-3 sm:px-4 sm:py-3 text-xs">
           <div className="min-w-0">
             <p className="font-semibold text-foreground truncate">{workspaceName}</p>
             <p className="text-muted-foreground">
               {workspaceId ? t("workspace.autosaveEnabled") : t("workspace.autosaveWaiting")}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {workspaceError && <span className="text-destructive">{workspaceError}</span>}
             {canUpdateWorkspace && (
               <button
                 type="button"
                 onClick={renameWorkspace}
-                className="rounded-md border border-border px-2 py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                className="rounded-md border border-border px-2 py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer"
               >
                 {t("workspace.renameShort")}
               </button>
@@ -1411,11 +1411,11 @@ function MatchingPage() {
         </div>
 
         {/* Horizontal stepper */}
-        <Card className="p-5 mb-6 sticky top-16 z-10">
+        <Card className="p-3 sm:p-5 mb-4 sm:mb-6 sticky top-16 z-10 bg-card/95 backdrop-blur-xs">
           <Stepper steps={localizedSteps} current={activeStep} onSelect={selectStep} />
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-3.5 sm:p-6">
           {isHydratingWorkspace && initialWorkspaceId ? (
             <div className="rounded-lg border border-border bg-secondary/20 p-6">
               <div className="flex items-center gap-3">
@@ -1904,7 +1904,7 @@ function FileSlot({
   const isError = file?.status === "error";
 
   return (
-    <div className="border border-dashed border-border rounded-lg p-6 hover:border-accent/50 hover:bg-secondary/30 transition-colors">
+    <div className="border border-dashed border-border rounded-lg p-4 sm:p-6 hover:border-accent/50 hover:bg-secondary/30 transition-colors">
       <input
         ref={ref}
         type="file"
@@ -2575,7 +2575,7 @@ function StepColumnMapping({
         <div className="space-y-5">
           <div className="space-y-2.5 overflow-x-auto">
             {mappings.length > 0 && (
-              <div className="grid min-w-[840px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_150px_44px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <div className="hidden md:grid min-w-[840px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_150px_44px] items-center gap-4 px-4 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                 <span>{t("matching.mapping.input")}</span>
                 <span className="text-center" aria-hidden="true">
                   &harr;
@@ -2603,9 +2603,40 @@ function StepColumnMapping({
                 <div
                   key={mapping.id}
                   data-testid="mapping-row"
-                  className="grid min-w-[840px] grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_150px_44px] items-center gap-4 rounded-lg border border-border px-4 py-3"
+                  className="rounded-lg border border-border p-3.5 bg-card/60 space-y-3 md:space-y-0 md:grid md:min-w-[840px] md:grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)_150px_44px] md:items-center md:gap-4 md:px-4 md:py-3"
                 >
+                  {/* Mobile header bar */}
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/40 md:hidden">
+                    <span className="text-xs font-bold text-foreground">
+                      Kolom #{index + 1}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(mapping.required_match)}
+                          onChange={(event) =>
+                            updateMapping(mapping.id, { required_match: event.target.checked })
+                          }
+                          className="size-3.5 accent-brand"
+                        />
+                        <span className="font-medium">{t("matching.mapping.strict")}</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => removeMapping(mapping.id)}
+                        className="grid size-7 place-items-center rounded-md border border-border text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer"
+                        aria-label={t("matching.mapping.remove", { row: index + 1 })}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-muted-foreground mb-1 md:hidden">
+                      {t("matching.mapping.input")}
+                    </p>
                     <SearchableSelect
                       aria-label={t("matching.mapping.inputSelect", { row: index + 1 })}
                       data-testid="mapping-input-select"
@@ -2649,13 +2680,16 @@ function StepColumnMapping({
                   </div>
 
                   <span
-                    className="text-center text-sm font-medium text-muted-foreground"
+                    className="hidden md:block text-center text-sm font-medium text-muted-foreground"
                     aria-hidden="true"
                   >
                     &harr;
                   </span>
 
                   <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-muted-foreground mb-1 md:hidden">
+                      {t("matching.mapping.reference")}
+                    </p>
                     <SearchableSelect
                       aria-label={t("matching.mapping.referenceSelect", { row: index + 1 })}
                       data-testid="mapping-reference-select"
@@ -2698,7 +2732,7 @@ function StepColumnMapping({
                     </div>
                   </div>
 
-                  <label className="flex items-start gap-2 rounded-md border border-border px-3 py-2 text-xs">
+                  <label className="hidden md:flex items-start gap-2 rounded-md border border-border px-3 py-2 text-xs">
                     <input
                       type="checkbox"
                       checked={Boolean(mapping.required_match)}
@@ -2719,7 +2753,7 @@ function StepColumnMapping({
                     type="button"
                     data-testid="mapping-remove-button"
                     onClick={() => removeMapping(mapping.id)}
-                    className="grid size-10 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
+                    className="hidden md:grid size-10 place-items-center rounded-md border border-border text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive cursor-pointer"
                     aria-label={t("matching.mapping.remove", { row: index + 1 })}
                   >
                     <Trash2 className="size-4" />
@@ -6061,7 +6095,7 @@ function CaseGroupsReview({
         </div>
 
         {/* Tab categories: Semua, Aturan Bawaan, Aturan Kustom, Pola Dinamis */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar sm:flex-wrap">
           <button
             type="button"
             onClick={() => {
@@ -6069,7 +6103,7 @@ function CaseGroupsReview({
               onSelectPresetNumber?.(null);
             }}
             className={[
-              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              "shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
               tabCategory === "all"
                 ? "border-brand bg-brand/10 text-foreground"
                 : "border-border text-muted-foreground hover:bg-secondary/70",
@@ -6085,7 +6119,7 @@ function CaseGroupsReview({
             type="button"
             onClick={() => onTabCategoryChange?.("system")}
             className={[
-              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              "shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
               tabCategory === "system"
                 ? "border-brand bg-brand/10 text-foreground"
                 : "border-border text-muted-foreground hover:bg-secondary/70",
@@ -6104,7 +6138,7 @@ function CaseGroupsReview({
               onSelectPresetNumber?.(null);
             }}
             className={[
-              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              "shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
               tabCategory === "custom"
                 ? "border-brand bg-brand/10 text-foreground"
                 : "border-border text-muted-foreground hover:bg-secondary/70",
@@ -6123,7 +6157,7 @@ function CaseGroupsReview({
               onSelectPresetNumber?.(null);
             }}
             className={[
-              "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
+              "shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer",
               tabCategory === "dynamic"
                 ? "border-brand bg-brand/10 text-foreground"
                 : "border-border text-muted-foreground hover:bg-secondary/70",

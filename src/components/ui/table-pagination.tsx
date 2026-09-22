@@ -45,7 +45,7 @@ export function TablePagination({
 
   return (
     <div
-      className={`flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-t border-border bg-card/60 text-xs ${className}`}
+      className={`flex flex-wrap items-center justify-between gap-3 px-3 sm:px-6 py-3 border-t border-border bg-card/60 text-xs ${className}`}
     >
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-muted-foreground">
@@ -80,70 +80,100 @@ export function TablePagination({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            disabled={currentPage <= 1}
-            onClick={() => onPageChange(1)}
-            className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
-            title={t("preview.firstPage")}
-          >
-            <ChevronsLeft className="size-3.5" />
-          </button>
+        <>
+          {/* Mobile pagination controls */}
+          <div className="flex sm:hidden items-center gap-2">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              className="size-8 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
+              title={t("preview.prevPage")}
+            >
+              <ChevronLeft className="size-4" />
+            </button>
 
-          <button
-            type="button"
-            disabled={currentPage <= 1}
-            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-            className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
-            title={t("preview.prevPage")}
-          >
-            <ChevronLeft className="size-3.5" />
-          </button>
+            <span className="text-xs font-semibold tabular-nums px-1 text-foreground">
+              {currentPage} / {totalPages}
+            </span>
 
-          <div className="flex items-center gap-1 px-1">
-            {paginationRange.map((page, idx) =>
-              typeof page === "string" ? (
-                <span key={idx} className="px-1 text-muted-foreground font-mono text-xs">
-                  ...
-                </span>
-              ) : (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => onPageChange(page)}
-                  className={`size-7 rounded text-xs font-semibold grid place-items-center transition-colors cursor-pointer ${
-                    currentPage === page
-                      ? "bg-brand text-brand-foreground"
-                      : "border border-border bg-secondary/30 hover:bg-secondary text-foreground"
-                  }`}
-                >
-                  {page}
-                </button>
-              ),
-            )}
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+              className="size-8 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
+              title={t("preview.nextPage")}
+            >
+              <ChevronRight className="size-4" />
+            </button>
           </div>
 
-          <button
-            type="button"
-            disabled={currentPage >= totalPages}
-            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-            className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
-            title={t("preview.nextPage")}
-          >
-            <ChevronRight className="size-3.5" />
-          </button>
+          {/* Tablet & Desktop pagination controls */}
+          <div className="hidden sm:flex items-center gap-1">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => onPageChange(1)}
+              className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
+              title={t("preview.firstPage")}
+            >
+              <ChevronsLeft className="size-3.5" />
+            </button>
 
-          <button
-            type="button"
-            disabled={currentPage >= totalPages}
-            onClick={() => onPageChange(totalPages)}
-            className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
-            title={t("preview.lastPage")}
-          >
-            <ChevronsRight className="size-3.5" />
-          </button>
-        </div>
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
+              title={t("preview.prevPage")}
+            >
+              <ChevronLeft className="size-3.5" />
+            </button>
+
+            <div className="flex items-center gap-1 px-1">
+              {paginationRange.map((page, idx) =>
+                typeof page === "string" ? (
+                  <span key={idx} className="px-1 text-muted-foreground font-mono text-xs">
+                    ...
+                  </span>
+                ) : (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => onPageChange(page)}
+                    className={`size-7 rounded text-xs font-semibold grid place-items-center transition-colors cursor-pointer ${
+                      currentPage === page
+                        ? "bg-brand text-brand-foreground"
+                        : "border border-border bg-secondary/30 hover:bg-secondary text-foreground"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ),
+              )}
+            </div>
+
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+              className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
+              title={t("preview.nextPage")}
+            >
+              <ChevronRight className="size-3.5" />
+            </button>
+
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => onPageChange(totalPages)}
+              className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed text-foreground"
+              title={t("preview.lastPage")}
+            >
+              <ChevronsRight className="size-3.5" />
+            </button>
+          </div>
+        </>
       )}
     </div>
   );

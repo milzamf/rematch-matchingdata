@@ -26,14 +26,14 @@ import { usePreferences } from "@/lib/preferences";
 import { LogoutDialog } from "@/components/logout-dialog";
 import { LogoIcon } from "@/components/ui/logo";
 
-const nav = [
+export const nav = [
   { labelKey: "nav.dashboard", url: "/", icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
   { labelKey: "nav.matching", url: "/matching", icon: GitCompareArrows, permission: PERMISSIONS.MATCHING_VIEW },
   { labelKey: "nav.results", url: "/results", icon: ClipboardCheck, permission: PERMISSIONS.EXPORT_VIEW },
   { labelKey: "nav.settings", url: "/settings", icon: Settings },
 ] as const;
 
-const secondaryNav = [
+export const secondaryNav = [
   {
     labelKey: "nav.monitoring",
     url: "/monitoring",

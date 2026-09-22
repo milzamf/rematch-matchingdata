@@ -70,7 +70,7 @@ function WorkspacesPage() {
   if (!canViewWorkspaces) {
     return (
       <AppLayout>
-        <div className="mx-auto max-w-[1400px] px-8 py-8">
+        <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
           <AccessDeniedState />
         </div>
       </AppLayout>
@@ -111,7 +111,7 @@ function WorkspacesPage() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-[1400px] px-8 py-8">
+      <div className="mx-auto max-w-[1400px] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <PageHeader
           title={t("workspace.title")}
           description={t("workspace.description")}
@@ -160,7 +160,7 @@ function WorkspacesPage() {
           ) : (
             <div>
               <div className="overflow-x-auto">
-                <table className="w-full table-fixed text-sm">
+                <table className="w-full table-fixed text-sm min-w-[760px]">
                   <colgroup>
                     <col />
                     <col style={{ width: "150px" }} />

@@ -551,7 +551,7 @@ export function RecordComparisonModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-5 md:p-6 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-5 md:p-6 animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -559,25 +559,23 @@ export function RecordComparisonModal({
       aria-modal="true"
     >
       <div
-        className="relative w-full max-w-6xl h-[92vh] max-h-[92vh] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+        className="relative w-full max-w-6xl h-[94dvh] max-h-[94dvh] flex flex-col rounded-xl sm:rounded-2xl border border-border bg-card shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         <ModalErrorBoundary onClose={onClose}>
           {/* Header */}
-          <div className="border-b border-border bg-secondary/30 px-6 py-4 shrink-0">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="border-b border-border bg-secondary/30 px-3.5 sm:px-6 py-3 sm:py-4 shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
               {/* Left: Title & Navigation */}
-              <div className="flex items-center gap-3">
-                <div className="grid size-9 place-items-center rounded-xl bg-brand/10 text-brand">
-                  <GitCompareArrows className="size-5" />
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="grid size-8 sm:size-9 place-items-center rounded-lg sm:rounded-xl bg-brand/10 text-brand shrink-0">
+                  <GitCompareArrows className="size-4 sm:size-5" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-bold text-foreground tracking-tight">
-                      Review & Perbandingan Pencocokan Data
-                    </h2>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                <div className="min-w-0">
+                  <h2 className="text-sm sm:text-base font-bold text-foreground tracking-tight truncate">
+                    Review & Perbandingan Pencocokan Data
+                  </h2>
+                  <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 truncate">
                     ID Input: <span className="font-mono font-semibold text-foreground">{item.input_record_key}</span>
                   </p>
                 </div>
@@ -673,12 +671,12 @@ export function RecordComparisonModal({
             )}
 
             {/* Navigation View Switcher (Overview vs Raw Separate Tables) */}
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/50 pt-2.5">
-              <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-xs font-medium">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-2.5">
+              <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-xs font-medium max-w-full overflow-x-auto no-scrollbar">
                 <button
                   type="button"
                   onClick={() => setActiveTab("overview")}
-                  className={`cursor-pointer rounded-md px-3.5 py-1.5 transition-all ${
+                  className={`shrink-0 whitespace-nowrap cursor-pointer rounded-md px-3 sm:px-3.5 py-1.5 transition-all ${
                     activeTab === "overview"
                       ? "bg-secondary text-foreground shadow-2xs font-semibold"
                       : "text-muted-foreground hover:text-foreground"
@@ -689,14 +687,14 @@ export function RecordComparisonModal({
                 <button
                   type="button"
                   onClick={() => setActiveTab("raw_table")}
-                  className={`cursor-pointer rounded-md px-3.5 py-1.5 transition-all flex items-center gap-1.5 ${
+                  className={`shrink-0 whitespace-nowrap cursor-pointer rounded-md px-3 sm:px-3.5 py-1.5 transition-all flex items-center gap-1.5 ${
                     activeTab === "raw_table"
                       ? "bg-secondary text-foreground shadow-2xs font-semibold"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   <FileSpreadsheet className="size-3.5 text-brand" />
-                  <span>Data Asli Excel (Input & Acuan Terpisah)</span>
+                  <span>Data Asli Excel</span>
                 </button>
               </div>
 
@@ -711,7 +709,7 @@ export function RecordComparisonModal({
           </div>
 
           {/* Modal Body (Scrollable) */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-6">
             {activeTab === "overview" ? (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
@@ -1190,26 +1188,28 @@ export function RecordComparisonModal({
             )}
           </div>
 
-          <div className="border-t border-border bg-secondary/30 px-6 py-4 flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2">
+          <div className="border-t border-border bg-secondary/30 px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex flex-wrap items-center justify-between gap-2 sm:gap-3 shrink-0">
+            <div className="flex flex-wrap items-center gap-2">
               {items.length > 0 && (
-                <div className="flex items-center gap-1.5 mr-2">
+                <div className="flex items-center gap-1 sm:gap-1.5 sm:mr-2">
                   <button
                     type="button"
                     onClick={handlePrev}
                     disabled={!hasPrev}
-                    className="cursor-pointer inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    className="cursor-pointer inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 sm:px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                   >
                     <ChevronLeft className="size-3.5" />
-                    <span>Sebelumnya</span>
+                    <span className="hidden sm:inline">Sebelumnya</span>
+                    <span className="sm:hidden">Prev</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleNext}
                     disabled={!hasNext}
-                    className="cursor-pointer inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    className="cursor-pointer inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 sm:px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                   >
-                    <span>Berikutnya</span>
+                    <span className="hidden sm:inline">Berikutnya</span>
+                    <span className="sm:hidden">Next</span>
                     <ChevronRight className="size-3.5" />
                   </button>
                 </div>
@@ -1220,19 +1220,20 @@ export function RecordComparisonModal({
                   type="button"
                   onClick={() => onUndo(item)}
                   disabled={isPending}
-                  className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 transition-all disabled:opacity-50"
+                  className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 sm:px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 transition-all disabled:opacity-50"
                 >
                   <RotateCcw className="size-3.5" />
-                  <span>Batalkan Keputusan (Undo)</span>
+                  <span className="hidden sm:inline">Batalkan Keputusan (Undo)</span>
+                  <span className="sm:hidden">Undo</span>
                 </button>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="cursor-pointer rounded-lg border border-border bg-background px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 transition-all"
+                className="cursor-pointer rounded-lg border border-border bg-background px-3 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground active:scale-95 transition-all"
               >
                 Tutup
               </button>
@@ -1243,27 +1244,29 @@ export function RecordComparisonModal({
                     type="button"
                     onClick={() => onDecide(item, "mark_unmatched", null)}
                     disabled={isPending}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-4 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-500/10 hover:border-rose-500/30 active:scale-95 transition-all disabled:opacity-50 shadow-2xs"
+                    className="cursor-pointer inline-flex items-center gap-1 sm:gap-1.5 rounded-lg border border-border bg-background px-2.5 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-rose-600 hover:bg-rose-500/10 hover:border-rose-500/30 active:scale-95 transition-all disabled:opacity-50 shadow-2xs"
                   >
-                    <XCircle className="size-4" />
-                    <span>Tandai Unmatched (Tolak)</span>
+                    <XCircle className="size-3.5 sm:size-4" />
+                    <span className="hidden sm:inline">Tandai Unmatched (Tolak)</span>
+                    <span className="sm:hidden">Tolak</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => onDecide(item, "accept_match", currentCandidate)}
                     disabled={!currentCandidate?.reference_record_key || isPending}
-                    className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-semibold text-brand-foreground shadow-xs hover:bg-brand/90 active:scale-95 transition-all disabled:opacity-50"
+                    className="cursor-pointer inline-flex items-center gap-1 sm:gap-1.5 rounded-lg bg-brand px-3 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-brand-foreground shadow-xs hover:bg-brand/90 active:scale-95 transition-all disabled:opacity-50"
                   >
                     {isPending ? (
                       <>
-                        <Loader2 className="size-4 animate-spin" />
+                        <Loader2 className="size-3.5 sm:size-4 animate-spin" />
                         <span>Menyimpan...</span>
                       </>
                     ) : (
                       <>
-                        <CheckCircle2 className="size-4" />
-                        <span>Terima Match</span>
+                        <CheckCircle2 className="size-3.5 sm:size-4" />
+                        <span className="hidden sm:inline">Terima Match</span>
+                        <span className="sm:hidden">Terima</span>
                       </>
                     )}
                   </button>
