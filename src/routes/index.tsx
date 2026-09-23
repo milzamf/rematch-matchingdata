@@ -168,12 +168,12 @@ function DashboardPage() {
           <div className="space-y-6">
             {latestWorkspace && <ContinueWork workspace={latestWorkspace} />}
 
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="space-y-6">
+            <div className="grid gap-5 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_360px] min-w-0">
+              <div className="space-y-5 sm:space-y-6 min-w-0">
                 <ActionRequired items={actionItems} />
                 <RecentWorkspaces workspaces={workspaces.slice(0, 8)} />
               </div>
-              <div className="space-y-6">
+              <div className="space-y-5 sm:space-y-6 min-w-0">
                 <WorkspaceSummaryCards summary={summary} />
                 <ReviewQueue items={reviewItems} />
               </div>
@@ -197,14 +197,14 @@ function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
   const { t } = usePreferences();
 
   return (
-    <Card className="p-4 sm:p-6">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div>
+    <Card className="p-4 sm:p-6 min-w-0">
+      <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {t("dashboard.real.continueTitle")}
           </p>
-          <h2 className="mt-2 text-xl font-semibold tracking-tight">{workspace.name}</h2>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <h2 className="mt-1.5 sm:mt-2 text-lg sm:text-xl font-semibold tracking-tight break-words">{workspace.name}</h2>
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
             <span className="inline-flex rounded-full bg-secondary px-2.5 py-1 font-medium text-foreground">
               {stepLabel(workspace.current_step, t)}
             </span>
@@ -214,13 +214,13 @@ function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
             <span className="inline-flex rounded-full bg-secondary/70 px-2.5 py-1 font-medium text-muted-foreground tabular-nums">
               {recordCountLabel(workspace.record_count, t)}
             </span>
-            <span className="text-muted-foreground pl-1">{updatedLabel(workspace.updated_at, t)}</span>
+            <span className="text-muted-foreground pl-0.5">{updatedLabel(workspace.updated_at, t)}</span>
           </div>
         </div>
         <Link
           to="/matching"
           search={buildMatchingSearch(workspace.id)}
-          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:opacity-90"
+          className="inline-flex items-center justify-center gap-1.5 rounded-md bg-brand px-4 py-2.5 sm:py-2 text-sm font-semibold text-brand-foreground hover:opacity-90 w-full sm:w-auto min-h-[44px]"
         >
           {t("dashboard.real.continue")}
           <ArrowRight className="size-4" />
@@ -234,13 +234,13 @@ function ActionRequired({ items }: { items: DashboardActionItem[] }) {
   const { t } = usePreferences();
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden min-w-0">
       <SectionHeader
         title={t("dashboard.real.actionRequired")}
         description={t("dashboard.real.actionRequiredDesc")}
       />
       {items.length === 0 ? (
-        <div className="px-6 py-8 text-sm text-muted-foreground">
+        <div className="px-4 py-6 sm:px-6 sm:py-8 text-sm text-muted-foreground">
           {t("dashboard.real.noAction")}
         </div>
       ) : (
@@ -252,11 +252,11 @@ function ActionRequired({ items }: { items: DashboardActionItem[] }) {
                 key={`${item.workspace.id}-${item.kind}`}
                 to="/matching"
                 search={buildMatchingSearch(item.workspace.id)}
-                className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-secondary/30"
+                className="flex items-center justify-between gap-3 sm:gap-4 px-4 py-3 sm:px-6 sm:py-4 hover:bg-secondary/30 transition-colors"
               >
-                <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-0 items-center gap-2.5 sm:gap-3 flex-1">
                   <Icon className={`size-4 shrink-0 ${item.kind === "failed" ? "text-destructive" : "text-accent"}`} />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">
                       {actionLabel(item, t)}
                     </p>
@@ -283,13 +283,13 @@ function WorkspaceSummaryCards({ summary }: { summary: DashboardSummary }) {
   ];
 
   return (
-    <Card className="p-5">
-      <h3 className="text-base font-semibold">{t("dashboard.real.summaryTitle")}</h3>
-      <div className="mt-4 grid grid-cols-2 gap-3">
+    <Card className="p-4 sm:p-5 min-w-0">
+      <h3 className="text-base font-semibold text-foreground">{t("dashboard.real.summaryTitle")}</h3>
+      <div className="mt-3 sm:mt-4 grid grid-cols-2 gap-2 sm:gap-3">
         {items.map((item) => (
-          <div key={item.label} className="rounded-lg border border-border bg-background px-4 py-3">
-            <p className="text-2xl font-semibold tabular-nums">{item.value}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{item.label}</p>
+          <div key={item.label} className="rounded-lg border border-border bg-background p-3 sm:px-4 sm:py-3 min-w-0 flex flex-col justify-between">
+            <p className="text-xl sm:text-2xl font-semibold tabular-nums leading-tight">{item.value}</p>
+            <p className="mt-1 text-xs text-muted-foreground truncate" title={item.label}>{item.label}</p>
           </div>
         ))}
       </div>
@@ -302,29 +302,69 @@ function RecentWorkspaces({ workspaces }: { workspaces: WorkspaceSummary[] }) {
   const displayedWorkspaces = workspaces.slice(0, 5);
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border/70">
-        <div>
+    <Card className="overflow-hidden min-w-0">
+      <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-border/70">
+        <div className="min-w-0 flex-1">
           <h3 className="text-base font-semibold text-foreground">{t("dashboard.real.recentTitle")}</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">{t("dashboard.real.recentDesc")}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">{t("dashboard.real.recentDesc")}</p>
         </div>
         <Link
           to="/workspaces"
-          className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline cursor-pointer"
+          className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline cursor-pointer shrink-0 ml-2"
         >
           <span>{t("dashboard.real.viewAll")}</span>
           <ArrowRight className="size-3.5" />
         </Link>
       </div>
-      <div className="overflow-x-auto">
+
+      {/* Mobile Card List View (< sm) */}
+      <div className="sm:hidden divide-y divide-border">
+        {displayedWorkspaces.map((workspace) => (
+          <div key={workspace.id} className="p-4 space-y-2.5 hover:bg-secondary/20 transition-colors">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-sm text-foreground break-words leading-snug">
+                  {workspace.name}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {updatedLabel(workspace.updated_at, t)}
+                </p>
+              </div>
+              <Link
+                to="/matching"
+                search={buildMatchingSearch(workspace.id, workspace.current_step)}
+                className="inline-flex items-center justify-center gap-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary shrink-0 min-h-[36px] active:scale-95 shadow-2xs"
+              >
+                {t("dashboard.real.open")}
+                <ArrowRight className="size-3" />
+              </Link>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-foreground">
+                {stepLabel(workspace.current_step, t)}
+              </span>
+              <span className="inline-flex rounded-full bg-secondary/80 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {statusLabel(workspace.status, t)}
+              </span>
+              <span className="inline-flex rounded-full bg-secondary/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+                {recordCountLabel(workspace.record_count, t)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop Table View (>= sm) */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full table-fixed text-sm min-w-[640px]">
           <colgroup>
-            <col />
+            <col style={{ width: "220px" }} />
             <col style={{ width: "120px" }} />
+            <col style={{ width: "130px" }} />
+            <col style={{ width: "90px" }} />
             <col style={{ width: "140px" }} />
-            <col style={{ width: "110px" }} />
-            <col style={{ width: "150px" }} />
-            <col style={{ width: "110px" }} />
+            <col style={{ width: "90px" }} />
           </colgroup>
           <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
             <tr>
@@ -376,13 +416,13 @@ function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
   const { t } = usePreferences();
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden min-w-0">
       <SectionHeader
         title={t("dashboard.real.reviewQueue")}
         description={t("dashboard.real.reviewQueueDesc")}
       />
       {items.length === 0 ? (
-        <div className="px-6 py-8 text-sm text-muted-foreground">
+        <div className="px-4 py-6 sm:px-6 sm:py-8 text-sm text-muted-foreground">
           {t("dashboard.real.noReviewQueue")}
         </div>
       ) : (
@@ -392,15 +432,15 @@ function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
               key={workspace.id}
               to="/matching"
               search={buildMatchingSearch(workspace.id)}
-              className="flex items-center justify-between gap-4 px-6 py-4 hover:bg-secondary/30"
+              className="flex items-center justify-between gap-3 sm:gap-4 px-4 py-3 sm:px-6 sm:py-4 hover:bg-secondary/30 transition-colors"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{workspace.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {t("dashboard.real.needReviewCount", { count: needReviewCount(workspace) })}
                 </p>
               </div>
-              <span className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-secondary">
+              <span className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:bg-secondary shrink-0">
                 {t("dashboard.real.reviewCases")}
               </span>
             </Link>
@@ -413,7 +453,7 @@ function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
 
 function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
-    <div className="border-b border-border px-6 py-4">
+    <div className="border-b border-border px-4 py-3 sm:px-6 sm:py-4">
       <h3 className="text-base font-semibold">{title}</h3>
       <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </div>

@@ -387,7 +387,7 @@ export function DataPreviewTable({
 
   return (
     <>
-      <div className={`rounded-lg border border-border bg-card p-4 space-y-3 ${className}`}>
+      <div className={`rounded-lg border border-border bg-card p-3 sm:p-4 space-y-3 min-w-0 max-w-full overflow-hidden ${className}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -508,7 +508,7 @@ export function DataPreviewTable({
       </div>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-[94vw] w-[94vw] h-[88vh] max-h-[88vh] flex flex-col p-6 gap-3">
+        <DialogContent className="max-w-[96vw] w-[96vw] sm:max-w-[94vw] sm:w-[94vw] h-[88vh] max-h-[88vh] flex flex-col p-3 sm:p-6 gap-3">
           <DialogHeader className="border-b border-border/70 pb-3">
             <div className="flex flex-wrap items-center justify-between gap-3 pr-6">
               <div>

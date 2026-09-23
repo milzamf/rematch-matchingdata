@@ -238,7 +238,7 @@ function SettingsPage() {
 
           <div className="space-y-6 min-w-0">
             <TabsContent value="akun" forceMount className="mt-0 space-y-6 data-[state=inactive]:hidden">
-              <Card className="p-6 space-y-5">
+              <Card className="p-4 sm:p-6 space-y-5 min-w-0">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <h3 className="text-base font-semibold text-foreground">{t("settings.userIdentity")}</h3>
@@ -371,7 +371,7 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              <Card className="p-6 space-y-6">
+              <Card className="p-4 sm:p-6 space-y-6 min-w-0">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
                     {t("settings.preferencesTitle")}
@@ -422,7 +422,7 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              <Card className="p-6 space-y-5">
+              <Card className="p-4 sm:p-6 space-y-5 min-w-0">
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <KeyRound className="size-4 text-brand" />
@@ -487,7 +487,7 @@ function SettingsPage() {
             </TabsContent>
 
             <TabsContent value="engine" className="mt-0 space-y-6">
-              <Card className="p-6 space-y-5">
+              <Card className="p-4 sm:p-6 space-y-5 min-w-0">
                 <div>
                   <h3 className="text-base font-semibold text-foreground">
                     {t("settings.matchingDefaults")}
@@ -517,7 +517,7 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              <Card className="p-6 space-y-4">
+              <Card className="p-4 sm:p-6 space-y-4 min-w-0">
                 <div>
                   <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
                     <SlidersHorizontal className="size-4 text-brand" />
@@ -547,7 +547,7 @@ function SettingsPage() {
                 </div>
               </Card>
 
-              <Card className="p-6">
+              <Card className="p-4 sm:p-6 min-w-0">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -805,7 +805,7 @@ function SettingsSection({
   title: string;
 }) {
   return (
-    <Card className="p-6 space-y-4">
+    <Card className="p-4 sm:p-6 space-y-4 min-w-0">
       <div>
         <h3 className="text-base font-semibold text-foreground">{title}</h3>
         <p className="text-xs text-muted-foreground mt-0.5">{description}</p>

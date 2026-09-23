@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { KeyRound, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ import {
 } from "@/lib/api";
 import { PERMISSIONS, ROLES, type UserRole } from "@/lib/authorization";
 import { usePreferences } from "@/lib/preferences";
+import { buildMatchingSearch } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -64,6 +65,14 @@ const emptyPasswordForm = (): PasswordFormState => ({
   password: "",
   passwordConfirmation: "",
 });
+
+function formatDate(value: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
 
 function AdminPage() {
   const { t } = usePreferences();
@@ -291,30 +300,78 @@ function AdminPage() {
           </Card>
         ) : (
           <div className="space-y-6">
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden min-w-0">
               <SectionHeader
                 title={t("admin.users")}
                 description={t("admin.usersDesc")}
                 actions={
                   <button
                     onClick={() => {
-                      setCreateForm(emptyCreateForm());
                       setFormErrors({});
+                      setCreateForm(emptyCreateForm());
                       setCreateOpen(true);
                     }}
-                    className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-95"
+                    className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-xs sm:text-sm font-semibold text-brand-foreground hover:opacity-90 min-h-[36px]"
                   >
                     <Plus className="size-4" />
-                    {t("admin.addUser")}
+                    {t("admin.createUser")}
                   </button>
                 }
               />
-              <div className="overflow-x-auto">
+
+              {/* Mobile Users Card View (< sm) */}
+              <div className="sm:hidden divide-y divide-border">
+                {users.map((user) => (
+                  <div key={String(user.id)} className="p-4 space-y-3 hover:bg-secondary/20 transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm text-foreground break-words">{user.name}</p>
+                        <p className="text-xs text-muted-foreground break-words mt-0.5">{user.email}</p>
+                      </div>
+                      <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-foreground shrink-0 capitalize">
+                        {t(`auth.role.${user.role}` as Parameters<typeof t>[0])}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span className="rounded bg-secondary/50 px-2 py-0.5">
+                        {user.workspace_count} workspace
+                      </span>
+                      <span className="rounded bg-secondary/50 px-2 py-0.5">
+                        {user.dataset_count} dataset
+                      </span>
+                      <span className="rounded bg-secondary/50 px-2 py-0.5">
+                        {user.matching_job_count} job
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border/40">
+                      <button
+                        onClick={() => setEditingUser(user)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary min-h-[36px] active:scale-95"
+                      >
+                        <Pencil className="size-3.5" />
+                        {t("admin.editUser")}
+                      </button>
+                      <button
+                        onClick={() => setPasswordUser(user)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary min-h-[36px] active:scale-95"
+                      >
+                        <KeyRound className="size-3.5" />
+                        {t("admin.setPassword")}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Users Table View (>= sm) */}
+              <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full table-fixed text-sm min-w-[760px]">
                   <colgroup>
-                    <col />
-                    <col style={{ width: "170px" }} />
-                    <col style={{ width: "130px" }} />
+                    <col style={{ width: "220px" }} />
+                    <col style={{ width: "140px" }} />
+                    <col style={{ width: "110px" }} />
                     <col style={{ width: "110px" }} />
                     <col style={{ width: "110px" }} />
                     <col style={{ width: "220px" }} />
@@ -369,17 +426,67 @@ function AdminPage() {
               </div>
             </Card>
 
-            <Card className="overflow-hidden">
+            <Card className="overflow-hidden min-w-0">
               <SectionHeader title={t("admin.workspaces")} description={t("admin.workspacesDesc")} />
-              <div className="overflow-x-auto">
-                <table className="w-full table-fixed text-sm">
+
+              {/* Mobile Workspaces Card View (< sm) */}
+              <div className="sm:hidden divide-y divide-border">
+                {workspaces.map((workspace) => (
+                  <div key={workspace.id} className="p-4 space-y-3 hover:bg-secondary/20 transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm text-foreground break-words">{workspace.name}</p>
+                        <p className="font-mono text-[10px] text-muted-foreground mt-0.5">{workspace.id}</p>
+                      </div>
+                      <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground shrink-0">
+                        {t(`workspace.status.${workspace.status}` as Parameters<typeof t>[0])}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-muted-foreground">
+                        {t("admin.owner")}
+                      </label>
+                      <select
+                        value={String(workspace.owner?.id ?? "")}
+                        onChange={(event) => changeOwner(workspace.id, event.target.value)}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
+                      >
+                        <option value="">{t("admin.selectOwner")}</option>
+                        {ownerOptions.map((user) => (
+                          <option key={String(user.id)} value={String(user.id)}>
+                            {user.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/40">
+                      <span className="tabular-nums">
+                        {workspace.record_count ?? "-"} records · {formatDate(workspace.updated_at)}
+                      </span>
+                      <Link
+                        to="/matching"
+                        search={buildMatchingSearch(workspace.id)}
+                        className="inline-flex items-center gap-1 font-semibold text-brand hover:underline p-1"
+                      >
+                        {t("monitoring.openWorkspace")}
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Workspaces Table View (>= sm) */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full table-fixed text-sm min-w-[760px]">
                   <colgroup>
-                    <col />
-                    <col style={{ width: "170px" }} />
-                    <col style={{ width: "140px" }} />
-                    <col style={{ width: "120px" }} />
-                    <col style={{ width: "190px" }} />
-                    <col style={{ width: "170px" }} />
+                    <col style={{ width: "240px" }} />
+                    <col style={{ width: "180px" }} />
+                    <col style={{ width: "130px" }} />
+                    <col style={{ width: "110px" }} />
+                    <col style={{ width: "150px" }} />
+                    <col style={{ width: "130px" }} />
                   </colgroup>
                   <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                     <tr>
@@ -420,9 +527,17 @@ function AdminPage() {
                         <td className="px-6 py-3 text-right align-middle tabular-nums">
                           {workspace.record_count ?? "-"}
                         </td>
-                        <td className="px-6 py-3 align-middle text-muted-foreground">{formatDate(workspace.updated_at)}</td>
-                        <td className="px-6 py-3 align-middle text-xs text-muted-foreground">
-                          {t("admin.workspaceOwnerHint")}
+                        <td className="px-6 py-3 align-middle text-muted-foreground">
+                          {formatDate(workspace.updated_at)}
+                        </td>
+                        <td className="px-6 py-3 align-middle">
+                          <Link
+                            to="/matching"
+                            search={buildMatchingSearch(workspace.id)}
+                            className="inline-flex items-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary cursor-pointer"
+                          >
+                            {t("monitoring.openWorkspace")}
+                          </Link>
                         </td>
                       </tr>
                     ))}
@@ -686,12 +801,4 @@ function SectionHeader({
       {actions ? <div className="shrink-0">{actions}</div> : null}
     </div>
   );
-}
-
-function formatDate(value: string | null) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
 }

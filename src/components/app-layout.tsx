@@ -24,11 +24,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground">
+    <div className="min-h-screen flex bg-background text-foreground w-full max-w-full overflow-x-hidden">
       <AppSidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 w-full max-w-full overflow-x-hidden">
         <Topbar />
-        <main className="flex-1 min-w-0">{children}</main>
+        <main className="flex-1 min-w-0 w-full max-w-full overflow-x-hidden">{children}</main>
       </div>
     </div>
   );
@@ -45,10 +45,10 @@ export function PageHeader({
 }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-8">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground break-words">{title}</h1>
         {description && (
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground leading-relaxed">{description}</p>
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{description}</p>
         )}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
@@ -64,7 +64,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={`bg-card rounded-xl border border-border shadow-xs ${className}`}>
+    <div className={`bg-card rounded-xl border border-border shadow-xs min-w-0 max-w-full ${className}`}>
       {children}
     </div>
   );

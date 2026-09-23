@@ -141,7 +141,7 @@ export const Logo: React.FC<LogoProps> = ({
 
   // Horizontal variant (default)
   return (
-    <div className={`inline-flex items-center gap-3 select-none ${className}`} {...props}>
+    <div className={`inline-flex items-center gap-2 sm:gap-3 select-none min-w-0 max-w-full ${className}`} {...props}>
       <LogoIcon className={iconSizes[size]} />
       <div className="flex flex-col min-w-0 leading-tight">
         <div className="flex items-center gap-1.5">
@@ -152,11 +152,11 @@ export const Logo: React.FC<LogoProps> = ({
             </span>
           </span>
         </div>
-        <span className={`font-semibold tracking-wide text-blue-600 dark:text-blue-400 mt-0.5 truncate ${subSizes[size]}`}>
+        <span className={`font-semibold tracking-wide text-blue-600 dark:text-blue-400 mt-0.5 truncate max-w-[150px] sm:max-w-none ${subSizes[size]}`}>
           Sistem Matching Data
         </span>
         {showDirectorate && (
-          <span className={`font-medium text-muted-foreground truncate mt-0.5 ${directorateSizes[size]}`}>
+          <span className={`font-medium text-muted-foreground truncate mt-0.5 max-w-[200px] sm:max-w-none ${directorateSizes[size]}`}>
             Direktorat Statistik Sumber Daya Mineral dan Konstruksi
           </span>
         )}

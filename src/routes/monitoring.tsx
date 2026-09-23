@@ -117,16 +117,58 @@ function MonitoringPage() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <Card className="overflow-hidden">
+              <Card className="overflow-hidden min-w-0">
                 <SectionHeader
                   title={t("monitoring.recentWorkspaces")}
                   description={t("monitoring.recentWorkspacesDesc")}
                 />
-                <div className="overflow-x-auto">
+                
+                {/* Mobile Card List View (< sm) */}
+                <div className="sm:hidden divide-y divide-border">
+                  {data.recent_workspaces.map((workspace) => (
+                    <div key={workspace.id} className="p-4 space-y-2.5 hover:bg-secondary/20 transition-colors">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold text-sm text-foreground break-words leading-snug">
+                            {workspace.name}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            {workspace.owner?.name ? `${workspace.owner.name} · ` : ""}
+                            {formatDate(workspace.updated_at)}
+                          </p>
+                        </div>
+                        <Link
+                          to="/matching"
+                          search={buildMatchingSearch(workspace.id)}
+                          className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary shrink-0 min-h-[36px] active:scale-95 shadow-2xs"
+                        >
+                          {t("monitoring.openWorkspace")}
+                        </Link>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-foreground">
+                          {t("step." + ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][Math.max(0, Math.min(7, workspace.current_step - 1))] as Parameters<typeof t>[0])}
+                        </span>
+                        <span className="inline-flex rounded-full bg-secondary/80 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                          {t(`workspace.status.${workspace.status}` as Parameters<typeof t>[0])}
+                        </span>
+                        {workspace.pending_review > 0 && (
+                          <span className="inline-flex rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 text-[11px] font-medium tabular-nums">
+                            {workspace.pending_review} review
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table View (>= sm) */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full table-fixed text-sm min-w-[750px]">
                     <colgroup>
-                      <col />
-                      <col style={{ width: "170px" }} />
+                      <col style={{ width: "240px" }} />
+                      <col style={{ width: "160px" }} />
                       <col style={{ width: "130px" }} />
                       <col style={{ width: "110px" }} />
                       <col style={{ width: "130px" }} />

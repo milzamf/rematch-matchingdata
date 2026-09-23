@@ -145,7 +145,7 @@ function WorkspacesPage() {
           </div>
         )}
 
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden min-w-0">
           {loading ? (
             <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -159,15 +159,77 @@ function WorkspacesPage() {
             />
           ) : (
             <div>
-              <div className="overflow-x-auto">
+              {/* Mobile Card List View (< sm) */}
+              <div className="sm:hidden divide-y divide-border">
+                {paginatedWorkspaces.map((workspace) => (
+                  <div key={workspace.id} className="p-4 space-y-3 hover:bg-secondary/20 transition-colors">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-foreground break-words leading-snug">
+                        {workspace.name}
+                      </p>
+                      <p className="font-mono text-[10px] text-muted-foreground mt-0.5">
+                        {workspace.id}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-foreground">
+                        {stepLabel(workspace.current_step, t)}
+                      </span>
+                      <span className="inline-flex rounded-full bg-secondary/80 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        {statusLabel(workspace.status, t)}
+                      </span>
+                      <span className="inline-flex rounded-full bg-secondary/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground tabular-nums">
+                        {workspace.record_count ?? "-"} record
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40 text-xs">
+                      <span className="text-muted-foreground text-[11px]">
+                        {formatDate(workspace.updated_at)}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <Link
+                          to="/matching"
+                          search={buildMatchingSearch(workspace.id)}
+                          className="inline-flex items-center gap-1 rounded-md bg-brand px-2.5 py-1.5 text-xs font-semibold text-brand-foreground hover:opacity-90 min-h-[36px] active:scale-95 shadow-2xs"
+                        >
+                          {t("workspace.continue")}
+                        </Link>
+                        {can(PERMISSIONS.WORKSPACE_UPDATE) && (
+                          <button
+                            onClick={() => setWorkspaceToRename(workspace)}
+                            className="h-9 w-9 flex items-center justify-center rounded-md border border-border hover:bg-secondary cursor-pointer active:scale-95"
+                            aria-label={t("workspace.rename")}
+                          >
+                            <Edit3 className="size-3.5" />
+                          </button>
+                        )}
+                        {can(PERMISSIONS.WORKSPACE_DELETE) && (
+                          <button
+                            onClick={() => setWorkspaceToDelete(workspace)}
+                            className="h-9 w-9 flex items-center justify-center rounded-md border border-border text-destructive hover:bg-destructive/10 cursor-pointer active:scale-95"
+                            aria-label={t("workspace.delete")}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View (>= sm) */}
+              <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full table-fixed text-sm min-w-[760px]">
                   <colgroup>
-                    <col />
-                    <col style={{ width: "150px" }} />
-                    <col style={{ width: "130px" }} />
+                    <col style={{ width: "260px" }} />
+                    <col style={{ width: "140px" }} />
+                    <col style={{ width: "100px" }} />
                     <col style={{ width: "120px" }} />
+                    <col style={{ width: "150px" }} />
                     <col style={{ width: "180px" }} />
-                    <col style={{ width: "220px" }} />
                   </colgroup>
                   <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                     <tr>

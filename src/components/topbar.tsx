@@ -42,19 +42,19 @@ export function Topbar() {
 
   return (
     <>
-      <header className="h-16 border-b border-border bg-card sticky top-0 z-20 flex items-center justify-between px-3 sm:px-6 gap-2 sm:gap-4">
+      <header className="h-16 border-b border-border bg-card sticky top-0 z-20 flex items-center justify-between px-3 sm:px-6 gap-2 sm:gap-4 w-full max-w-full">
         <div className="min-w-0 flex items-center gap-1 sm:gap-2">
           {/* Mobile hamburger menu toggle */}
           <button
             type="button"
             onClick={() => setIsMobileNavOpen(true)}
-            className="lg:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary active:scale-95 transition-all cursor-pointer shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            className="lg:hidden h-10 w-10 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary active:scale-95 transition-all cursor-pointer shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Buka Menu Navigasi"
           >
             <Menu className="size-5" />
           </button>
 
-          <div className="lg:hidden flex items-center">
+          <div className="lg:hidden flex items-center min-w-0">
             <Logo variant="horizontal" size="sm" showDirectorate={false} />
           </div>
         </div>
@@ -63,7 +63,7 @@ export function Topbar() {
           {can(PERMISSIONS.MATCHING_CREATE) && (
             <Link
               to="/matching"
-              className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md bg-brand text-brand-foreground px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer active:scale-95 shadow-xs"
+              className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md bg-brand text-brand-foreground px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer active:scale-95 shadow-xs min-h-[36px]"
             >
               <Plus className="size-3.5 sm:size-4" />
               <span className="hidden sm:inline">{t("topbar.newMatching")}</span>
@@ -74,7 +74,7 @@ export function Topbar() {
           <button
             type="button"
             onClick={() => setShowLogoutConfirm(true)}
-            className="group inline-flex items-center gap-1 sm:gap-1.5 rounded-md border border-border bg-background px-2 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-muted-foreground hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-destructive/30 cursor-pointer active:scale-95 transition-all duration-150 shadow-xs"
+            className="group inline-flex items-center justify-center gap-1 sm:gap-1.5 rounded-md border border-border bg-background px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-muted-foreground hover:text-destructive hover:border-destructive/40 hover:bg-destructive/10 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-destructive/30 cursor-pointer active:scale-95 transition-all duration-150 shadow-xs min-h-[36px]"
             title={t("auth.logout")}
           >
             <LogOut className="size-3.5 sm:size-4 text-muted-foreground group-hover:text-destructive group-hover:-translate-x-0.5 transition-all" />

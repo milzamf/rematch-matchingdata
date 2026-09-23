@@ -135,7 +135,7 @@ export function AuthShell({
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-8 shadow-xs">
+        <div className="rounded-xl border border-border bg-card p-6 sm:p-8 shadow-xs">
           <h2 className="text-xl font-semibold tracking-tight text-foreground">{title}</h2>
           <p className="mt-1 mb-6 text-sm text-muted-foreground">{subtitle}</p>
           {children}
