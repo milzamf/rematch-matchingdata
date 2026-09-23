@@ -32,8 +32,11 @@ function LoginPage() {
     }
   }, [currentUser?.role, isAuthenticated, isLoadingAuth, navigate]);
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async (event?: React.FormEvent) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
     if (loading) return;
 
     setError(null);
@@ -55,7 +58,7 @@ function LoginPage() {
 
   return (
     <AuthShell title={t("auth.signInTitle")} subtitle={t("auth.signInSubtitle")}>
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={submit} action="#" method="post" noValidate className="space-y-4">
         <Field
           label={t("auth.usernameOrEmail")}
           type="text"
@@ -64,6 +67,7 @@ function LoginPage() {
           placeholder={t("auth.loginIdentifierPlaceholder")}
           autoFocus
           autoComplete="username"
+          inputMode="text"
         />
         <Field
           label={t("auth.password")}
@@ -71,6 +75,7 @@ function LoginPage() {
           value={password}
           onChange={setPassword}
           placeholder={t("auth.passwordPlaceholder")}
+          autoComplete="current-password"
         />
         {error && (
           <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -113,32 +118,46 @@ export function AuthShell({
   children,
 }: {
   title: string;
-  subtitle: string;
+  subtitle: ReactNode;
   children: ReactNode;
 }) {
   const { t } = usePreferences();
 
+  const formattedSubtitle = typeof subtitle === "string" && subtitle.includes("RE-MATCH") ? (
+    <>
+      {subtitle.split("RE-MATCH")[0]}
+      <span className="inline-block whitespace-nowrap font-medium text-foreground">RE&#8209;MATCH</span>
+      {subtitle.split("RE-MATCH")[1]}
+    </>
+  ) : (
+    subtitle
+  );
+
   return (
-    <div className="min-h-screen bg-background px-4 py-12 flex items-center justify-center">
-      <div className="w-full max-w-md">
-        <div className="mb-8 flex flex-col items-center gap-3.5 text-center">
-          <LogoIcon className="w-16 h-16" />
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-foreground">
-              RE-<span className="text-brand">MATCH</span>
+    <div className="min-h-screen bg-background px-4 py-8 sm:py-12 flex items-center justify-center">
+      <div className="w-full max-w-md sm:max-w-lg">
+        <div className="mb-6 sm:mb-8 flex flex-col items-center gap-3 text-center">
+          <LogoIcon className="w-14 h-14 sm:w-16 sm:h-16" />
+          <div className="w-full flex flex-col items-center">
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground select-none">
+              <span className="inline-block whitespace-nowrap">
+                RE&#8209;<span className="text-brand">MATCH</span>
+              </span>
             </h1>
-            <p className="mt-1 text-xs font-bold uppercase tracking-wider text-brand">
+            <p className="mt-1 text-[11px] sm:text-xs font-bold uppercase tracking-wider text-brand">
               {t("brand.subtitle")}
             </p>
-            <p className="mt-1 text-xs font-medium text-muted-foreground max-w-xs mx-auto leading-relaxed">
+            <p className="mt-1 text-[10px] min-[360px]:text-[11px] sm:text-xs md:text-[13px] font-medium text-muted-foreground tracking-tight whitespace-nowrap select-none max-w-full text-center">
               {t("brand.organizationUnit")}
             </p>
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-6 sm:p-8 shadow-xs">
-          <h2 className="text-xl font-semibold tracking-tight text-foreground">{title}</h2>
-          <p className="mt-1 mb-6 text-sm text-muted-foreground">{subtitle}</p>
+        <div className="rounded-xl border border-border bg-card p-5 sm:p-8 shadow-xs">
+          <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-foreground">{title}</h2>
+          <div className="mt-1 mb-5 sm:mb-6 text-xs sm:text-sm text-muted-foreground leading-normal">
+            {formattedSubtitle}
+          </div>
           {children}
         </div>
       </div>
@@ -153,6 +172,8 @@ export function Field({
   type = "text",
   placeholder,
   autoFocus,
+  autoComplete,
+  inputMode,
 }: {
   label: string;
   value: string;
@@ -160,6 +181,8 @@ export function Field({
   type?: string;
   placeholder?: string;
   autoFocus?: boolean;
+  autoComplete?: string;
+  inputMode?: "text" | "none" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
 }) {
   return (
     <label className="block">
@@ -170,6 +193,8 @@ export function Field({
         type={type}
         placeholder={placeholder}
         autoFocus={autoFocus}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
       />
     </label>

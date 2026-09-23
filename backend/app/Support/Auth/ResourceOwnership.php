@@ -35,7 +35,8 @@ class ResourceOwnership
             ? $query
             : $query->where(function (Builder $scopedQuery) use ($user) {
                 $scopedQuery
-                    ->whereIn(
+                    ->where('user_id', $user->getKey())
+                    ->orWhereIn(
                         'workspace_id',
                         Workspace::query()
                             ->where('user_id', $user->getKey())
@@ -61,8 +62,7 @@ class ResourceOwnership
                                             ->whereNotNull('input_dataset_id'),
                                     );
                             });
-                    })
-                    ->orWhereNull('workspace_id');
+                    });
             });
     }
 

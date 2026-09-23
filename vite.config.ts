@@ -16,6 +16,11 @@ export default defineConfig({
     server: {
       port: Number(process.env.PORT) || 8090,
       allowedHosts: true,
+      watch: {
+        usePolling: true,
+        interval: 1000,
+        ignored: ["**/node_modules/**", "**/.git/**", "**/.output/**", "**/dist/**", "**/backend/**"],
+      },
       proxy: {
         "/api": {
           target: process.env.VITE_API_PROXY_TARGET || "http://backend:8000",

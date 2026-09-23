@@ -7,6 +7,8 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -27,18 +29,32 @@ class AuthController extends Controller
             ], 422);
         }
 
+        $throttleKey = Str::transliterate(Str::lower($login).'|'.$request->ip());
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
+            return response()->json([
+                'success' => false,
+                'message' => "Too many login attempts. Please try again in {$seconds} seconds.",
+            ], 429);
+        }
+
         $user = User::where('email', $login)
             ->orWhere('email', $login.'@re-match.local')
             ->orWhere('name', $login)
             ->first();
 
         if (! $user || ! Auth::attempt(['email' => $user->email, 'password' => $input['password']])) {
+            RateLimiter::hit($throttleKey, 60);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Email or password is incorrect',
             ], 401);
         }
 
+        RateLimiter::clear($throttleKey);
         $request->session()->regenerate();
 
         return response()->json([

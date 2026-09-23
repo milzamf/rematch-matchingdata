@@ -34,8 +34,9 @@ class DatasetInspectionService
         $columns = $this->profiler->profile($parsed);
         $path = $file->store('datasets');
 
-        return DB::transaction(function () use ($file, $input, $parsed, $columns, $path) {
+        return DB::transaction(function () use ($user, $file, $input, $parsed, $columns, $path) {
             $dataset = Dataset::create([
+                'user_id' => $user->getKey(),
                 'dataset_role' => $input['dataset_role'],
                 'name' => pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
                 'original_filename' => $file->getClientOriginalName(),

@@ -13,6 +13,7 @@ class Dataset extends Model
     use HasFactory, HasUuids;
 
     protected $fillable = [
+        'user_id',
         'workspace_id',
         'dataset_role',
         'name',
@@ -43,6 +44,11 @@ class Dataset extends Model
             'preview_rows' => 'array',
             'profiling_summary' => 'array',
         ];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 
     public function columns(): HasMany
