@@ -31,9 +31,14 @@ async function run() {
   const orgUnitVisible = await orgUnitEl.isVisible();
   console.log("Desktop Org Unit Visible:", orgUnitVisible);
 
-  // Check label
+  // Check label and placeholder
   const labelText = await desktopPage.locator("label span").first().textContent();
   console.log("Desktop First Input Label:", labelText?.trim());
+
+  const identifierInput = desktopPage.locator('input[autocomplete="username"]').first();
+  const passwordInput = desktopPage.locator('input[type="password"]').first();
+  const placeholderText = await identifierInput.getAttribute("placeholder");
+  console.log("Desktop Input Placeholder:", placeholderText);
 
   await desktopPage.screenshot({
     path: join(screenshotDir, "login_desktop_1280.png"),
@@ -41,8 +46,6 @@ async function run() {
   });
 
   // Test login with 'admin' and '321' (no @)
-  const identifierInput = desktopPage.locator('input[autocomplete="username"]').first();
-  const passwordInput = desktopPage.locator('input[type="password"]').first();
   await identifierInput.fill("admin");
   await passwordInput.fill("321");
   await desktopPage.waitForTimeout(500);

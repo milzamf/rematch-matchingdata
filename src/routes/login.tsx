@@ -64,7 +64,7 @@ function LoginPage() {
           type="text"
           value={email}
           onChange={setEmail}
-          placeholder={t("auth.loginIdentifierPlaceholder")}
+          placeholder={t("auth.loginIdentifierPlaceholder") || "Masukkan Email/Username"}
           autoFocus
           autoComplete="username"
           inputMode="text"
