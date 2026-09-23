@@ -52,7 +52,7 @@ export function Topbar() {
 
   return (
     <>
-      <header className="h-16 border-b border-border bg-card shrink-0 flex items-center justify-between px-3 sm:px-6 gap-2 sm:gap-4 w-full max-w-full">
+      <header className="h-14 sm:h-16 border-b border-border bg-card shrink-0 flex items-center justify-between px-3 sm:px-6 gap-2 sm:gap-4 w-full max-w-full">
         <div className="min-w-0 flex items-center gap-1 sm:gap-2">
           {/* Mobile hamburger menu toggle */}
           <button

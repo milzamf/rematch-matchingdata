@@ -77,7 +77,7 @@ export function SearchableSelect({
           data-testid={dataTestId}
           disabled={disabled}
           className={cn(
-            "flex h-10 w-full items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs transition-colors",
+            "flex h-9 sm:h-10 w-full items-center justify-between rounded-md border border-border bg-background px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm text-foreground shadow-xs transition-colors",
             "hover:border-foreground/30 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15",
             "disabled:cursor-not-allowed disabled:opacity-50",
             !selectedOption && "text-muted-foreground",
@@ -87,7 +87,7 @@ export function SearchableSelect({
           <span className="truncate text-left font-medium">
             {selectedOption ? selectedOption.label : placeholder}
           </span>
-          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className="ml-1.5 sm:ml-2 size-3.5 sm:size-4 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
       <PopoverContent

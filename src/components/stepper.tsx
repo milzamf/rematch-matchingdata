@@ -35,7 +35,7 @@ export function Stepper({
               {/* connector */}
               {!isLast && (
                 <span
-                  className={`absolute left-1/2 top-4 h-px w-full -translate-y-1/2 ${
+                  className={`absolute left-1/2 top-3 sm:top-4 h-px w-full -translate-y-1/2 ${
                     done ? "bg-brand/60" : "bg-border"
                   }`}
                   aria-hidden
@@ -50,11 +50,11 @@ export function Stepper({
                 disabled={disabled}
                 title={disabled ? s.lockedLabel : s.title}
                 aria-disabled={disabled}
-                className="group relative z-10 flex w-full min-w-0 flex-col items-center gap-1.5 py-1 disabled:cursor-not-allowed cursor-pointer"
+                className="group relative z-10 flex w-full min-w-0 flex-col items-center gap-1 sm:gap-1.5 py-0.5 sm:py-1 disabled:cursor-not-allowed cursor-pointer"
               >
                 <span
                   className={[
-                    "size-7 rounded-full grid place-items-center text-[11px] font-semibold shrink-0 transition-colors",
+                    "size-6 sm:size-7 rounded-full grid place-items-center text-[10px] sm:text-[11px] font-semibold shrink-0 transition-colors",
                     disabled
                       ? "bg-secondary/60 text-muted-foreground/60"
                       : done
@@ -64,7 +64,7 @@ export function Stepper({
                         : "bg-secondary text-muted-foreground",
                   ].join(" ")}
                 >
-                  {disabled ? <Lock className="size-3.5" /> : done ? <Check className="size-3.5" /> : s.id}
+                  {disabled ? <Lock className="size-3 sm:size-3.5" /> : done ? <Check className="size-3 sm:size-3.5" /> : s.id}
                 </span>
                 <div className="hidden w-full min-w-0 px-1 text-center md:block">
                   <p
@@ -92,9 +92,9 @@ export function Stepper({
 
       {/* Mobile active step indicator */}
       {currentStep && (
-        <div className="mt-2.5 pt-2 border-t border-border/50 text-center md:hidden">
-          <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
-            <span className="text-[11px] font-medium text-brand">Langkah {current} dari {steps.length}:</span>
+        <div className="mt-2 pt-1.5 border-t border-border/50 text-center md:hidden">
+          <div className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-semibold text-foreground">
+            <span className="text-[10px] sm:text-[11px] font-medium text-brand">Langkah {current} dari {steps.length}:</span>
             <span>{currentStep.title}</span>
           </div>
           {currentStep.desc && (

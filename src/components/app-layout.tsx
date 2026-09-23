@@ -49,14 +49,14 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-5 sm:mb-8">
+    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2.5 sm:gap-4 mb-3.5 sm:mb-8">
       <div className="min-w-0 flex-1">
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground break-words">{title}</h1>
+        <h1 className="text-lg sm:text-2xl font-semibold tracking-tight text-foreground break-words">{title}</h1>
         {description && (
-          <p className="mt-1 text-xs sm:text-sm text-muted-foreground leading-relaxed break-words">{description}</p>
+          <p className="mt-0.5 sm:mt-1 text-[11px] sm:text-sm text-muted-foreground leading-relaxed break-words">{description}</p>
         )}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -69,7 +69,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={`bg-card rounded-xl border border-border shadow-xs min-w-0 max-w-full ${className}`}>
+    <div className={`bg-card rounded-lg sm:rounded-xl border border-border shadow-xs min-w-0 max-w-full ${className}`}>
       {children}
     </div>
   );

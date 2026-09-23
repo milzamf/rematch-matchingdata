@@ -1363,7 +1363,7 @@ function MatchingPage() {
   if (!canViewMatching) {
     return (
       <AppLayout>
-        <div className="px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 max-w-[1400px] mx-auto">
+        <div className="px-3 py-3.5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 max-w-[1400px] mx-auto">
           <AccessDeniedState />
         </div>
       </AppLayout>
@@ -1372,7 +1372,7 @@ function MatchingPage() {
 
   return (
     <AppLayout>
-      <div className="px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8 max-w-[1400px] mx-auto">
+      <div className="px-3 py-3.5 sm:px-6 sm:py-6 lg:px-8 lg:py-8 max-w-[1400px] mx-auto">
         <PageHeader
           title={t("matching.title")}
           description={t("matching.description")}
@@ -1380,7 +1380,7 @@ function MatchingPage() {
             canViewWorkspaces ? (
               <Link
                 to="/workspaces"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-secondary"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium hover:bg-secondary"
               >
                 {t("workspace.title")}
               </Link>
@@ -1388,39 +1388,39 @@ function MatchingPage() {
           }
         />
 
-        <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-border bg-card p-3 sm:px-4 sm:py-3 text-xs">
+        <div className="mb-2.5 sm:mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 rounded-lg border border-border bg-card p-2.5 sm:px-4 sm:py-3 text-[11px] sm:text-xs">
           <div className="min-w-0">
-            <p className="font-semibold text-foreground truncate">{workspaceName}</p>
-            <p className="text-muted-foreground">
+            <p className="font-semibold text-foreground truncate text-xs sm:text-sm">{workspaceName}</p>
+            <p className="text-muted-foreground text-[10px] sm:text-xs">
               {workspaceId ? t("workspace.autosaveEnabled") : t("workspace.autosaveWaiting")}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {workspaceError && <span className="text-destructive">{workspaceError}</span>}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {workspaceError && <span className="text-destructive text-[10px] sm:text-xs">{workspaceError}</span>}
             {canUpdateWorkspace && (
               <button
                 type="button"
                 onClick={renameWorkspace}
-                className="rounded-md border border-border px-2 py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer"
+                className="rounded-md border border-border px-2 py-0.5 sm:py-1 font-medium text-muted-foreground hover:bg-secondary hover:text-foreground cursor-pointer text-[10px] sm:text-xs"
               >
                 {t("workspace.renameShort")}
               </button>
             )}
-            <span className="rounded-full bg-secondary px-2 py-1 font-medium text-muted-foreground">
+            <span className="rounded-full bg-secondary px-2 py-0.5 sm:py-1 font-medium text-muted-foreground text-[10px] sm:text-xs">
               {workspaceStatusLabel(workspaceStatus, t)}
             </span>
-            <span className="rounded-full bg-secondary px-2 py-1 font-medium text-muted-foreground">
+            <span className="rounded-full bg-secondary px-2 py-0.5 sm:py-1 font-medium text-muted-foreground text-[10px] sm:text-xs">
               {workspaceSaveStateLabel(workspaceSaveState, t)}
             </span>
           </div>
         </div>
 
         {/* Horizontal stepper */}
-        <Card className="p-3 sm:p-5 mb-4 sm:mb-6">
+        <Card className="p-2.5 sm:p-5 mb-3 sm:mb-6">
           <Stepper steps={localizedSteps} current={activeStep} onSelect={selectStep} />
         </Card>
 
-        <Card className="p-3.5 sm:p-6">
+        <Card className="p-3 sm:p-6">
           {isHydratingWorkspace && initialWorkspaceId ? (
             <div className="rounded-lg border border-border bg-secondary/20 p-6">
               <div className="flex items-center gap-3">
@@ -1451,7 +1451,7 @@ function MatchingPage() {
           ) : (
             <>
               {activeStep === 1 && (
-                <div className="space-y-8">
+                <div className="space-y-5 sm:space-y-8">
                   <StepUpload
                     reference={reference}
                     input={input}
@@ -1472,18 +1472,18 @@ function MatchingPage() {
 
                   {(reference?.result || input?.result) && (
                     <>
-                      <div className="border-t border-border pt-6">
+                      <div className="border-t border-border pt-4 sm:pt-6">
                         <StepDataPreview reference={reference?.result} input={input?.result} />
                       </div>
 
-                      <div className="border-t border-border pt-6">
+                      <div className="border-t border-border pt-4 sm:pt-6">
                         <StepProfile reference={reference?.result} input={input?.result} />
                       </div>
                     </>
                   )}
 
                   {referenceColumns.length > 0 && inputColumns.length > 0 && (
-                    <div className="border-t border-border pt-6">
+                    <div className="border-t border-border pt-4 sm:pt-6">
                       <StepColumnMapping
                         referenceColumns={referenceColumns}
                         inputColumns={inputColumns}
@@ -1495,7 +1495,7 @@ function MatchingPage() {
                 </div>
               )}
               {activeStep === 2 && (
-                <div className="space-y-8">
+                <div className="space-y-5 sm:space-y-8">
                   {/* Step 2 Standardized Data Preview */}
                   <StepStandardizedPreview
                     workspaceId={workspaceId ?? undefined}
@@ -1504,7 +1504,7 @@ function MatchingPage() {
                     mappings={columnMappings}
                   />
 
-                  <div className="border-t border-border pt-6">
+                  <div className="border-t border-border pt-4 sm:pt-6">
                     <StepConfigV2
                       jobId={runResult?.job.id ?? null}
                       mappings={columnMappings}
@@ -1514,7 +1514,7 @@ function MatchingPage() {
                     />
                   </div>
 
-                  <div className="border-t border-border pt-6">
+                  <div className="border-t border-border pt-4 sm:pt-6">
                     <StepRunCard
                       state={runState}
                       progress={progress}
@@ -1551,43 +1551,43 @@ function MatchingPage() {
               )}
 
               {/* Nav */}
-              <div className="flex items-center justify-between pt-6 mt-6 border-t border-border">
+              <div className="flex items-center justify-between pt-3.5 sm:pt-6 mt-3.5 sm:mt-6 border-t border-border">
                 <button
                   disabled={activeStep === 1}
                   onClick={() => selectStep(Math.max(1, activeStep - 1))}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium border border-border hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <ArrowLeft className="size-4" />
+                  <ArrowLeft className="size-3.5 sm:size-4" />
                   {t("common.back")}
                 </button>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] sm:text-xs text-muted-foreground">
                   {t("common.stepOf", { current: activeStep, total: wizardSteps.length })}
                 </p>
                 {activeStep === wizardSteps.length ? (
                   <Link
                     to="/results"
                     search={buildResultsSearch(workspaceId)}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-2 text-sm font-medium text-brand-foreground hover:opacity-90"
+                    className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md bg-brand px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-brand-foreground hover:opacity-90"
                   >
                     {t("common.goToResults")}
-                    <ArrowRight className="size-4" />
+                    <ArrowRight className="size-3.5 sm:size-4" />
                   </Link>
                 ) : (
                   <button
                     type="button"
                     disabled={isNavigatingStep || workspaceSaveState === "saving"}
                     onClick={handleNextStep}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                    className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity cursor-pointer"
                   >
                     {isNavigatingStep || workspaceSaveState === "saving" ? (
                       <>
-                        <Loader2 className="size-4 animate-spin" />
+                        <Loader2 className="size-3.5 sm:size-4 animate-spin" />
                         <span>{t("common.loading")}</span>
                       </>
                     ) : (
                       <>
                         {t("common.continue")}
-                        <ArrowRight className="size-4" />
+                        <ArrowRight className="size-3.5 sm:size-4" />
                       </>
                     )}
                   </button>
@@ -1677,9 +1677,9 @@ function deriveHighestAllowedStep({
 
 function SectionTitle({ title, desc }: { title: string; desc: string }) {
   return (
-    <div className="mb-6">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="text-sm text-muted-foreground mt-1">{desc}</p>
+    <div className="mb-3.5 sm:mb-6">
+      <h2 className="text-sm sm:text-lg font-semibold tracking-tight text-foreground">{title}</h2>
+      <p className="text-[11px] sm:text-sm text-muted-foreground mt-0.5 sm:mt-1 leading-relaxed">{desc}</p>
     </div>
   );
 }
@@ -1855,7 +1855,7 @@ function StepUpload({
   return (
     <>
       <SectionTitle title={t("matching.upload.title")} desc={t("matching.upload.desc")} />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
         <FileSlot
           label={t("matching.upload.reference")}
           hint={t("matching.upload.referenceHint")}
@@ -1874,14 +1874,14 @@ function StepUpload({
         />
       </div>
       {error && (
-        <div className="mt-4 flex items-center gap-2 text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
-          <AlertCircle className="size-3.5" />
-          {error}
+        <div className="mt-2.5 sm:mt-4 flex items-center gap-2 text-[11px] sm:text-xs text-destructive bg-destructive/10 rounded-md px-2.5 py-1.5 sm:px-3 sm:py-2">
+          <AlertCircle className="size-3.5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
-      <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground bg-secondary/40 rounded-md px-3 py-2">
-        <Upload className="size-3.5" />
-        {t("matching.upload.accepted", { formats: ALLOWED.join(", "), max: MAX_MB })}
+      <div className="mt-2.5 sm:mt-4 flex items-center gap-2 text-[11px] sm:text-xs text-muted-foreground bg-secondary/40 rounded-md px-2.5 py-1.5 sm:px-3 sm:py-2">
+        <Upload className="size-3.5 shrink-0" />
+        <span className="leading-tight">{t("matching.upload.accepted", { formats: ALLOWED.join(", "), max: MAX_MB })}</span>
       </div>
     </>
   );
@@ -1909,7 +1909,7 @@ function FileSlot({
   const isError = file?.status === "error";
 
   return (
-    <div className="border border-dashed border-border rounded-lg p-4 sm:p-6 hover:border-accent/50 hover:bg-secondary/30 transition-colors">
+    <div className="border border-dashed border-border rounded-lg p-3 sm:p-5 hover:border-accent/50 hover:bg-secondary/30 transition-colors">
       <input
         ref={ref}
         type="file"
@@ -1921,51 +1921,51 @@ function FileSlot({
           e.target.value = "";
         }}
       />
-      <div className="flex items-start gap-3">
-        <div className="size-10 rounded-lg bg-secondary grid place-items-center">
+      <div className="flex items-start gap-2.5 sm:gap-3">
+        <div className="size-8 sm:size-10 rounded-lg bg-secondary grid place-items-center shrink-0">
           {isLoading ? (
-            <Loader2 className="size-5 animate-spin text-accent" />
+            <Loader2 className="size-4 sm:size-5 animate-spin text-accent" />
           ) : (
-            <Icon className="size-5 text-foreground" />
+            <Icon className="size-4 sm:size-5 text-foreground" />
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold">{label}</p>
+          <p className="text-xs sm:text-sm font-semibold text-foreground">{label}</p>
           {file ? (
-            <div className="mt-0.5 space-y-1">
-              <p className="text-xs text-muted-foreground truncate">
+            <div className="mt-0.5 space-y-0.5 sm:space-y-1">
+              <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
                 {file.name} · {(file.size / 1024 / 1024).toFixed(2)} MB
               </p>
               {isLoading && (
-                <p className="text-xs text-accent">{t("matching.upload.inspecting")}</p>
+                <p className="text-[11px] sm:text-xs text-accent">{t("matching.upload.inspecting")}</p>
               )}
               {isSuccess && file.result && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] sm:text-xs text-muted-foreground">
                   {t("matching.upload.inspected", {
                     rows: file.result.dataset.row_count,
                     columns: file.result.dataset.column_count,
                   })}
                 </p>
               )}
-              {isError && file.error && <p className="text-xs text-destructive">{file.error}</p>}
+              {isError && file.error && <p className="text-[11px] sm:text-xs text-destructive">{file.error}</p>}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>
+            <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 leading-snug">{hint}</p>
           )}
         </div>
         {file ? (
           <button
             onClick={onClear}
             disabled={isLoading}
-            className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-muted-foreground hover:text-destructive disabled:opacity-40 disabled:cursor-not-allowed p-1 -mr-1 cursor-pointer"
           >
-            <X className="size-4" />
+            <X className="size-3.5 sm:size-4" />
           </button>
         ) : (
-          <Check className="size-4 text-muted-foreground/30" />
+          <Check className="size-3.5 sm:size-4 text-muted-foreground/30 shrink-0 mt-0.5" />
         )}
       </div>
-      <div className="mt-4 flex items-center justify-between text-xs">
+      <div className="mt-2.5 sm:mt-4 flex items-center justify-between text-[11px] sm:text-xs">
         <span className="text-muted-foreground">
           {isLoading
             ? t("common.loading")
@@ -1978,7 +1978,7 @@ function FileSlot({
         <button
           onClick={() => ref.current?.click()}
           disabled={isLoading}
-          className="font-medium text-accent hover:underline"
+          className="font-medium text-accent hover:underline cursor-pointer py-1 px-1 -my-1"
         >
           {file ? t("common.replace") : t("common.chooseFile")}
         </button>
@@ -1996,17 +1996,17 @@ function DatasetProfileCard({
 }) {
   const { t } = usePreferences();
   return (
-    <div className="rounded-lg border border-border p-4 space-y-3 bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+    <div className="rounded-lg border border-border p-3 sm:p-4 space-y-2.5 sm:space-y-3 bg-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5 sm:pb-3">
         <div>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-brand">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-brand">
             {title}
           </span>
-          <p className="mt-0.5 text-sm font-semibold text-foreground truncate">
+          <p className="mt-0.5 text-xs sm:text-sm font-semibold text-foreground truncate">
             {result.dataset.original_filename}
           </p>
         </div>
-        <div className="flex items-center gap-4 text-xs">
+        <div className="flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs">
           <ProfileStat
             label={t("matching.profile.rows")}
             value={result.dataset.row_count.toLocaleString()}
@@ -2402,7 +2402,7 @@ function ProfileStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{value}</p>
+      <p className="mt-0.5 text-xs sm:text-sm font-semibold tabular-nums text-foreground">{value}</p>
     </div>
   );
 }
@@ -4961,21 +4961,21 @@ function StepRun({
     <>
       <SectionTitle title={t("matching.run.title")} desc={t("matching.run.desc")} />
       {state === "idle" && (
-        <div className="border border-border rounded-lg p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-lg bg-secondary grid place-items-center">
-                <Play className="size-5" />
+        <div className="border border-border rounded-lg p-3.5 sm:p-6">
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="size-8 sm:size-10 rounded-lg bg-secondary grid place-items-center shrink-0">
+                <Play className="size-4 sm:size-5" />
               </div>
-              <div>
-                <p className="text-sm font-semibold">{t("matching.run.ready")}</p>
-                <p className="text-xs text-muted-foreground">{t("matching.run.estimated")}</p>
+              <div className="min-w-0">
+                <p className="text-xs sm:text-sm font-semibold">{t("matching.run.ready")}</p>
+                <p className="text-[11px] sm:text-xs text-muted-foreground truncate">{t("matching.run.estimated")}</p>
               </div>
             </div>
             {canRun && (
               <button
                 onClick={onStart}
-                className="px-4 py-2 rounded-md bg-brand text-brand-foreground text-sm font-semibold hover:opacity-90"
+                className="px-3 sm:px-4 py-1.5 sm:py-2 rounded-md bg-brand text-brand-foreground text-xs sm:text-sm font-semibold hover:opacity-90 shrink-0 cursor-pointer"
               >
                 {t("matching.run.start")}
               </button>
@@ -4983,7 +4983,7 @@ function StepRun({
           </div>
           {configuration && (
             <div
-              className="mt-5 space-y-3 rounded-lg border border-border bg-secondary/20 p-4"
+              className="mt-3.5 sm:mt-5 space-y-3 rounded-lg border border-border bg-secondary/20 p-3 sm:p-4"
               data-testid="run-configuration-summary"
             >
               <div className="grid gap-3 md:grid-cols-2">
@@ -5011,7 +5011,7 @@ function StepRun({
                   }
                 />
               </div>
-              <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+              <p className="border-t border-border pt-2.5 sm:pt-3 text-[11px] sm:text-xs text-muted-foreground">
                 {t("matching.run.exactFirst")}
               </p>
             </div>
@@ -5020,12 +5020,12 @@ function StepRun({
       )}
 
       {state === "running" && (
-        <div className="border border-border rounded-lg p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Loader2 className="size-5 text-accent animate-spin" />
+        <div className="border border-border rounded-lg p-3.5 sm:p-6">
+          <div className="flex items-center gap-2.5 sm:gap-3 mb-3 sm:mb-4">
+            <Loader2 className="size-4 sm:size-5 text-accent animate-spin shrink-0" />
             <div>
-              <p className="text-sm font-semibold">{t("matching.run.progressTitle")}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs sm:text-sm font-semibold">{t("matching.run.progressTitle")}</p>
+              <p className="text-[11px] sm:text-xs text-muted-foreground">
                 {progress < 40
                   ? t("matching.run.building")
                   : progress < 80
@@ -5034,7 +5034,7 @@ function StepRun({
               </p>
             </div>
           </div>
-          <div className="flex justify-between text-xs mb-2">
+          <div className="flex justify-between text-[11px] sm:text-xs mb-1.5 sm:mb-2">
             <span className="text-muted-foreground">{t("common.progress")}</span>
             <span className="font-medium tabular-nums">{Math.round(progress)}%</span>
           </div>
@@ -5042,7 +5042,7 @@ function StepRun({
             <div className="h-full bg-accent transition-all" style={{ width: `${progress}%` }} />
           </div>
           {result?.progress?.total ? (
-            <p className="text-xs text-muted-foreground tabular-nums text-right mt-2">
+            <p className="text-[11px] sm:text-xs text-muted-foreground tabular-nums text-right mt-1.5 sm:mt-2">
               {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
             </p>
           ) : null}
@@ -5050,13 +5050,13 @@ function StepRun({
       )}
 
       {state === "success" && (
-        <div className="border border-success/30 bg-success/5 rounded-lg p-6 flex items-start gap-4">
-          <div className="size-10 rounded-full bg-success/10 grid place-items-center">
-            <Check className="size-5 text-success" />
+        <div className="border border-success/30 bg-success/5 rounded-lg p-3.5 sm:p-6 flex items-start gap-3 sm:gap-4">
+          <div className="size-8 sm:size-10 rounded-full bg-success/10 grid place-items-center shrink-0">
+            <Check className="size-4 sm:size-5 text-success" />
           </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold">{t("matching.run.complete")}</p>
-            <p className="text-xs text-muted-foreground mt-1">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs sm:text-sm font-semibold">{t("matching.run.complete")}</p>
+            <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 leading-relaxed">
               {result
                 ? t("matching.run.completeSummary", {
                     matched: result.summary.matched,
@@ -5070,25 +5070,25 @@ function StepRun({
       )}
 
       {state === "failed" && (
-        <div className="border border-destructive/30 bg-destructive/5 rounded-lg p-6 flex items-start gap-4">
-          <div className="size-10 rounded-full bg-destructive/10 grid place-items-center">
-            <AlertCircle className="size-5 text-destructive" />
+        <div className="border border-destructive/30 bg-destructive/5 rounded-lg p-3.5 sm:p-6 flex items-start gap-3 sm:gap-4">
+          <div className="size-8 sm:size-10 rounded-full bg-destructive/10 grid place-items-center shrink-0">
+            <AlertCircle className="size-4 sm:size-5 text-destructive" />
           </div>
-          <div className="flex-1">
-            <p className="text-sm font-semibold">{t("matching.run.failed")}</p>
-            <p className="text-xs text-muted-foreground mt-1">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs sm:text-sm font-semibold">{t("matching.run.failed")}</p>
+            <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 sm:mt-1 leading-relaxed">
               {error ?? t("matching.run.failedDesc", { progress: Math.round(progress) })}
             </p>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-2.5 sm:mt-3 flex gap-2">
               <button
                 onClick={onRetry}
-                className="px-3 py-1.5 rounded-md bg-brand text-brand-foreground text-xs font-semibold"
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md bg-brand text-brand-foreground text-xs font-semibold cursor-pointer"
               >
                 {t("common.retry")}
               </button>
               <button
                 onClick={onBack}
-                className="px-3 py-1.5 rounded-md border border-border text-xs font-medium hover:bg-secondary"
+                className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-md border border-border text-xs font-medium hover:bg-secondary cursor-pointer"
               >
                 {t("common.backToConfig")}
               </button>
@@ -7353,10 +7353,10 @@ function normalizeSyncState(value: unknown): SyncState | null {
 
 function SyncMetric({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="rounded-lg border border-border bg-secondary/20 px-3 py-3">
-      <span className="text-xs text-muted-foreground">{label}</span>
+    <div className="rounded-lg border border-border bg-secondary/20 px-2.5 sm:px-3 py-2 sm:py-3">
+      <span className="text-[11px] sm:text-xs text-muted-foreground">{label}</span>
       <p
-        className={`mt-1 tabular-nums ${strong ? "text-lg font-semibold" : "text-sm font-semibold"}`}
+        className={`mt-0.5 sm:mt-1 tabular-nums ${strong ? "text-base sm:text-lg font-semibold" : "text-xs sm:text-sm font-semibold"}`}
       >
         {value}
       </p>
