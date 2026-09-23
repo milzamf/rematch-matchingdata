@@ -1122,8 +1122,12 @@ function MatchingPage() {
       await ensureWorkspace(role, result);
       toast.success(t("feedback.toast.uploaded", { name: file.name }));
     } catch (error) {
+      const fieldError =
+        error instanceof ApiError && error.errors
+          ? Object.values(error.errors).flat()[0]
+          : null;
       const message =
-        error instanceof ApiError ? error.message : t("matching.upload.inspectFailed");
+        fieldError || (error instanceof ApiError ? error.message : t("matching.upload.inspectFailed"));
       const failState: UploadedFile = { name: file.name, size: file.size, status: "error", error: message };
       if (role === "reference") {
         referenceRef.current = failState;
@@ -1133,7 +1137,7 @@ function MatchingPage() {
         setInput(failState);
       }
       setUploadError(message);
-      toast.error(t("feedback.toast.invalidFile"));
+      toast.error(message || t("feedback.toast.invalidFile"));
     }
   };
 
