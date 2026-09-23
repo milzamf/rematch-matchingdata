@@ -14,16 +14,32 @@ export default defineConfig({
   },
   vite: {
     server: {
+      allowedHosts: true,
       proxy: {
         "/api": {
-          target: process.env.VITE_API_PROXY_TARGET || "http://localhost:8000",
+          target: process.env.VITE_API_PROXY_TARGET || "http://backend:8000",
           changeOrigin: true,
         },
         "/sanctum": {
-          target: process.env.VITE_API_PROXY_TARGET || "http://localhost:8000",
+          target: process.env.VITE_API_PROXY_TARGET || "http://backend:8000",
           changeOrigin: true,
         },
       },
+    },
+    optimizeDeps: {
+      include: [
+        "react",
+        "react-dom",
+        "@tanstack/react-router",
+        "@tanstack/react-query",
+        "lucide-react",
+        "lodash",
+        "recharts",
+        "cmdk",
+        "sonner",
+        "tailwind-merge",
+        "clsx",
+      ],
     },
   },
 });

@@ -54,8 +54,8 @@ services:
       APP_ENV: local
       APP_KEY: base64:2ztv9sIppmYKL0RGNW10i6YmwXJZGUcCBF9GIY6BBmM=
       APP_DEBUG: "true"
-      APP_URL: http://localhost:8000
-      FRONTEND_URL: http://localhost:8080
+      APP_URL: https://desktop-m1n2p7u.tail3128ea.ts.net
+      FRONTEND_URL: https://desktop-m1n2p7u.tail3128ea.ts.net
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
@@ -68,8 +68,10 @@ services:
       QUEUE_CONNECTION: database
       CACHE_STORE: database
       SESSION_DRIVER: database
-      SANCTUM_STATEFUL_DOMAINS: localhost:8080,127.0.0.1:8080,localhost:5173,127.0.0.1:5173
-      CORS_ALLOWED_ORIGINS: http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:5173
+      SESSION_DOMAIN: .desktop-m1n2p7u.tail3128ea.ts.net
+      SESSION_SECURE_COOKIE: "true"
+      SANCTUM_STATEFUL_DOMAINS: desktop-m1n2p7u.tail3128ea.ts.net,desktop-m1n2p7u.tail3128ea.ts.net:8080,localhost,localhost:8080,localhost:5173,127.0.0.1,127.0.0.1:8080,127.0.0.1:5173
+      CORS_ALLOWED_ORIGINS: https://desktop-m1n2p7u.tail3128ea.ts.net,https://desktop-m1n2p7u.tail3128ea.ts.net:8080,http://desktop-m1n2p7u.tail3128ea.ts.net,http://desktop-m1n2p7u.tail3128ea.ts.net:8080,http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:5173
       BATCHMATCH_DEV_USER_PASSWORD: password
       BATCHMATCH_DEV_ADMIN_PASSWORD: password
       BATCHMATCH_DEV_PIMPINAN_PASSWORD: password
@@ -88,7 +90,7 @@ services:
       dockerfile: Dockerfile
     container_name: rematch-queue-worker
     restart: unless-stopped
-    command: php -d memory_limit=-1 artisan queue:work --tries=3 --timeout=600
+    command: php -d memory_limit=-1 artisan queue:work --tries=3 --timeout=300
     volumes:
       - ./backend:/var/www/html
     environment:
@@ -96,8 +98,8 @@ services:
       APP_ENV: local
       APP_KEY: base64:2ztv9sIppmYKL0RGNW10i6YmwXJZGUcCBF9GIY6BBmM=
       APP_DEBUG: "true"
-      APP_URL: http://localhost:8000
-      FRONTEND_URL: http://localhost:8080
+      APP_URL: https://desktop-m1n2p7u.tail3128ea.ts.net
+      FRONTEND_URL: https://desktop-m1n2p7u.tail3128ea.ts.net
       DB_CONNECTION: mysql
       DB_HOST: db
       DB_PORT: 3306
