@@ -16,12 +16,14 @@ import {
   Pencil,
   KeyRound,
   Loader2,
+  BookOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { LegalEntityDictionaryDialog } from "@/components/legal-entity-dictionary-dialog";
 import {
   Dialog,
   DialogContent,
@@ -542,6 +544,23 @@ function SettingsPage() {
                   <p className="text-[11px] text-muted-foreground italic">
                     {t("settings.customStopwordsExample")}
                   </p>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="text-base font-semibold text-foreground flex items-center gap-2">
+                      <BookOpen className="size-4 text-brand" />
+                      <span>Kamus Master Referensi Badan Usaha</span>
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Kamus baku normalisasi taksonomi badan usaha RI & Internasional (KUHD, UU No. 40/2007, UU Cipta Kerja).
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    <LegalEntityDictionaryDialog />
+                  </div>
                 </div>
               </Card>
             </TabsContent>

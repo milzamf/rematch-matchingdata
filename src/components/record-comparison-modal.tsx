@@ -18,9 +18,12 @@ import {
   FileSpreadsheet,
   Filter,
   Split,
+  BookOpen,
 } from "lucide-react";
 import type { ReviewItem, ReviewCandidate } from "@/lib/api";
 import type { IdentityFieldPair } from "@/lib/result-identity";
+import { normalizeLegalForm } from "@/lib/data-normalizer";
+import { LegalEntityDictionaryDialog } from "@/components/legal-entity-dictionary-dialog";
 
 class ModalErrorBoundary extends Component<
   { children: ReactNode; onClose: () => void },
@@ -253,21 +256,31 @@ function getOverviewFields(
     reference: string;
   }>;
 } {
-  // 1. Badan Usaha
+  // 1. Badan Usaha (Normalized with Kamus Badan Usaha)
   const rawInputBU = inputData.bentuk_usaha ?? inputData.badan_usaha ?? meta?.input?.legal_form;
-  const inputBU = rawInputBU ? String(rawInputBU) : "- (kosong)";
+  const normInputBU = normalizeLegalForm(rawInputBU) ?? meta?.input?.legal_form;
+  let inputBU = "- (kosong)";
+  if (rawInputBU) {
+    if (normInputBU && String(rawInputBU).trim().toUpperCase() !== String(normInputBU).trim().toUpperCase()) {
+      inputBU = `${rawInputBU} (${normInputBU})`;
+    } else {
+      inputBU = String(rawInputBU);
+    }
+  } else if (normInputBU) {
+    inputBU = String(normInputBU);
+  }
 
   const rawRefBU = referenceData.badan_usaha ?? referenceData.bentuk_usaha;
-  const refLegalForm = meta?.reference?.legal_form;
+  const normRefBU = normalizeLegalForm(rawRefBU) ?? meta?.reference?.legal_form;
   let refBU = "- (kosong)";
   if (rawRefBU) {
-    if (refLegalForm && String(rawRefBU) !== String(refLegalForm)) {
-      refBU = `${rawRefBU} (${refLegalForm})`; // e.g. "3 (CV)"
+    if (normRefBU && String(rawRefBU).trim().toUpperCase() !== String(normRefBU).trim().toUpperCase()) {
+      refBU = `${rawRefBU} (${normRefBU})`; // e.g. "3 (CV)" or "Commanditaire Vennootschap (CV)"
     } else {
       refBU = String(rawRefBU);
     }
-  } else if (refLegalForm) {
-    refBU = String(refLegalForm);
+  } else if (normRefBU) {
+    refBU = String(normRefBU);
   }
 
   // 2. Alamat

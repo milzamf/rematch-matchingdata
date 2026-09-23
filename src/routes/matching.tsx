@@ -40,6 +40,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
 import { ReviewRuleModal } from "@/components/review-rule-modal";
 import { RecordComparisonModal } from "@/components/record-comparison-modal";
+import { LegalEntityDictionaryDialog } from "@/components/legal-entity-dictionary-dialog";
 import {
   fetchAiMatchingConfiguration,
   fetchAiReviewAnalysis,
@@ -2285,29 +2286,32 @@ function StepStandardizedPreview({
           desc={t("preview.description")}
         />
 
-        <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab("input")}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-              activeTab === "input"
-                ? "bg-brand text-brand-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t("preview.tabInput")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("reference")}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-              activeTab === "reference"
-                ? "bg-brand text-brand-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t("preview.tabReference")}
-          </button>
+        <div className="flex items-center gap-2">
+          <LegalEntityDictionaryDialog />
+          <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab("input")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === "input"
+                  ? "bg-brand text-brand-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t("preview.tabInput")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("reference")}
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === "reference"
+                  ? "bg-brand text-brand-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t("preview.tabReference")}
+            </button>
+          </div>
         </div>
       </div>
 
