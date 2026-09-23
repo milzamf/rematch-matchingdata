@@ -2483,6 +2483,7 @@ function semanticLabel(
   if (semantic === "province") return t("results.identity.province");
   if (semantic === "city") return t("results.identity.city");
   if (semantic === "address") return t("results.identity.address");
+  if (semantic === "person") return t("results.identity.person");
   return t("results.identity.identity");
 }
 

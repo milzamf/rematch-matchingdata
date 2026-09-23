@@ -12,6 +12,7 @@ export type IdentitySemantic =
   | "city"
   | "email"
   | "phone"
+  | "person"
   | "other";
 
 export type IdentityFieldPair = {
@@ -65,7 +66,7 @@ const EXCLUDED_HINTS = [
   "jenis",
 ];
 
-const NAME_HINTS = [
+const COMPANY_NAME_HINTS = [
   "namaperusahaan",
   "namaperusahaanresmi",
   "namaperusahaanlengkap",
@@ -75,12 +76,17 @@ const NAME_HINTS = [
   "namaperusahaanutama",
   "namaperusahaanoperasional",
   "namaperusahaandagang",
+  "namapenyedia",
   "namausaha",
   "namausaharesmi",
   "namabadanusaha",
+  "namabadan",
   "namaentitas",
   "namaentity",
-  "nama",
+  "namarekanan",
+  "namainstansi",
+  "namawajibpajak",
+  "namakomersial",
   "companyname",
   "companylegalname",
   "companydisplayname",
@@ -88,7 +94,85 @@ const NAME_HINTS = [
   "entityname",
   "legalname",
   "tradingname",
+  "vendorname",
+  "providername",
+  "namainti",
+  "corename",
 ];
+
+export function isPersonOrContactColumn(columnName: string): boolean {
+  const norm = normalizeColumnName(columnName);
+  if (!norm) return false;
+
+  const EXACT_PERSON = [
+    "cp",
+    "pic",
+    "kontak",
+    "contact",
+    "pengusaha",
+    "direktur",
+    "director",
+    "pimpinan",
+    "leader",
+    "pemilik",
+    "owner",
+    "penanggungjawab",
+    "penanggung_jawab",
+    "pj",
+    "petugas",
+    "person",
+    "namacp",
+    "namapic",
+    "namapengusaha",
+    "namadirektur",
+    "namapemilik",
+    "namapimpinan",
+    "namapenanggungjawab",
+    "namapj",
+    "namapetugas",
+    "nohpcp",
+    "jabatancp",
+  ];
+  if (EXACT_PERSON.includes(norm)) return true;
+
+  if (
+    norm.endsWith("cp") ||
+    norm.startsWith("cp") ||
+    norm.includes("pic") ||
+    norm.includes("contactperson") ||
+    norm.includes("kontakperson") ||
+    norm.includes("pengusaha") ||
+    norm.includes("direktur") ||
+    norm.includes("penanggungjawab") ||
+    norm.includes("pimpinan") ||
+    norm.includes("pemilik")
+  ) {
+    return true;
+  }
+
+  const tokens = columnName.toLowerCase().split(/[^a-z0-9]+/);
+  if (
+    tokens.some((t) =>
+      [
+        "cp",
+        "pic",
+        "kontak",
+        "contact",
+        "pengusaha",
+        "direktur",
+        "pimpinan",
+        "pemilik",
+        "penanggungjawab",
+        "pj",
+        "petugas",
+      ].includes(t),
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 const STRONG_IDENTIFIER_HINTS = [
   "idperusahaan",
@@ -121,8 +205,14 @@ export function extractIdentityMappings(workflowState: unknown): IdentityFieldPa
     columnMappings
       .map((mapping) => {
         const item = readRecord(mapping);
-        const inputColumn = readString(item.inputColumnName);
-        const referenceColumn = readString(item.referenceColumnName);
+        const inputColumn =
+          readString(item.parent_input_column) ??
+          readString(item.parentInputColumn) ??
+          readString(item.inputColumnName);
+        const referenceColumn =
+          readString(item.parent_reference_column) ??
+          readString(item.parentReferenceColumn) ??
+          readString(item.referenceColumnName);
         if (!inputColumn && !referenceColumn) return null;
 
         const semantic = classifyPairSemantic(inputColumn, referenceColumn);
@@ -215,9 +305,11 @@ export function buildRecordIdentity(
   const address = fields.find((field) => field.semantic === "address" && field.value !== headline);
   const email = fields.find((field) => field.semantic === "email" && field.value !== headline);
   const phone = fields.find((field) => field.semantic === "phone" && field.value !== headline);
+  const person = fields.find((field) => field.semantic === "person" && field.value !== headline);
 
   const metaParts = [
     ...identifiers.map((field) => formatIdentityField(field)),
+    person ? formatIdentityField(person) : null,
     location,
     address ? formatIdentityField(address) : null,
     email ? formatIdentityField(email) : null,
@@ -263,9 +355,11 @@ export function buildSideIdentity(summary: IdentitySummary, side: IdentitySide):
   const address = fields.find((field) => field.semantic === "address" && field.value !== headline);
   const email = fields.find((field) => field.semantic === "email" && field.value !== headline);
   const phone = fields.find((field) => field.semantic === "phone" && field.value !== headline);
+  const person = fields.find((field) => field.semantic === "person" && field.value !== headline);
 
   const metaParts = [
     ...identifiers.map((field) => formatIdentityField(field)),
+    person ? formatIdentityField(person) : null,
     location,
     address ? formatIdentityField(address) : null,
     email ? formatIdentityField(email) : null,
@@ -350,7 +444,7 @@ function buildFallbackRows(
   const referenceFields = referenceRecord ? rankRecordFields(referenceRecord) : [];
   const rows: IdentitySummaryRow[] = [];
 
-  for (const semantic of ["name", "strong_identifier", "address", "province", "city", "email", "phone", "other"] as const) {
+  for (const semantic of ["name", "strong_identifier", "address", "province", "city", "email", "phone", "person", "other"] as const) {
     if (seenSemantics.has(semantic)) continue;
 
     const inputField = inputFields.find((field) => field.semantic === semantic) ?? null;
@@ -373,6 +467,17 @@ function buildFallbackRows(
   return rows;
 }
 
+function nameSubPriority(columnName: string): number {
+  const norm = normalizeColumnName(columnName);
+  if (norm.includes("namaperusahaan") || norm.includes("companyname")) return 1;
+  if (norm.includes("namapenyedia") || norm.includes("vendorname") || norm.includes("providername")) return 2;
+  if (norm.includes("namausaha") || norm.includes("businessname")) return 3;
+  if (norm.includes("namabadanusaha") || norm.includes("legalname")) return 4;
+  if (norm.includes("namainti") || norm.includes("corename")) return 5;
+  if (norm === "nama" || norm === "name") return 6;
+  return 10;
+}
+
 function rankRecordFields(record: RecordData): IdentityFieldValue[] {
   return Object.entries(record)
     .map(([column, value]) => ({
@@ -387,8 +492,13 @@ function rankRecordFields(record: RecordData): IdentityFieldValue[] {
       column: item.column,
       value: item.value as string,
       priority: semanticPriority(item.semantic),
+      subPriority: item.semantic === "name" ? nameSubPriority(item.column) : 100,
     }))
-    .sort((left, right) => left.priority - right.priority);
+    .sort((left, right) => {
+      const diff = left.priority - right.priority;
+      if (diff !== 0) return diff;
+      return left.subPriority - right.subPriority;
+    });
 }
 
 function dedupePairs(pairs: IdentityFieldPair[]) {
@@ -437,8 +547,18 @@ function sameIdentityRow(row: IdentitySummaryRow, other: IdentitySummaryRow | nu
 function classifySemantic(columnName: string): IdentitySemantic {
   const normalized = normalizeColumnName(columnName);
 
-  if (matchesAny(normalized, NAME_HINTS) && !isExcludedColumn(columnName)) return "name";
-  if (matchesAny(normalized, STRONG_IDENTIFIER_HINTS) && !isExcludedColumn(columnName)) return "strong_identifier";
+  if (isExcludedColumn(columnName)) return "other";
+  if (isPersonOrContactColumn(columnName)) return "person";
+  if (matchesAny(normalized, COMPANY_NAME_HINTS)) return "name";
+  if (
+    normalized === "nama" ||
+    normalized === "name" ||
+    normalized.startsWith("nama") ||
+    normalized.endsWith("name")
+  ) {
+    return "name";
+  }
+  if (matchesAny(normalized, STRONG_IDENTIFIER_HINTS)) return "strong_identifier";
   if (matchesAny(normalized, ADDRESS_HINTS)) return "address";
   if (matchesAny(normalized, PROVINCE_HINTS)) return "province";
   if (matchesAny(normalized, CITY_HINTS)) return "city";
@@ -472,8 +592,10 @@ function semanticPriority(semantic: IdentitySemantic) {
       return 6;
     case "phone":
       return 7;
-    default:
+    case "person":
       return 8;
+    default:
+      return 9;
   }
 }
 
@@ -501,6 +623,8 @@ function semanticLabel(semantic: IdentitySemantic) {
       return "Email";
     case "phone":
       return "Phone";
+    case "person":
+      return "Contact Person / PIC";
     default:
       return "Field";
   }
@@ -517,7 +641,12 @@ function buildLocationMeta(fields: IdentityFieldValue[]) {
 }
 
 function formatIdentityField(field: IdentityFieldValue) {
-  if (field.semantic === "strong_identifier" || field.semantic === "email" || field.semantic === "phone") {
+  if (
+    field.semantic === "strong_identifier" ||
+    field.semantic === "email" ||
+    field.semantic === "phone" ||
+    field.semantic === "person"
+  ) {
     return `${field.label} ${field.value}`;
   }
 
@@ -525,6 +654,18 @@ function formatIdentityField(field: IdentityFieldValue) {
 }
 
 function humanizeColumn(value: string) {
+  const norm = value.toLowerCase().replace(/[_\-]+/g, " ").trim();
+  if (norm === "nama cp" || norm === "namacp") return "Nama CP";
+  if (norm === "cp") return "CP";
+  if (norm === "nama pic" || norm === "namapic") return "Nama PIC";
+  if (norm === "pic") return "PIC";
+  if (norm === "npwp") return "NPWP";
+  if (norm === "nib") return "NIB";
+  if (norm === "nama perusahaan") return "Nama Perusahaan";
+  if (norm === "nama penyedia") return "Nama Penyedia";
+  if (norm === "nama usaha") return "Nama Usaha";
+  if (norm === "nama pengusaha") return "Nama Pengusaha";
+
   const normalized = value
     .replace(/[_\-]+/g, " ")
     .replace(/\s+/g, " ")

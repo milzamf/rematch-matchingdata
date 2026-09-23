@@ -6795,10 +6795,17 @@ function IdentityCell({
 
   const headline = identity.headline;
 
-  // 1. Identifiers (NPWP, etc.) & contacts
+  // 1. Identifiers (NPWP, etc.), contact person & contacts
   const identifiers = identity.fields
     .filter((f) => f.semantic === "strong_identifier" && f.value !== headline)
     .map((f) => (f.label ? `${f.label}: ${f.value}` : f.value));
+
+  const personField = identity.fields.find(
+    (f) => f.semantic === "person" && f.value !== headline && f.value !== "-",
+  );
+  const personText = personField
+    ? (personField.label ? `${personField.label}: ${personField.value}` : personField.value)
+    : null;
 
   const contacts = identity.fields
     .filter(
@@ -6811,7 +6818,7 @@ function IdentityCell({
     )
     .map((f) => (f.label ? `${f.label}: ${f.value}` : f.value));
 
-  const secondLineParts = [...identifiers, ...contacts].filter(Boolean);
+  const secondLineParts = [...identifiers, personText, ...contacts].filter(Boolean);
   const secondLine = secondLineParts.join(" • ") || null;
 
   // 2. Address and City / Province
@@ -7014,6 +7021,8 @@ function identityFieldLabel(
       return t("results.identity.email");
     case "phone":
       return t("results.identity.phone");
+    case "person":
+      return t("matching.review.contactPerson");
     default:
       return fallback;
   }
