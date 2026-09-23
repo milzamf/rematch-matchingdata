@@ -57,12 +57,13 @@ function LoginPage() {
     <AuthShell title={t("auth.signInTitle")} subtitle={t("auth.signInSubtitle")}>
       <form onSubmit={submit} className="space-y-4">
         <Field
-          label={t("auth.email")}
-          type="email"
+          label={t("auth.usernameOrEmail")}
+          type="text"
           value={email}
           onChange={setEmail}
-          placeholder={t("auth.emailPlaceholder")}
+          placeholder={t("auth.loginIdentifierPlaceholder")}
           autoFocus
+          autoComplete="username"
         />
         <Field
           label={t("auth.password")}

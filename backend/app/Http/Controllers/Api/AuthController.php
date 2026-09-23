@@ -12,12 +12,27 @@ class AuthController extends Controller
 {
     public function login(Request $request): JsonResponse
     {
-        $credentials = $request->validate([
-            'email' => ['required', 'email'],
+        $input = $request->validate([
+            'email' => ['nullable', 'string'],
+            'username' => ['nullable', 'string'],
             'password' => ['required', 'string'],
         ]);
 
-        if (! Auth::attempt($credentials)) {
+        $login = trim((string) ($request->input('username') ?? $request->input('email') ?? ''));
+
+        if ($login === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Username or email is required',
+            ], 422);
+        }
+
+        $user = User::where('email', $login)
+            ->orWhere('email', $login.'@re-match.local')
+            ->orWhere('name', $login)
+            ->first();
+
+        if (! $user || ! Auth::attempt(['email' => $user->email, 'password' => $input['password']])) {
             return response()->json([
                 'success' => false,
                 'message' => 'Email or password is incorrect',

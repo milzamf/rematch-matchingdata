@@ -29,19 +29,19 @@ class DatabaseSeeder extends Seeder
                 'email' => 'user@re-match.local',
                 'name' => 'RE-MATCH User',
                 'role' => UserRole::User,
-                'password' => env('BATCHMATCH_DEV_USER_PASSWORD'),
+                'password' => (string) (env('BATCHMATCH_DEV_USER_PASSWORD') ?: '321'),
             ],
             [
                 'email' => 'admin@re-match.local',
                 'name' => 'RE-MATCH Admin',
                 'role' => UserRole::Admin,
-                'password' => env('BATCHMATCH_DEV_ADMIN_PASSWORD'),
+                'password' => (string) (env('BATCHMATCH_DEV_ADMIN_PASSWORD') ?: '321'),
             ],
             [
                 'email' => 'pimpinan@re-match.local',
                 'name' => 'RE-MATCH Pimpinan',
                 'role' => UserRole::Pimpinan,
-                'password' => env('BATCHMATCH_DEV_PIMPINAN_PASSWORD'),
+                'password' => (string) (env('BATCHMATCH_DEV_PIMPINAN_PASSWORD') ?: '321'),
             ],
         ];
 
