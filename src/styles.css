@@ -139,9 +139,16 @@
 
   html,
   body {
+    height: 100%;
+    overflow: hidden;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  #root {
+    height: 100%;
+    overflow: hidden;
   }
 
   body {

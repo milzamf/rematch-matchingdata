@@ -1416,7 +1416,7 @@ function MatchingPage() {
         </div>
 
         {/* Horizontal stepper */}
-        <Card className="p-3 sm:p-5 mb-4 sm:mb-6 sticky top-16 z-10 bg-card/95 backdrop-blur-xs">
+        <Card className="p-3 sm:p-5 mb-4 sm:mb-6">
           <Stepper steps={localizedSteps} current={activeStep} onSelect={selectStep} />
         </Card>
 

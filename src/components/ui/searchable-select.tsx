@@ -45,6 +45,22 @@ export function SearchableSelect({
   "data-testid": dataTestId,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
+  const listRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const el = listRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.stopPropagation();
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: true });
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+    };
+  }, [open]);
 
   const selectedOption = React.useMemo(() => {
     return options.find((opt) => opt.value === value);
@@ -74,10 +90,18 @@ export function SearchableSelect({
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[220px] p-0 shadow-lg" align="start">
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] min-w-[220px] p-0 shadow-lg"
+        align="start"
+        onWheel={(e) => e.stopPropagation()}
+      >
         <Command className="w-full">
           <CommandInput placeholder={searchPlaceholder} className="h-9 text-xs" />
-          <CommandList className="max-h-60 overflow-y-auto p-1">
+          <CommandList
+            ref={listRef}
+            className="max-h-60 overflow-y-auto p-1 overscroll-contain"
+            onWheel={(e) => e.stopPropagation()}
+          >
             <CommandEmpty className="py-3 text-center text-xs text-muted-foreground">
               {emptyText}
             </CommandEmpty>
