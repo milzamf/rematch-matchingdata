@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { LogOut, Plus, Menu, User, Settings, SlidersHorizontal, Moon, Sun, Laptop } from "lucide-react";
+import { LogOut, Plus, Menu, User, Settings, SlidersHorizontal, Moon, Sun, Laptop, PanelLeft, PanelLeftOpen } from "lucide-react";
 
 import { getInitials, useAuth } from "@/lib/auth";
 import { PERMISSIONS } from "@/lib/authorization";
@@ -10,18 +10,28 @@ import { Logo, LogoIcon } from "@/components/ui/logo";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { nav, secondaryNav } from "@/components/app-sidebar";
+import { useSidebarContext } from "@/lib/sidebar-context";
 
 export function Topbar() {
   const { t, theme, setTheme, language, setLanguage } = usePreferences();
   const { can, currentUser, logout } = useAuth();
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
+  const { isCollapsed, toggleSidebar, isMobileOpen, setMobileOpen } = useSidebarContext();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   const visibleNav = nav.filter((item) => !("permission" in item) || can(item.permission));
   const visibleSecondaryNav = secondaryNav.filter((item) => can(item.permission));
+
+  const currentRouteTitle = (() => {
+    if (pathname === "/") return t("nav.dashboard");
+    const allNavs = [...nav, ...secondaryNav];
+    const match = allNavs.find((item) => item.url !== "/" && pathname.startsWith(item.url));
+    if (match) return t(match.labelKey);
+    if (pathname.startsWith("/workspaces")) return t("workspace.title") || "Workspaces";
+    return "";
+  })();
 
   const handleConfirmLogout = async () => {
     setIsLoggingOut(true);
@@ -31,23 +41,23 @@ export function Topbar() {
     } finally {
       setIsLoggingOut(false);
       setShowLogoutConfirm(false);
-      setIsMobileNavOpen(false);
+      setMobileOpen(false);
     }
   };
 
   const handleNavClick = (url: string) => {
-    setIsMobileNavOpen(false);
+    setMobileOpen(false);
     navigate({ to: url });
   };
 
   return (
     <>
-      <header className="h-16 border-b border-border bg-card sticky top-0 z-20 flex items-center justify-between px-3 sm:px-6 gap-2 sm:gap-4 w-full max-w-full">
+      <header className="h-16 border-b border-border bg-card shrink-0 flex items-center justify-between px-3 sm:px-6 gap-2 sm:gap-4 w-full max-w-full">
         <div className="min-w-0 flex items-center gap-1 sm:gap-2">
           {/* Mobile hamburger menu toggle */}
           <button
             type="button"
-            onClick={() => setIsMobileNavOpen(true)}
+            onClick={() => setMobileOpen(true)}
             className="lg:hidden h-10 w-10 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary active:scale-95 transition-all cursor-pointer shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Buka Menu Navigasi"
           >
@@ -57,6 +67,33 @@ export function Topbar() {
           <div className="lg:hidden flex items-center min-w-0">
             <Logo variant="horizontal" size="sm" showDirectorate={false} />
           </div>
+
+          {/* Desktop sidebar toggle button (Buka / Tutup Sidebar) */}
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="hidden lg:flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary active:scale-95 transition-all cursor-pointer shrink-0 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            title={isCollapsed ? `${t("common.expand") || "Buka Sidebar"} (Ctrl+B)` : `${t("common.collapse") || "Ciutkan Sidebar"} (Ctrl+B)`}
+            aria-label={isCollapsed ? "Buka Sidebar" : "Ciutkan Sidebar"}
+            data-testid="topbar-sidebar-toggle-btn"
+          >
+            {isCollapsed ? (
+              <PanelLeftOpen className="size-4.5" />
+            ) : (
+              <PanelLeft className="size-4.5" />
+            )}
+          </button>
+
+          {/* Desktop breadcrumb indicator when sidebar is collapsed */}
+          {isCollapsed && currentRouteTitle && (
+            <div className="hidden lg:flex items-center gap-2 text-xs font-medium text-muted-foreground pl-1.5 animate-in fade-in-50 duration-200">
+              <span className="font-bold text-foreground tracking-tight">RE-MATCH</span>
+              <span className="text-muted-foreground/40 font-normal">/</span>
+              <span className="text-foreground/90 font-medium truncate max-w-[220px]">
+                {currentRouteTitle}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -84,7 +121,7 @@ export function Topbar() {
       </header>
 
       {/* Mobile Navigation Drawer */}
-      <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
+      <Sheet open={isMobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="w-[85vw] max-w-xs p-0 flex flex-col h-full bg-sidebar border-r border-border">
           <SheetHeader className="p-4 border-b border-border text-left">
             <SheetTitle className="sr-only">Navigasi Utama</SheetTitle>

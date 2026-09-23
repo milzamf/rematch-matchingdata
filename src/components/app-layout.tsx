@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { AppSidebar } from "./app-sidebar";
 import { Topbar } from "./topbar";
 import { useAuth } from "@/lib/auth";
+import { SidebarProvider } from "@/lib/sidebar-context";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { currentUser, isLoadingAuth } = useAuth();
@@ -24,13 +25,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground w-full max-w-full overflow-x-hidden">
-      <AppSidebar />
-      <div className="flex-1 flex flex-col min-w-0 w-full max-w-full overflow-x-hidden">
-        <Topbar />
-        <main className="flex-1 min-w-0 w-full max-w-full overflow-x-hidden">{children}</main>
+    <SidebarProvider>
+      <div className="h-screen w-full flex bg-background text-foreground overflow-hidden">
+        <AppSidebar />
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+          <Topbar />
+          <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 w-full focus:outline-none">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </SidebarProvider>
   );
 }
 
