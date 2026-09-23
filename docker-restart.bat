@@ -45,10 +45,10 @@ echo   1. Database MySQL : Port 3306 (db)
 echo   2. Meilisearch    : http://localhost:7700
 echo   3. Laravel API    : http://localhost:8000
 echo   4. Queue Worker   : Aktif di background
-echo   5. Frontend App   : http://localhost:8080
+echo   5. Frontend App   : http://localhost:8090
 echo ===================================================
 echo.
 echo Membuka aplikasi di browser...
-start http://localhost:8080
+start http://localhost:8090
 echo.
 pause

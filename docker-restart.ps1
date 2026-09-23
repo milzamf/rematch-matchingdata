@@ -30,10 +30,10 @@ docker compose ps
 
 Write-Host "`n===================================================" -ForegroundColor Green
 Write-Host "  Container RE-MATCH Berhasil Di-restart!" -ForegroundColor Green
-Write-Host "  - Frontend App   : http://localhost:8080" -ForegroundColor White
+Write-Host "  - Frontend App   : http://localhost:8090" -ForegroundColor White
 Write-Host "  - Laravel API    : http://localhost:8000" -ForegroundColor White
 Write-Host "  - Meilisearch    : http://localhost:7700" -ForegroundColor White
 Write-Host "  - Database MySQL : Port 3306" -ForegroundColor White
 Write-Host "===================================================" -ForegroundColor Green
 
-Start-Process "http://localhost:8080"
+Start-Process "http://localhost:8090"

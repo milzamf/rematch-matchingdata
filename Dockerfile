@@ -10,7 +10,7 @@ RUN npm install
 COPY . .
 
 # Expose ports (TanStack Start / Vite)
-EXPOSE 8080 5173
+EXPOSE 8090 5173
 
 # Start development server
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

@@ -106,7 +106,7 @@ Jika Anda memiliki Docker dan Docker Compose yang terpasang di komputer:
    ```bash
    docker compose up -d
    ```
-   *Stack ini secara otomatis menginisialisasi MySQL (port 3306), Meilisearch (port 7700), Laravel API (port 8000), Queue Worker, dan Frontend (port 8080 & 5173).*
+   *Stack ini secara otomatis menginisialisasi MySQL (port 3306), Meilisearch (port 7700), Laravel API (port 8000), Queue Worker, dan Frontend (port 8090 & 5173).*
 
 3. **Migrasi dan inisialisasi database di dalam kontainer:**
    ```bash
@@ -114,7 +114,7 @@ Jika Anda memiliki Docker dan Docker Compose yang terpasang di komputer:
    ```
 
 4. **Buka aplikasi di peramban:**
-   - Frontend: `http://localhost:8080`
+   - Frontend: `http://localhost:8090`
    - Backend API: `http://localhost:8000/api`
    - Meilisearch: `http://localhost:7700`
 
@@ -177,7 +177,7 @@ npm install
 npm run dev
 ```
 
-Aplikasi frontend akan aktif di `http://localhost:8080` atau `http://localhost:5173`. Seluruh permintaan API ke `/api/*` dan `/sanctum/*` akan diproksikan secara otomatis ke backend Laravel di `http://localhost:8000`.
+Aplikasi frontend akan aktif di `http://localhost:8090` atau `http://localhost:5173`. Seluruh permintaan API ke `/api/*` dan `/sanctum/*` akan diproksikan secara otomatis ke backend Laravel di `http://localhost:8000`.
 
 ---
 
@@ -228,10 +228,10 @@ credentials-file: C:\Users\<USERNAME>\.cloudflared\<TUNNEL_UUID_ANDA>.json
 ingress:
   # 1. Routing Domain Frontend (React / TanStack)
   - hostname: rematch.domainanda.com
-    service: http://localhost:8080
+    service: http://localhost:8090
     originRequest:
       noTLSVerify: false
-      httpHostHeader: localhost:8080
+      httpHostHeader: localhost:8090
 
   # 2. Routing Domain Backend API (Opsional jika ingin subdomain terpisah)
   # - hostname: api-rematch.domainanda.com
@@ -251,7 +251,7 @@ cloudflared tunnel route dns rematch-tunnel rematch.domainanda.com
 
 - **Mode Uji Coba Cepat (Quick Ad-hoc Tunnel):**
   ```bash
-  cloudflared tunnel --url http://localhost:8080
+  cloudflared tunnel --url http://localhost:8090
   ```
 - **Mode Produksi (Berbasis Berkas Konfigurasi):**
   ```bash

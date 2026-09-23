@@ -66,12 +66,12 @@ echo   Semua service telah aktif!
 echo   - Laragon:     Aktif (Web & DB)
 echo   - Meilisearch: http://127.0.0.1:7700
 echo   - Backend API: http://127.0.0.1:8000
-echo   - Frontend:    http://localhost:8080
+echo   - Frontend:    http://localhost:8090
 echo ===================================================
 echo.
 echo Membuka browser dalam 4 detik...
 timeout /t 4 /nobreak >nul
-start http://localhost:8080
+start http://localhost:8090
 
 echo Selesai. Anda dapat menutup jendela launcher ini.
 timeout /t 5 >nul

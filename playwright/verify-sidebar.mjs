@@ -78,7 +78,7 @@ async function runVerification() {
     { session: mockSession, prefs: preferences },
   );
 
-  await page.goto("http://localhost:8080/matching");
+  await page.goto("http://localhost:8090/matching");
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(1000);
 
@@ -226,7 +226,7 @@ async function runVerification() {
     { session: mockSession, prefs: preferences },
   );
 
-  await mobilePage.goto("http://localhost:8080/matching");
+  await mobilePage.goto("http://localhost:8090/matching");
   await mobilePage.waitForLoadState("networkidle");
   await mobilePage.waitForTimeout(1000);
 

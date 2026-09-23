@@ -14,6 +14,7 @@ export default defineConfig({
   },
   vite: {
     server: {
+      port: Number(process.env.PORT) || 8090,
       allowedHosts: true,
       proxy: {
         "/api": {

@@ -8,7 +8,7 @@ return [
 
     'allowed_origins' => array_values(array_filter(array_map('trim', explode(',', env(
         'CORS_ALLOWED_ORIGINS',
-        env('FRONTEND_URL', 'http://localhost:8080')
+        env('FRONTEND_URL', 'http://localhost:8090')
     ))))),
 
     'allowed_origins_patterns' => [],
