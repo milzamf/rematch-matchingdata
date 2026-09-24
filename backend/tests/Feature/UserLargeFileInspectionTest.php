@@ -44,7 +44,7 @@ class UserLargeFileInspectionTest extends TestCase
 
         $this->assertNotEmpty($result);
         $this->assertEquals('reference', $result['dataset']['dataset_role']);
-        $this->assertGreaterThan(100000, $result['dataset']['row_count']);
+        $this->assertEquals(295374, $result['dataset']['row_count']);
         $this->assertEquals(58, $result['dataset']['column_count']);
         $this->assertCount(100, $result['preview_rows']);
         $this->assertCount(58, $result['columns']);

@@ -67,7 +67,6 @@ class XlsxDatasetParser implements DatasetParserInterface
                     $rowCounter++;
 
                     if ($rowCounter < $headerRow) {
-                        $reader->next();
                         continue;
                     }
 
@@ -80,7 +79,7 @@ class XlsxDatasetParser implements DatasetParserInterface
                     $dataRowCounter++;
 
                     if ($inspectMode) {
-                        // In inspect mode: collect first 100 for preview, first 5000 for profiling, fast-count remainder
+                        // In inspect mode: collect first 100 for preview, first 5000 for profiling
                         if ($dataRowCounter <= 5000) {
                             $rawRow = $this->readRowCells($reader, $sharedStrings);
                             $combined = $this->combineRow($headers, $rawRow);
@@ -88,9 +87,6 @@ class XlsxDatasetParser implements DatasetParserInterface
                                 $previewRows[] = $combined;
                             }
                             $sampleRows[] = $combined;
-                        } else {
-                            // Fast count: skip inner cell XML nodes
-                            $reader->next();
                         }
                     } else {
                         // Full parse mode
@@ -168,7 +164,6 @@ class XlsxDatasetParser implements DatasetParserInterface
                     $rowCounter++;
 
                     if ($rowCounter < $headerRow) {
-                        $reader->next();
                         continue;
                     }
 
