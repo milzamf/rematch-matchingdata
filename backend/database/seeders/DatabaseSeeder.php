@@ -21,27 +21,30 @@ class DatabaseSeeder extends Seeder
             ?? UserRole::User;
 
         if (is_string($legacyPassword) && $legacyPassword !== '') {
-            $this->upsertUser('dev@re-match.local', 'RE-MATCH Developer', $legacyRole, $legacyPassword);
+            $this->upsertUser('dev', 'dev@re-match.local', 'RE-MATCH Developer', $legacyRole, $legacyPassword);
         }
 
         $accounts = [
             [
-                'email' => 'user@re-match.local',
-                'name' => 'RE-MATCH User',
-                'role' => UserRole::User,
-                'password' => (string) (env('BATCHMATCH_DEV_USER_PASSWORD') ?: '321'),
-            ],
-            [
+                'username' => 'admin',
                 'email' => 'admin@re-match.local',
-                'name' => 'RE-MATCH Admin',
+                'name' => 'Administrator',
                 'role' => UserRole::Admin,
                 'password' => (string) (env('BATCHMATCH_DEV_ADMIN_PASSWORD') ?: '321'),
             ],
             [
+                'username' => 'pimpinan',
                 'email' => 'pimpinan@re-match.local',
-                'name' => 'RE-MATCH Pimpinan',
+                'name' => 'Pimpinan',
                 'role' => UserRole::Pimpinan,
                 'password' => (string) (env('BATCHMATCH_DEV_PIMPINAN_PASSWORD') ?: '321'),
+            ],
+            [
+                'username' => 'user',
+                'email' => 'user@re-match.local',
+                'name' => 'Operator User',
+                'role' => UserRole::User,
+                'password' => (string) (env('BATCHMATCH_DEV_USER_PASSWORD') ?: '321'),
             ],
         ];
 
@@ -51,6 +54,7 @@ class DatabaseSeeder extends Seeder
             }
 
             $this->upsertUser(
+                $account['username'],
                 $account['email'],
                 $account['name'],
                 $account['role'],
@@ -59,11 +63,12 @@ class DatabaseSeeder extends Seeder
         }
     }
 
-    private function upsertUser(string $email, string $name, UserRole $role, string $password): void
+    private function upsertUser(string $username, string $email, string $name, UserRole $role, string $password): void
     {
         User::updateOrCreate(
-            ['email' => $email],
+            ['username' => $username],
             [
+                'email' => $email,
                 'name' => $name,
                 'role' => $role->value,
                 'password' => $password,

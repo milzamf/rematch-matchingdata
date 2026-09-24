@@ -40,7 +40,8 @@ class AuthController extends Controller
             ], 429);
         }
 
-        $user = User::where('email', $login)
+        $user = User::where('username', $login)
+            ->orWhere('email', $login)
             ->orWhere('email', $login.'@re-match.local')
             ->orWhere('name', $login)
             ->first();
@@ -97,6 +98,7 @@ class AuthController extends Controller
             'user' => [
                 'id' => $user->id,
                 'name' => $user->name,
+                'username' => $user->username,
                 'email' => $user->email,
                 'role' => $user->roleEnum()->value,
             ],
