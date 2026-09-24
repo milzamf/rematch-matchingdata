@@ -9,6 +9,15 @@ use Laravel\Sanctum\Sanctum;
 
 abstract class TestCase extends BaseTestCase
 {
+    public function createApplication()
+    {
+        $app = parent::createApplication();
+        $app['config']->set('database.default', 'sqlite');
+        $app['config']->set('database.connections.sqlite.database', ':memory:');
+
+        return $app;
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
