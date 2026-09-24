@@ -134,7 +134,7 @@ class MatchingEngineTest extends TestCase
             ],
         ]);
 
-        $this->postJson('/api/matching-jobs/run', [
+        $response = $this->postJson('/api/matching-jobs/run', [
             'name' => 'Mandatory Match Test',
             'reference_dataset_id' => $reference->id,
             'input_dataset_id' => $input->id,

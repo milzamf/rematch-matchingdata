@@ -17,7 +17,7 @@ class RunMatchingJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 600;
+    public int $timeout = 0;
 
     public int $tries = 3;
 
@@ -27,7 +27,9 @@ class RunMatchingJob implements ShouldQueue
 
     public function handle(MatchingEngineService $engine): void
     {
-        @ini_set('memory_limit', '1024M');
+        if (ini_get('memory_limit') !== '-1') {
+            @ini_set('memory_limit', '4096M');
+        }
 
         $job = MatchingJob::with(['workspace', 'referenceDataset', 'inputDataset'])->find($this->matchingJobId);
 

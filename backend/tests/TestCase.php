@@ -14,6 +14,7 @@ abstract class TestCase extends BaseTestCase
         $app = parent::createApplication();
         $app['config']->set('database.default', 'sqlite');
         $app['config']->set('database.connections.sqlite.database', ':memory:');
+        $app['config']->set('queue.default', 'sync');
 
         return $app;
     }

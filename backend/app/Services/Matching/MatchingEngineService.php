@@ -48,7 +48,7 @@ class MatchingEngineService
         $job = $this->prepareJob($user, $payload);
 
         if (app()->environment('testing') || config('queue.default') === 'sync') {
-            RunMatchingJob::dispatchSync($job->id);
+            $this->runJob($job);
         } else {
             RunMatchingJob::dispatch($job->id);
         }
@@ -78,17 +78,21 @@ class MatchingEngineService
             throw new InvalidArgumentException('At least one valid column mapping is required.');
         }
 
-        $refRowCount = $reference->row_count > 0 ? (int) $reference->row_count : count($this->loadDatasetRows($reference));
-        $rawInputRows = $this->loadDatasetRows($input);
-        $dedupAnalysis = $this->analyzeAndDeduplicateInputRows($rawInputRows);
-        $inputRowsRaw = $dedupAnalysis['unique_rows'];
-        $inpRowCount = count($inputRowsRaw);
+        $refRowCount = $reference->row_count > 0 ? (int) $reference->row_count : count($reference->preview_rows ?? []);
+        $inpRowCount = $input->row_count > 0 ? (int) $input->row_count : count($input->preview_rows ?? []);
+
+        if ($refRowCount === 0) {
+            $refRowCount = count($this->loadDatasetRows($reference));
+        }
+        if ($inpRowCount === 0) {
+            $inpRowCount = count($this->loadDatasetRows($input));
+        }
 
         if ($refRowCount === 0 || $inpRowCount === 0) {
             throw new InvalidArgumentException('Reference and input datasets must contain data rows before matching.');
         }
 
-        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $workspace, $inpRowCount, $dedupAnalysis) {
+        return DB::transaction(function () use ($payload, $reference, $input, $configuration, $mappings, $workspace, $inpRowCount) {
             $job = MatchingJob::create([
                 'reference_dataset_id' => $reference->id,
                 'input_dataset_id' => $input->id,
@@ -101,10 +105,10 @@ class MatchingEngineService
                     'possible_match' => 0,
                     'unmatched' => 0,
                     'candidates_scored' => 0,
-                    'total_raw_input' => $dedupAnalysis['raw_count'],
-                    'total_unique_input' => $dedupAnalysis['unique_count'],
-                    'total_duplicates' => $dedupAnalysis['duplicate_count'],
-                    'duplicate_details' => array_slice($dedupAnalysis['duplicate_details'], 0, 100),
+                    'total_raw_input' => $inpRowCount,
+                    'total_unique_input' => $inpRowCount,
+                    'total_duplicates' => 0,
+                    'duplicate_details' => [],
                 ],
                 'started_at' => Carbon::now(),
             ]);
@@ -161,7 +165,9 @@ class MatchingEngineService
      */
     public function runJob(MatchingJob $job): array
     {
-        @ini_set('memory_limit', '1024M');
+        if (ini_get('memory_limit') !== '-1') {
+            @ini_set('memory_limit', '4096M');
+        }
 
         $job->loadMissing(['referenceDataset.columns', 'inputDataset.columns', 'mappings', 'configuration', 'workspace']);
 
@@ -209,6 +215,7 @@ class MatchingEngineService
         $rawInputRows = $this->loadDatasetRows($input);
         $dedupAnalysis = $this->analyzeAndDeduplicateInputRows($rawInputRows);
         $inputRowsRaw = $dedupAnalysis['unique_rows'];
+        unset($rawInputRows);
         $totalInputCount = count($inputRowsRaw);
 
         MatchingResult::where('matching_job_id', $job->id)->delete();
@@ -217,6 +224,16 @@ class MatchingEngineService
             'status' => 'processing',
             'processed_count' => 0,
             'total_count' => $totalInputCount,
+            'record_counts' => [
+                'matched' => 0,
+                'possible_match' => 0,
+                'unmatched' => 0,
+                'candidates_scored' => 0,
+                'total_raw_input' => $dedupAnalysis['raw_count'],
+                'total_unique_input' => $dedupAnalysis['unique_count'],
+                'total_duplicates' => $dedupAnalysis['duplicate_count'],
+                'duplicate_details' => array_slice($dedupAnalysis['duplicate_details'], 0, 100),
+            ],
             'started_at' => Carbon::now(),
         ]);
 
@@ -593,7 +610,9 @@ class MatchingEngineService
         // Phase 1: Automatic Normalization
         // ---------------------------------------------------------------------
         $referenceRows = $this->normalizeRows($referenceRowsRaw, $mappings, 'reference_column_name', $refColTypes);
+        unset($referenceRowsRaw);
         $inputRows = $this->normalizeRows($inputRowsRaw, $mappings, 'input_column_name', $inpColTypes);
+        unset($inputRowsRaw);
 
         $referenceByKey = collect($referenceRows)->keyBy('key')->all();
 
@@ -625,8 +644,10 @@ class MatchingEngineService
 
         // Candidate Generation Index for Phase 3 via Meilisearch
         $indexInitStart = microtime(true);
-        $httpClient = new \GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 10]);
-        $client = new \Meilisearch\Client(env('MEILISEARCH_HOST', 'http://127.0.0.1:7700'), env('MEILISEARCH_KEY', ''), $httpClient);
+        $meiliHost = env('MEILISEARCH_HOST') ?: config('scout.meilisearch.host') ?: 'http://meilisearch:7700';
+        $meiliKey = env('MEILISEARCH_KEY') ?: config('scout.meilisearch.key') ?: '';
+        $httpClient = new \GuzzleHttp\Client(['timeout' => 60, 'connect_timeout' => 10]);
+        $client = new \Meilisearch\Client($meiliHost, $meiliKey, $httpClient);
         $indexUid = 'matching_reference_' . str_replace('-', '_', $reference->id);
         
         $indexReused = false;
@@ -1825,29 +1846,30 @@ class MatchingEngineService
             $sig = md5(json_encode($normalizedRow));
 
             if (! isset($seen[$sig])) {
-                $seen[$sig] = true;
+                $seen[$sig] = $index;
                 $unique[] = $row;
-                $duplicateCounts[$sig] = 1;
-                $duplicateSamples[$sig] = [
-                    'sample_row' => $row,
-                    'first_row_index' => $index + 1,
-                ];
             } else {
-                $duplicateCounts[$sig]++;
+                if (! isset($duplicateCounts[$sig])) {
+                    $duplicateCounts[$sig] = 2;
+                    $duplicateSamples[$sig] = [
+                        'sample_row' => $row,
+                        'first_row_index' => $seen[$sig] + 1,
+                    ];
+                } else {
+                    $duplicateCounts[$sig]++;
+                }
             }
         }
 
         $duplicateDetails = [];
         foreach ($duplicateCounts as $sig => $count) {
-            if ($count > 1) {
-                $sample = $duplicateSamples[$sig];
-                $duplicateDetails[] = [
-                    'sample_row' => $sample['sample_row'],
-                    'first_row_index' => $sample['first_row_index'],
-                    'duplicate_count' => $count - 1,
-                    'total_occurrences' => $count,
-                ];
-            }
+            $sample = $duplicateSamples[$sig];
+            $duplicateDetails[] = [
+                'sample_row' => $sample['sample_row'],
+                'first_row_index' => $sample['first_row_index'],
+                'duplicate_count' => $count - 1,
+                'total_occurrences' => $count,
+            ];
         }
 
         usort($duplicateDetails, fn ($a, $b) => $b['total_occurrences'] <=> $a['total_occurrences']);

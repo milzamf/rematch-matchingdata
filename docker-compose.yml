@@ -90,7 +90,7 @@ services:
       dockerfile: Dockerfile
     container_name: rematch-queue-worker
     restart: unless-stopped
-    command: php -d memory_limit=-1 artisan queue:work --tries=3 --timeout=300
+    command: php -d memory_limit=-1 artisan queue:work --tries=3 --timeout=0
     volumes:
       - ./backend:/var/www/html
       - ./backend/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
