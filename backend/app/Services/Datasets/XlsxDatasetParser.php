@@ -3,11 +3,20 @@
 namespace App\Services\Datasets;
 
 use App\Exceptions\DatasetParsingException;
+use Generator;
 use Illuminate\Http\UploadedFile;
 use SimpleXMLElement;
+use Throwable;
+use XMLReader;
+use ZipArchive;
 
 class XlsxDatasetParser implements DatasetParserInterface
 {
+    /**
+     * Parse an uploaded XLSX file.
+     *
+     * @param array<string, mixed> $options
+     */
     public function parse(UploadedFile $file, array $options = []): ParsedDataset
     {
         $path = $file->getRealPath();
@@ -16,9 +25,17 @@ class XlsxDatasetParser implements DatasetParserInterface
             throw new DatasetParsingException('The uploaded XLSX file cannot be read.');
         }
 
-        $zip = new SimpleZipReader($path);
-        $sharedStrings = $this->readSharedStrings($zip);
-        $sheets = $this->readSheets($zip);
+        return $this->parsePath($path, $options);
+    }
+
+    /**
+     * Parse an XLSX file from a filesystem path.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function parsePath(string $path, array $options = []): ParsedDataset
+    {
+        $sheets = $this->readSheets($path);
 
         if ($sheets === []) {
             throw new DatasetParsingException('The XLSX file does not contain any readable sheets.');
@@ -26,63 +43,267 @@ class XlsxDatasetParser implements DatasetParserInterface
 
         $requestedSheet = $options['sheet_name'] ?? null;
         $selected = $this->selectSheet($sheets, is_string($requestedSheet) ? $requestedSheet : null);
-        $rows = $this->readWorksheetRows($zip, $selected['path'], $sharedStrings);
-        $headerRow = max(1, (int) ($options['header_row'] ?? 1));
-        $headers = $this->validateHeaders($rows[$headerRow - 1] ?? []);
-        $dataRows = [];
+        $sharedStrings = $this->readSharedStrings($path);
 
-        foreach (array_slice($rows, $headerRow) as $row) {
-            $dataRows[] = $this->combineRow($headers, $row);
+        $headerRow = max(1, (int) ($options['header_row'] ?? 1));
+        $inspectMode = (bool) ($options['inspect_mode'] ?? true);
+        $maxRows = isset($options['max_rows']) ? (int) $options['max_rows'] : null;
+
+        $reader = $this->openReaderForEntry($path, $selected['path']);
+        if ($reader === null) {
+            throw new DatasetParsingException('The selected XLSX sheet cannot be read.');
+        }
+
+        $headers = [];
+        $previewRows = [];
+        $sampleRows = [];
+        $allRows = [];
+        $rowCounter = 0;
+        $dataRowCounter = 0;
+
+        try {
+            while ($reader->read()) {
+                if ($reader->nodeType === XMLReader::ELEMENT && $reader->localName === 'row') {
+                    $rowCounter++;
+
+                    if ($rowCounter < $headerRow) {
+                        $reader->next();
+                        continue;
+                    }
+
+                    if ($rowCounter === $headerRow) {
+                        $rawRow = $this->readRowCells($reader, $sharedStrings);
+                        $headers = $this->validateHeaders($rawRow);
+                        continue;
+                    }
+
+                    $dataRowCounter++;
+
+                    if ($inspectMode) {
+                        // In inspect mode: collect first 100 for preview, first 5000 for profiling, fast-count remainder
+                        if ($dataRowCounter <= 5000) {
+                            $rawRow = $this->readRowCells($reader, $sharedStrings);
+                            $combined = $this->combineRow($headers, $rawRow);
+                            if ($dataRowCounter <= 100) {
+                                $previewRows[] = $combined;
+                            }
+                            $sampleRows[] = $combined;
+                        } else {
+                            // Fast count: skip inner cell XML nodes
+                            $reader->next();
+                        }
+                    } else {
+                        // Full parse mode
+                        $rawRow = $this->readRowCells($reader, $sharedStrings);
+                        $allRows[] = $this->combineRow($headers, $rawRow);
+
+                        if ($maxRows !== null && $dataRowCounter >= $maxRows) {
+                            break;
+                        }
+                    }
+                }
+            }
+        } finally {
+            $reader->close();
+        }
+
+        if ($headers === []) {
+            throw new DatasetParsingException('The file must contain a non-empty header row.');
+        }
+
+        $sheetNames = array_column($sheets, 'name');
+
+        if ($inspectMode) {
+            return new ParsedDataset(
+                $headers,
+                $previewRows,
+                $sheetNames,
+                $selected['name'],
+                null,
+                $dataRowCounter,
+                $sampleRows,
+            );
         }
 
         return new ParsedDataset(
             $headers,
-            $dataRows,
-            array_column($sheets, 'name'),
+            $allRows,
+            $sheetNames,
             $selected['name'],
+            null,
+            $dataRowCounter,
+            array_slice($allRows, 0, 5000),
         );
     }
 
     /**
+     * Stream rows from an XLSX file on disk one by one.
+     *
+     * @param array<string, mixed> $options
+     * @return Generator<int, array<string, mixed>>
+     */
+    public function streamRows(string $path, array $options = []): Generator
+    {
+        $sheets = $this->readSheets($path);
+        if ($sheets === []) {
+            throw new DatasetParsingException('The XLSX file does not contain any readable sheets.');
+        }
+
+        $requestedSheet = $options['sheet_name'] ?? null;
+        $selected = $this->selectSheet($sheets, is_string($requestedSheet) ? $requestedSheet : null);
+        $sharedStrings = $this->readSharedStrings($path);
+        $headerRow = max(1, (int) ($options['header_row'] ?? 1));
+
+        $reader = $this->openReaderForEntry($path, $selected['path']);
+        if ($reader === null) {
+            throw new DatasetParsingException('The selected XLSX sheet cannot be read.');
+        }
+
+        $headers = [];
+        $rowCounter = 0;
+
+        try {
+            while ($reader->read()) {
+                if ($reader->nodeType === XMLReader::ELEMENT && $reader->localName === 'row') {
+                    $rowCounter++;
+
+                    if ($rowCounter < $headerRow) {
+                        $reader->next();
+                        continue;
+                    }
+
+                    if ($rowCounter === $headerRow) {
+                        $rawRow = $this->readRowCells($reader, $sharedStrings);
+                        $headers = $this->validateHeaders($rawRow);
+                        continue;
+                    }
+
+                    $rawRow = $this->readRowCells($reader, $sharedStrings);
+                    yield $this->combineRow($headers, $rawRow);
+                }
+            }
+        } finally {
+            $reader->close();
+        }
+    }
+
+    /**
+     * Read cell contents for the current row node.
+     *
+     * @param array<int, string> $sharedStrings
+     * @return array<int, mixed>
+     */
+    private function readRowCells(XMLReader $reader, array $sharedStrings): array
+    {
+        $rowCells = [];
+
+        if ($reader->isEmptyElement) {
+            return $rowCells;
+        }
+
+        $rowDepth = $reader->depth;
+
+        while ($reader->read() && $reader->depth > $rowDepth) {
+            if ($reader->nodeType === XMLReader::ELEMENT && $reader->localName === 'c') {
+                $ref = $reader->getAttribute('r') ?? '';
+                $type = $reader->getAttribute('t') ?? '';
+                $colIdx = $ref !== '' ? $this->columnIndex($ref) : count($rowCells);
+
+                if ($reader->isEmptyElement) {
+                    $rowCells[$colIdx] = null;
+                    continue;
+                }
+
+                $cellDepth = $reader->depth;
+                $val = null;
+
+                while ($reader->read() && $reader->depth > $cellDepth) {
+                    if ($reader->nodeType === XMLReader::ELEMENT) {
+                        if ($reader->localName === 'v') {
+                            $vText = $reader->readString();
+                            if ($type === 's') {
+                                $val = $sharedStrings[(int) $vText] ?? null;
+                            } elseif ($type === 'b') {
+                                $val = ($vText === '1' || strtolower($vText) === 'true');
+                            } else {
+                                $val = $vText;
+                            }
+                        } elseif ($reader->localName === 't') {
+                            $val = $reader->readString();
+                        }
+                    }
+                }
+
+                $rowCells[$colIdx] = $val;
+            }
+        }
+
+        return $rowCells;
+    }
+
+    /**
+     * Extract shared strings from xl/sharedStrings.xml using streaming XMLReader.
+     *
      * @return array<int, string>
      */
-    private function readSharedStrings(SimpleZipReader $zip): array
+    private function readSharedStrings(string $path): array
     {
-        $xml = $zip->get('xl/sharedStrings.xml');
-
-        if ($xml === null) {
+        $reader = $this->openReaderForEntry($path, 'xl/sharedStrings.xml');
+        if ($reader === null) {
             return [];
         }
 
-        $shared = [];
-        $doc = $this->loadXml($xml, 'The XLSX shared strings could not be parsed.');
+        $strings = [];
+        $currentText = '';
 
-        foreach ($doc->si as $item) {
-            $parts = [];
-
-            if (isset($item->t)) {
-                $parts[] = (string) $item->t;
-            }
-
-            foreach ($item->r ?? [] as $run) {
-                if (isset($run->t)) {
-                    $parts[] = (string) $run->t;
+        try {
+            while ($reader->read()) {
+                if ($reader->nodeType === XMLReader::ELEMENT) {
+                    if ($reader->localName === 'si') {
+                        $currentText = '';
+                    } elseif ($reader->localName === 't') {
+                        $currentText .= $reader->readString();
+                    }
+                } elseif ($reader->nodeType === XMLReader::END_ELEMENT) {
+                    if ($reader->localName === 'si') {
+                        $strings[] = $currentText;
+                    }
                 }
             }
-
-            $shared[] = implode('', $parts);
+        } finally {
+            $reader->close();
         }
 
-        return $shared;
+        return $strings;
     }
 
     /**
      * @return array<int, array{name: string, path: string}>
      */
-    private function readSheets(SimpleZipReader $zip): array
+    private function readSheets(string $path): array
     {
-        $workbookXml = $zip->get('xl/workbook.xml');
-        $relsXml = $zip->get('xl/_rels/workbook.xml.rels');
+        $workbookXml = null;
+        $relsXml = null;
+
+        if (class_exists(ZipArchive::class)) {
+            $zip = new ZipArchive();
+            $openRes = @$zip->open($path);
+            if ($openRes === true) {
+                $workbookXml = $zip->getFromName('xl/workbook.xml') ?: null;
+                $relsXml = $zip->getFromName('xl/_rels/workbook.xml.rels') ?: null;
+                $zip->close();
+            }
+        }
+
+        if ($workbookXml === null || $relsXml === null) {
+            try {
+                $simpleZip = new SimpleZipReader($path);
+                $workbookXml = $simpleZip->get('xl/workbook.xml');
+                $relsXml = $simpleZip->get('xl/_rels/workbook.xml.rels');
+            } catch (Throwable) {
+                throw new DatasetParsingException('The XLSX file is corrupted or cannot be opened.');
+            }
+        }
 
         if ($workbookXml === null || $relsXml === null) {
             throw new DatasetParsingException('The XLSX workbook metadata is missing.');
@@ -97,7 +318,7 @@ class XlsxDatasetParser implements DatasetParserInterface
             $target = (string) $attributes['Target'];
             $relationshipMap[(string) $attributes['Id']] = str_starts_with($target, '/')
                 ? ltrim($target, '/')
-                : 'xl/'.ltrim($target, '/');
+                : (str_starts_with($target, 'worksheets/') ? 'xl/' . $target : 'xl/' . ltrim($target, '/'));
         }
 
         $workbook->registerXPathNamespace('rel', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
@@ -120,7 +341,7 @@ class XlsxDatasetParser implements DatasetParserInterface
     }
 
     /**
-     * @param  array<int, array{name: string, path: string}>  $sheets
+     * @param array<int, array{name: string, path: string}> $sheets
      * @return array{name: string, path: string}
      */
     private function selectSheet(array $sheets, ?string $requestedSheet): array
@@ -139,94 +360,119 @@ class XlsxDatasetParser implements DatasetParserInterface
     }
 
     /**
-     * @param  array<int, string>  $sharedStrings
-     * @return array<int, array<int, mixed>>
+     * Open XMLReader for a specific entry in the zip file.
      */
-    private function readWorksheetRows(SimpleZipReader $zip, string $path, array $sharedStrings): array
+    private function openReaderForEntry(string $path, string $entryName): ?XMLReader
     {
-        $sheetXml = $zip->get($path);
+        $reader = new XMLReader();
 
-        if ($sheetXml === null) {
-            throw new DatasetParsingException('The selected XLSX sheet cannot be read.');
+        // 1. Try zip:// stream wrapper
+        $realPath = realpath($path) ?: $path;
+        $uri = 'zip://' . str_replace('\\', '/', $realPath) . '#' . ltrim($entryName, '/');
+        if (@$reader->open($uri)) {
+            return $reader;
         }
 
-        $sheet = $this->loadXml($sheetXml, 'The selected XLSX sheet could not be parsed.');
-        $rows = [];
+        // 2. Fallback: extract entry to temp file if ZipArchive available
+        if (class_exists(ZipArchive::class)) {
+            $zip = new ZipArchive();
+            if (@$zip->open($path) === true) {
+                $tempDir = sys_get_temp_dir() . '/bm_xlsx_' . getmypid();
+                if (! is_dir($tempDir)) {
+                    @mkdir($tempDir, 0777, true);
+                }
+                $tempFile = $tempDir . '/' . basename($entryName);
+                $fp = @$zip->getStream($entryName);
+                if ($fp !== false) {
+                    $out = @fopen($tempFile, 'w');
+                    if ($out !== false) {
+                        stream_copy_to_stream($fp, $out);
+                        fclose($out);
+                        fclose($fp);
+                        $zip->close();
+                        if (@$reader->open($tempFile)) {
+                            return $reader;
+                        }
+                    } else {
+                        fclose($fp);
+                    }
+                }
+                $zip->close();
+            }
+        }
 
-        foreach ($sheet->sheetData->row as $rowNode) {
-            $row = [];
-
-            foreach ($rowNode->c as $cell) {
-                $attributes = $cell->attributes();
-                $index = $this->columnIndex((string) $attributes['r']);
-                $row[$index] = $this->cellValue($cell, (string) $attributes['t'], $sharedStrings);
+        // 3. Fallback: SimpleZipReader for environments without zip extension (e.g. local host CLI)
+        try {
+            $simpleZip = new SimpleZipReader($path);
+            $tempDir = sys_get_temp_dir() . '/bm_xlsx_' . getmypid();
+            if (! is_dir($tempDir)) {
+                @mkdir($tempDir, 0777, true);
+            }
+            $tempFile = $tempDir . '/' . basename($entryName);
+            if ($simpleZip->extractEntry($entryName, $tempFile)) {
+                if (@$reader->open($tempFile)) {
+                    return $reader;
+                }
             }
 
-            if ($row !== []) {
-                ksort($row);
-                $rows[] = $this->densifyRow($row);
+            $xml = $simpleZip->get($entryName);
+            if ($xml !== null && @$reader->xml($xml)) {
+                return $reader;
             }
+        } catch (Throwable) {
+            // ignore
         }
 
-        return $rows;
+        return null;
     }
 
-    private function cellValue(SimpleXMLElement $cell, string $type, array $sharedStrings): mixed
-    {
-        if ($type === 's') {
-            return $sharedStrings[(int) $cell->v] ?? null;
-        }
-
-        if ($type === 'inlineStr') {
-            return isset($cell->is->t) ? (string) $cell->is->t : null;
-        }
-
-        if ($type === 'b') {
-            return (string) $cell->v === '1';
-        }
-
-        return isset($cell->v) ? (string) $cell->v : null;
-    }
-
+    /**
+     * Convert cell reference like "A1", "Z10", "AA1", "BF295375" to 0-based column index.
+     */
     private function columnIndex(string $cellReference): int
     {
-        preg_match('/^[A-Z]+/i', $cellReference, $matches);
-        $letters = strtoupper($matches[0] ?? 'A');
-        $index = 0;
+        $letters = '';
+        $len = strlen($cellReference);
 
-        foreach (str_split($letters) as $letter) {
-            $index = ($index * 26) + (ord($letter) - 64);
+        for ($i = 0; $i < $len; $i++) {
+            $c = $cellReference[$i];
+            if (($c >= 'A' && $c <= 'Z') || ($c >= 'a' && $c <= 'z')) {
+                $letters .= strtoupper($c);
+            } else {
+                break;
+            }
+        }
+
+        if ($letters === '') {
+            return 0;
+        }
+
+        $index = 0;
+        $lLen = strlen($letters);
+
+        for ($i = 0; $i < $lLen; $i++) {
+            $index = ($index * 26) + (ord($letters[$i]) - 64);
         }
 
         return $index - 1;
     }
 
     /**
-     * @param  array<int, mixed>  $row
-     * @return array<int, mixed>
-     */
-    private function densifyRow(array $row): array
-    {
-        $max = max(array_keys($row));
-        $dense = [];
-
-        for ($i = 0; $i <= $max; $i++) {
-            $dense[] = $row[$i] ?? null;
-        }
-
-        return $dense;
-    }
-
-    /**
-     * @param  array<int, mixed>  $headers
+     * @param array<int, mixed> $headers
      * @return array<int, string>
      */
     private function validateHeaders(array $headers): array
     {
-        $clean = array_map(fn ($header) => trim((string) $header), $headers);
-        $clean = array_values(array_filter($clean, fn ($header) => $header !== ''));
+        $maxKey = ! empty($headers) ? max(array_keys($headers)) : -1;
+        $clean = [];
 
-        if ($clean === [] || count($clean) !== count($headers)) {
+        for ($i = 0; $i <= $maxKey; $i++) {
+            $clean[$i] = trim((string) ($headers[$i] ?? ''));
+        }
+
+        $nonEmpty = array_values(array_filter($clean, fn ($h) => $h !== ''));
+
+        if ($nonEmpty === [] || count($nonEmpty) !== count($clean)) {
             throw new DatasetParsingException('The file must contain a non-empty header row.');
         }
 
@@ -240,12 +486,12 @@ class XlsxDatasetParser implements DatasetParserInterface
             throw new DatasetParsingException('The file header does not look valid. Please provide a header row with column names.');
         }
 
-        return $clean;
+        return array_values($clean);
     }
 
     /**
-     * @param  array<int, string>  $headers
-     * @param  array<int, mixed>  $record
+     * @param array<int, string> $headers
+     * @param array<int, mixed> $record
      * @return array<string, mixed>
      */
     private function combineRow(array $headers, array $record): array
@@ -254,7 +500,7 @@ class XlsxDatasetParser implements DatasetParserInterface
 
         foreach ($headers as $index => $header) {
             $value = $record[$index] ?? null;
-            $row[$header] = $value === '' ? null : $value;
+            $row[$header] = ($value === '' || $value === null) ? null : $value;
         }
 
         return $row;

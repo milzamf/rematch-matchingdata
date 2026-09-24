@@ -17,12 +17,20 @@ return new class extends Migration
             });
 
             // Backfill user_id from associated workspace if available
-            DB::statement('
-                UPDATE datasets d
-                INNER JOIN workspaces w ON d.workspace_id = w.id
-                SET d.user_id = w.user_id
-                WHERE d.user_id IS NULL AND w.user_id IS NOT NULL
-            ');
+            if (DB::getDriverName() === 'mysql') {
+                DB::statement('
+                    UPDATE datasets d
+                    INNER JOIN workspaces w ON d.workspace_id = w.id
+                    SET d.user_id = w.user_id
+                    WHERE d.user_id IS NULL AND w.user_id IS NOT NULL
+                ');
+            } else {
+                DB::statement('
+                    UPDATE datasets
+                    SET user_id = (SELECT user_id FROM workspaces WHERE workspaces.id = datasets.workspace_id)
+                    WHERE user_id IS NULL AND workspace_id IS NOT NULL
+                ');
+            }
         }
 
         // 2. Workspaces foreign key indexes and sorting index

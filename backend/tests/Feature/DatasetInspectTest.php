@@ -109,7 +109,7 @@ class DatasetInspectTest extends TestCase
 
     public function test_it_rejects_file_over_size_limit(): void
     {
-        $file = UploadedFile::fake()->create('large.csv', 51201, 'text/csv');
+        $file = UploadedFile::fake()->create('large.csv', 512001, 'text/csv');
 
         $this->postJson('/api/datasets/inspect', [
             'file' => $file,

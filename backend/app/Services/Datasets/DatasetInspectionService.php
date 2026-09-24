@@ -30,11 +30,13 @@ class DatasetInspectionService
             'sheet_name' => $input['sheet_name'] ?? null,
             'delimiter' => $input['delimiter'] ?? null,
             'header_row' => $input['header_row'] ?? 1,
+            'inspect_mode' => true,
         ]);
         $columns = $this->profiler->profile($parsed);
         $path = $file->store('datasets');
+        $totalRows = $parsed->totalRowCount ?? count($parsed->rows);
 
-        return DB::transaction(function () use ($user, $file, $input, $parsed, $columns, $path) {
+        return DB::transaction(function () use ($user, $file, $input, $parsed, $columns, $path, $totalRows) {
             $dataset = Dataset::create([
                 'user_id' => $user->getKey(),
                 'dataset_role' => $input['dataset_role'],
@@ -47,14 +49,14 @@ class DatasetInspectionService
                 'selected_sheet' => $parsed->selectedSheet,
                 'delimiter' => $parsed->delimiter,
                 'header_row' => (int) ($input['header_row'] ?? 1),
-                'row_count' => count($parsed->rows),
+                'row_count' => $totalRows,
                 'column_count' => count($parsed->headers),
                 'parse_status' => 'inspected',
                 'sheet_names' => $parsed->sheetNames,
                 'preview_rows' => array_slice($parsed->rows, 0, 100),
                 'profiling_summary' => [
                     'columns' => count($parsed->headers),
-                    'rows' => count($parsed->rows),
+                    'rows' => $totalRows,
                     'high_missing_columns' => collect($columns)->where('null_percentage', '>=', 30)->pluck('name')->values()->all(),
                     'duplicate_prone_columns' => collect($columns)->where('duplicate_percentage', '>=', 30)->pluck('name')->values()->all(),
                 ],
@@ -201,33 +203,45 @@ class DatasetInspectionService
 
                 if ($format === 'xlsx' || $format === 'xls') {
                     $parser = new XlsxDatasetParser();
-                    $uploaded = new UploadedFile(
-                        $filePath,
-                        $dataset->original_filename ?: basename($filePath),
-                        $dataset->mime_type ?: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                        null,
-                        true
-                    );
+                    $start = ($page - 1) * $perPage;
+                    $end = $start + $perPage;
+                    $pageRows = [];
+                    $matchingCount = 0;
 
-                    $parsed = $parser->parse($uploaded, [
+                    $rowGenerator = $parser->streamRows($filePath, [
                         'sheet_name' => $dataset->selected_sheet,
                         'header_row' => (int) ($dataset->header_row ?? 1),
                     ]);
 
-                    $allRows = $parsed->rows;
-                    if ($searchLower !== null) {
-                        $allRows = array_values(array_filter($allRows, function ($row) use ($searchLower) {
+                    foreach ($rowGenerator as $row) {
+                        $matchesSearch = $searchLower === null;
+
+                        if ($searchLower !== null) {
                             foreach ($row as $val) {
                                 if ($val !== null && $val !== '' && str_contains(mb_strtolower((string) $val), $searchLower)) {
-                                    return true;
+                                    $matchesSearch = true;
+                                    break;
                                 }
                             }
-                            return false;
-                        }));
+                        }
+
+                        if (! $matchesSearch) {
+                            continue;
+                        }
+
+                        if ($matchingCount >= $start && $matchingCount < $end) {
+                            $pageRows[] = $row;
+                        }
+                        $matchingCount++;
+
+                        if ($searchLower === null && $matchingCount >= $end && $dataset->row_count > 0) {
+                            break;
+                        }
                     }
 
-                    $total = count($allRows);
-                    $pageRows = array_slice($allRows, ($page - 1) * $perPage, $perPage);
+                    $total = ($searchLower === null && $dataset->row_count > 0)
+                        ? (int) $dataset->row_count
+                        : $matchingCount;
 
                     return [
                         'data' => $pageRows,

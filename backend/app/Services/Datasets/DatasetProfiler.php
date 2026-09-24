@@ -9,17 +9,23 @@ class DatasetProfiler
      */
     public function profile(ParsedDataset $dataset): array
     {
-        $rowCount = count($dataset->rows);
+        $rowsToProfile = ! empty($dataset->sampleRows) ? $dataset->sampleRows : $dataset->rows;
+        $sampleCount = count($rowsToProfile);
+        $totalCount = $dataset->totalRowCount ?? count($dataset->rows);
 
         return collect($dataset->headers)
             ->values()
-            ->map(function (string $header, int $index) use ($dataset, $rowCount) {
-                $values = array_map(fn (array $row) => $row[$header] ?? null, $dataset->rows);
+            ->map(function (string $header, int $index) use ($rowsToProfile, $sampleCount, $totalCount) {
+                $values = array_map(fn (array $row) => $row[$header] ?? null, $rowsToProfile);
                 $nonNullValues = array_values(array_filter($values, fn ($value) => ! $this->isBlank($value)));
                 $uniqueValues = array_unique(array_map(fn ($value) => (string) $value, $nonNullValues));
-                $nullCount = $rowCount - count($nonNullValues);
+                $nullCountSample = $sampleCount - count($nonNullValues);
                 $uniqueCount = count($uniqueValues);
-                $duplicateCount = max(0, count($nonNullValues) - $uniqueCount);
+                $duplicateCountSample = max(0, count($nonNullValues) - $uniqueCount);
+
+                $nullPercentage = $this->percentage($nullCountSample, $sampleCount);
+                $duplicatePercentage = $this->percentage($duplicateCountSample, $sampleCount);
+                $nullCount = (int) round(($nullPercentage / 100) * $totalCount);
 
                 return [
                     'name' => $header,
@@ -27,9 +33,9 @@ class DatasetProfiler
                     'data_type' => $this->detectType($nonNullValues),
                     'position' => $index + 1,
                     'null_count' => $nullCount,
-                    'null_percentage' => $this->percentage($nullCount, $rowCount),
+                    'null_percentage' => $nullPercentage,
                     'unique_count' => $uniqueCount,
-                    'duplicate_percentage' => $this->percentage($duplicateCount, $rowCount),
+                    'duplicate_percentage' => $duplicatePercentage,
                     'sample_values' => array_slice(array_values($uniqueValues), 0, 5),
                 ];
             })
