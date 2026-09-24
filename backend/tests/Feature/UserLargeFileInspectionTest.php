@@ -51,4 +51,44 @@ class UserLargeFileInspectionTest extends TestCase
 
         echo "\nInspection succeeded! Total rows: " . $result['dataset']['row_count'] . ", Columns: " . $result['dataset']['column_count'] . "\n";
     }
+
+    public function test_it_inspects_user_actual_large_csv_file(): void
+    {
+        $realFile = '/var/www/html/storage/temp_test.csv';
+        if (! file_exists($realFile)) {
+            $realFile = 'D:/Ilzam/Code/Codex/Data/20260717 - SBR Kategori F.csv';
+        }
+
+        if (! file_exists($realFile)) {
+            $this->markTestSkipped('User large CSV file not found.');
+        }
+
+        Storage::fake('local');
+
+        $uploaded = new UploadedFile(
+            $realFile,
+            '20260717 - SBR Kategori F.csv',
+            'text/csv',
+            null,
+            true
+        );
+
+        $user = User::factory()->create();
+
+        $service = app(DatasetInspectionService::class);
+        $result = $service->inspect($user, $uploaded, [
+            'dataset_role' => 'input',
+            'header_row' => 1,
+        ]);
+
+        $this->assertNotEmpty($result);
+        $this->assertEquals('input', $result['dataset']['dataset_role']);
+        $this->assertEquals(618595, $result['dataset']['row_count']);
+        $this->assertEquals(17, $result['dataset']['column_count']);
+        $this->assertEquals(';', $result['dataset']['delimiter']);
+        $this->assertCount(100, $result['preview_rows']);
+        $this->assertCount(17, $result['columns']);
+
+        echo "\nCSV Inspection succeeded! Total rows: " . $result['dataset']['row_count'] . ", Columns: " . $result['dataset']['column_count'] . ", Delimiter: " . $result['dataset']['delimiter'] . "\n";
+    }
 }

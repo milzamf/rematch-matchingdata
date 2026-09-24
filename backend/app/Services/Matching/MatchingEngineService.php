@@ -1763,6 +1763,7 @@ class MatchingEngineService
                 $parsed = $parser->parse($uploaded, [
                     'delimiter' => $delimiter,
                     'header_row' => $headerRow,
+                    'inspect_mode' => false,
                 ]);
 
                 return $parsed->rows;
@@ -1781,6 +1782,7 @@ class MatchingEngineService
                 $parsed = $parser->parse($uploaded, [
                     'sheet_name' => $dataset->selected_sheet,
                     'header_row' => (int) ($dataset->header_row ?? 1),
+                    'inspect_mode' => false,
                 ]);
 
                 return $parsed->rows;

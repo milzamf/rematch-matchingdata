@@ -136,46 +136,26 @@ class DatasetInspectionService
 
         if ($filePath !== null) {
             try {
-                if ($format === 'csv') {
-                    $delimiter = $dataset->delimiter ?? ',';
-                    $headerRow = max(1, (int) ($dataset->header_row ?? 1));
-
-                    $csv = new SplFileObject($filePath);
-                    $csv->setFlags(SplFileObject::READ_CSV | SplFileObject::SKIP_EMPTY);
-                    $csv->setCsvControl($delimiter);
-
-                    $headers = [];
-                    $pageRows = [];
-                    $matchingCount = 0;
+                if ($format === 'csv' || $format === 'tsv' || $format === 'txt') {
+                    $parser = new CsvDatasetParser();
                     $start = ($page - 1) * $perPage;
                     $end = $start + $perPage;
-                    $lineNumber = 0;
+                    $pageRows = [];
+                    $matchingCount = 0;
 
-                    foreach ($csv as $record) {
-                        if ($record === [null] || $record === false) {
-                            continue;
-                        }
-                        $lineNumber++;
-                        $record = array_map(fn ($value) => is_string($value) ? trim($value) : $value, $record);
+                    $rowGenerator = $parser->streamRows($filePath, [
+                        'delimiter' => $dataset->delimiter,
+                        'header_row' => (int) ($dataset->header_row ?? 1),
+                    ]);
 
-                        if ($lineNumber < $headerRow) {
-                            continue;
-                        }
-                        if ($lineNumber === $headerRow) {
-                            $headers = array_map(fn ($h) => trim((string) $h), $record);
-                            continue;
-                        }
-
-                        $row = [];
+                    foreach ($rowGenerator as $row) {
                         $matchesSearch = $searchLower === null;
 
-                        foreach ($headers as $idx => $h) {
-                            $val = $record[$idx] ?? null;
-                            $row[$h] = $val === '' ? null : $val;
-
-                            if ($searchLower !== null && ! $matchesSearch && $val !== null && $val !== '') {
-                                if (str_contains(mb_strtolower((string) $val), $searchLower)) {
+                        if ($searchLower !== null) {
+                            foreach ($row as $val) {
+                                if ($val !== null && $val !== '' && str_contains(mb_strtolower((string) $val), $searchLower)) {
                                     $matchesSearch = true;
+                                    break;
                                 }
                             }
                         }
@@ -188,9 +168,15 @@ class DatasetInspectionService
                             $pageRows[] = $row;
                         }
                         $matchingCount++;
+
+                        if ($searchLower === null && $matchingCount >= $end && $dataset->row_count > 0) {
+                            break;
+                        }
                     }
 
-                    $total = $matchingCount;
+                    $total = ($searchLower === null && $dataset->row_count > 0)
+                        ? (int) $dataset->row_count
+                        : $matchingCount;
 
                     return [
                         'data' => $pageRows,

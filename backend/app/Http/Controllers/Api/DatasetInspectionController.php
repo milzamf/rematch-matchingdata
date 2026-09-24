@@ -26,11 +26,21 @@ class DatasetInspectionController extends Controller
                 ),
             ]);
         } catch (UnsupportedDatasetFormatException $exception) {
+            \Illuminate\Support\Facades\Log::warning('Unsupported dataset format: ' . $exception->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'extension' => $request->file('file')?->getClientOriginalExtension(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $exception->getMessage(),
             ], 415);
         } catch (DatasetParsingException $exception) {
+            \Illuminate\Support\Facades\Log::warning('Dataset parsing failed: ' . $exception->getMessage(), [
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'size' => $request->file('file')?->getSize(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $exception->getMessage(),

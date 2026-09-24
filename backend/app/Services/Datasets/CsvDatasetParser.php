@@ -3,11 +3,16 @@
 namespace App\Services\Datasets;
 
 use App\Exceptions\DatasetParsingException;
+use Generator;
 use Illuminate\Http\UploadedFile;
-use SplFileObject;
 
 class CsvDatasetParser implements DatasetParserInterface
 {
+    /**
+     * Parse an uploaded CSV file.
+     *
+     * @param array<string, mixed> $options
+     */
     public function parse(UploadedFile $file, array $options = []): ParsedDataset
     {
         $path = $file->getRealPath();
@@ -16,23 +21,54 @@ class CsvDatasetParser implements DatasetParserInterface
             throw new DatasetParsingException('The uploaded CSV file cannot be read.');
         }
 
+        return $this->parsePath($path, $options);
+    }
+
+    /**
+     * Parse a CSV file from a filesystem path.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function parsePath(string $path, array $options = []): ParsedDataset
+    {
+        if (! file_exists($path) || ! is_readable($path)) {
+            throw new DatasetParsingException('The CSV file cannot be read.');
+        }
+
         $delimiter = $this->resolveDelimiter($path, $options['delimiter'] ?? null);
         $headerRow = max(1, (int) ($options['header_row'] ?? 1));
-        $csv = new SplFileObject($path);
-        $csv->setFlags(SplFileObject::READ_CSV | SplFileObject::SKIP_EMPTY);
-        $csv->setCsvControl($delimiter);
+        $inspectMode = (bool) ($options['inspect_mode'] ?? true);
+        $maxRows = isset($options['max_rows']) ? (int) $options['max_rows'] : null;
+
+        $handle = fopen($path, 'r');
+        if ($handle === false) {
+            throw new DatasetParsingException('Failed to open CSV file stream.');
+        }
+
+        // Strip UTF-8 BOM if present at the beginning of the file
+        $bom = fread($handle, 3);
+        if ($bom !== "\xEF\xBB\xBF") {
+            fseek($handle, 0);
+        }
 
         $headers = [];
-        $rows = [];
+        $previewRows = [];
+        $sampleRows = [];
+        $allRows = [];
         $lineNumber = 0;
+        $dataRowCounter = 0;
 
-        foreach ($csv as $record) {
-            if ($record === [null] || $record === false) {
+        while (($record = fgetcsv($handle, 0, $delimiter)) !== false) {
+            if ($record === [null] || empty($record)) {
+                continue;
+            }
+
+            // Skip Excel sep= directive on first line if present
+            if ($lineNumber === 0 && count($record) === 1 && is_string($record[0]) && str_starts_with(strtolower($record[0]), 'sep=')) {
                 continue;
             }
 
             $lineNumber++;
-            $record = array_map(fn ($value) => is_string($value) ? trim($value) : $value, $record);
 
             if ($lineNumber < $headerRow) {
                 continue;
@@ -43,62 +79,206 @@ class CsvDatasetParser implements DatasetParserInterface
                 continue;
             }
 
-            $rows[] = $this->combineRow($headers, $record);
+            $dataRowCounter++;
+
+            if ($inspectMode) {
+                if ($dataRowCounter <= 5000) {
+                    $combined = $this->combineRow($headers, $record);
+                    if ($dataRowCounter <= 100) {
+                        $previewRows[] = $combined;
+                    }
+                    $sampleRows[] = $combined;
+                }
+            } else {
+                $allRows[] = $this->combineRow($headers, $record);
+                if ($maxRows !== null && $dataRowCounter >= $maxRows) {
+                    break;
+                }
+            }
         }
+
+        fclose($handle);
 
         if ($headers === []) {
             throw new DatasetParsingException('The CSV file does not contain a valid header row.');
         }
 
-        return new ParsedDataset($headers, $rows, [], null, $delimiter);
+        return new ParsedDataset(
+            $headers,
+            $inspectMode ? $previewRows : $allRows,
+            [],
+            null,
+            $delimiter,
+            $dataRowCounter,
+            $sampleRows
+        );
     }
 
-    private function resolveDelimiter(string $path, ?string $requested): string
+    /**
+     * Stream rows from a CSV file on disk one by one using a generator.
+     *
+     * @param array<string, mixed> $options
+     * @return Generator<int, array<string, mixed>>
+     */
+    public function streamRows(string $path, array $options = []): Generator
+    {
+        if (! file_exists($path) || ! is_readable($path)) {
+            throw new DatasetParsingException("The CSV file [{$path}] cannot be read.");
+        }
+
+        $delimiter = $this->resolveDelimiter($path, $options['delimiter'] ?? null);
+        $headerRow = max(1, (int) ($options['header_row'] ?? 1));
+
+        $handle = fopen($path, 'r');
+        if ($handle === false) {
+            throw new DatasetParsingException("Failed to open CSV stream for [{$path}].");
+        }
+
+        // Strip UTF-8 BOM
+        $bom = fread($handle, 3);
+        if ($bom !== "\xEF\xBB\xBF") {
+            fseek($handle, 0);
+        }
+
+        $headers = [];
+        $lineNumber = 0;
+
+        try {
+            while (($record = fgetcsv($handle, 0, $delimiter)) !== false) {
+                if ($record === [null] || empty($record)) {
+                    continue;
+                }
+
+                if ($lineNumber === 0 && count($record) === 1 && is_string($record[0]) && str_starts_with(strtolower($record[0]), 'sep=')) {
+                    continue;
+                }
+
+                $lineNumber++;
+
+                if ($lineNumber < $headerRow) {
+                    continue;
+                }
+
+                if ($lineNumber === $headerRow) {
+                    $headers = $this->validateHeaders($record);
+                    continue;
+                }
+
+                yield $this->combineRow($headers, $record);
+            }
+        } finally {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+        }
+    }
+
+    /**
+     * Automatically detect the most likely delimiter from sample lines or explicit request.
+     */
+    public function resolveDelimiter(string $path, ?string $requested): string
     {
         if (is_string($requested) && $requested !== '') {
             return $requested === '\t' ? "\t" : $requested;
         }
 
-        $sample = '';
         $handle = fopen($path, 'r');
+        if ($handle === false) {
+            return ',';
+        }
 
-        if ($handle !== false) {
-            $sample = (string) fgets($handle);
-            fclose($handle);
+        $sampleLines = [];
+        $lineCount = 0;
+        while (! feof($handle) && $lineCount < 50) {
+            $line = fgets($handle);
+            if ($line === false) {
+                break;
+            }
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            // Check Excel sep= directive
+            if ($lineCount === 0 && preg_match('/^sep=([,;\t|])/i', $line, $m)) {
+                fclose($handle);
+                return $m[1];
+            }
+            $sampleLines[] = $line;
+            $lineCount++;
+        }
+        fclose($handle);
+
+        if (empty($sampleLines)) {
+            return ',';
         }
 
         $candidates = [',' => ',', ';' => ';', "\t" => "\t", '|' => '|'];
         $scores = [];
 
-        foreach ($candidates as $delimiter) {
-            $scores[$delimiter] = substr_count($sample, $delimiter);
+        foreach ($candidates as $cand) {
+            $colCounts = [];
+            foreach ($sampleLines as $line) {
+                $cols = count(str_getcsv($line, $cand));
+                if ($cols > 1) {
+                    $colCounts[] = $cols;
+                }
+            }
+            if (empty($colCounts)) {
+                $scores[$cand] = 0;
+                continue;
+            }
+            $avg = array_sum($colCounts) / count($colCounts);
+            $variance = array_sum(array_map(fn ($c) => pow($c - $avg, 2), $colCounts)) / count($colCounts);
+            $scores[$cand] = (count($colCounts) * $avg) / (1 + $variance);
         }
 
         arsort($scores);
+        $best = array_key_first($scores);
 
-        return (string) array_key_first($scores);
+        return ($scores[$best] > 0) ? $best : ',';
     }
 
     /**
+     * Validate, sanitize, and auto-disambiguate header column names.
+     *
      * @param array<int, mixed> $headers
      * @return array<int, string>
      */
-    private function validateHeaders(array $headers): array
+    public function validateHeaders(array $headers): array
     {
-        $clean = array_map(fn ($header) => trim((string) $header), $headers);
-        $clean = array_values(array_filter($clean, fn ($header) => $header !== ''));
+        $clean = [];
+        $seen = [];
+        $nonEmptyCount = 0;
 
-        if ($clean === [] || count($clean) !== count($headers)) {
-            throw new DatasetParsingException('The file must contain a non-empty header row.');
+        foreach ($headers as $index => $header) {
+            $name = trim((string) $header);
+            // Strip leading BOM and zero-width spaces
+            $name = preg_replace('/^(\xEF\xBB\xBF|\xFF\xFE|\xFE\xFF)/', '', $name) ?? $name;
+            $name = preg_replace('/^[\x{FEFF}\x{200B}]+/u', '', $name) ?? $name;
+            $name = trim($name);
+
+            if ($name === '') {
+                $name = 'column_' . ($index + 1);
+            } else {
+                $nonEmptyCount++;
+            }
+
+            $normalized = strtolower($name);
+            if (isset($seen[$normalized])) {
+                $seen[$normalized]++;
+                $name = $name . '_' . $seen[$normalized];
+            } else {
+                $seen[$normalized] = 1;
+            }
+
+            $clean[] = $name;
         }
 
-        $normalized = array_map(fn ($header) => strtolower($header), $clean);
-
-        if (count($normalized) !== count(array_unique($normalized))) {
-            throw new DatasetParsingException('The file header contains duplicate column names.');
+        if ($nonEmptyCount === 0 && empty($headers)) {
+            throw new DatasetParsingException('The CSV file does not contain a valid header row.');
         }
 
-        if (! collect($clean)->contains(fn ($header) => preg_match('/[A-Za-z_]/', $header) === 1)) {
+        if (! collect($clean)->contains(fn ($header) => preg_match('/[A-Za-z_]/u', $header) === 1)) {
             throw new DatasetParsingException('The file header does not look valid. Please provide a header row with column names.');
         }
 
@@ -106,17 +286,25 @@ class CsvDatasetParser implements DatasetParserInterface
     }
 
     /**
+     * Combine headers and a record into a clean associative array.
+     *
      * @param array<int, string> $headers
      * @param array<int, mixed> $record
      * @return array<string, mixed>
      */
-    private function combineRow(array $headers, array $record): array
+    public function combineRow(array $headers, array $record): array
     {
         $row = [];
 
         foreach ($headers as $index => $header) {
             $value = $record[$index] ?? null;
-            $row[$header] = $value === '' ? null : $value;
+            if (is_string($value)) {
+                $value = trim($value);
+                if ($value === '' || $value === '\N') {
+                    $value = null;
+                }
+            }
+            $row[$header] = $value;
         }
 
         return $row;
