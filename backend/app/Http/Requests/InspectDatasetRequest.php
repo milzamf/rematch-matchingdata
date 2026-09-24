@@ -16,7 +16,7 @@ class InspectDatasetRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => ['required', 'file', 'max:51200'],
+            'file' => ['required', 'file', 'max:512000'],
             'dataset_role' => ['required', 'string', 'in:reference,input'],
             'sheet_name' => ['nullable', 'string', 'max:255'],
             'delimiter' => ['nullable', 'string', 'max:5'],

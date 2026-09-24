@@ -129,7 +129,7 @@ Pengguna dapat mengunggah dua jenis file:
 
 Ketentuan MVP:
 
-- Ukuran file maksimal dapat dikonfigurasi, default 50 MB.
+- Ukuran file maksimal dapat dikonfigurasi, default 500 MB.
 - Sistem memvalidasi format file berdasarkan ekstensi, MIME type, signature/header file, dan kemampuan parser.
 - Sistem memberi pesan error jika file tidak dapat dibaca.
 - Untuk spreadsheet, pengguna dapat memilih sheet, named range, atau table jika tersedia.

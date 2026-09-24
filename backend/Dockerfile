@@ -24,10 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Configure custom PHP settings for file uploads and memory limit
-RUN echo "upload_max_filesize = 64M" > /usr/local/etc/php/conf.d/uploads.ini \
-    && echo "post_max_size = 64M" >> /usr/local/etc/php/conf.d/uploads.ini \
-    && echo "memory_limit = 512M" >> /usr/local/etc/php/conf.d/uploads.ini \
-    && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/uploads.ini
+RUN echo "upload_max_filesize = 550M" > /usr/local/etc/php/conf.d/uploads.ini \
+    && echo "post_max_size = 550M" >> /usr/local/etc/php/conf.d/uploads.ini \
+    && echo "memory_limit = 1024M" >> /usr/local/etc/php/conf.d/uploads.ini \
+    && echo "max_execution_time = 600" >> /usr/local/etc/php/conf.d/uploads.ini
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

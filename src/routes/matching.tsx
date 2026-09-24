@@ -272,7 +272,7 @@ type MatchingConfiguration = {
 };
 
 const ALLOWED = [".csv", ".xlsx"];
-const MAX_MB = 50;
+const MAX_MB = 500;
 
 
 
