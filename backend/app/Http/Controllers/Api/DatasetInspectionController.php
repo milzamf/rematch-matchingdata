@@ -35,6 +35,17 @@ class DatasetInspectionController extends Controller
                 'success' => false,
                 'message' => $exception->getMessage(),
             ], 422);
+        } catch (\Throwable $exception) {
+            \Illuminate\Support\Facades\Log::error('Dataset inspection failed: ' . $exception->getMessage(), [
+                'trace' => $exception->getTraceAsString(),
+                'file' => $request->file('file')?->getClientOriginalName(),
+                'size' => $request->file('file')?->getSize(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage() ?: 'Dataset inspection failed. Please try again.',
+            ], 422);
         }
     }
 }

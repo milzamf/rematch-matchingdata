@@ -26,9 +26,17 @@ class InspectDatasetRequest extends FormRequest
 
     protected function failedValidation(Validator $validator): void
     {
+        $message = $validator->errors()->first() ?: 'Dataset inspect request is invalid.';
+        \Illuminate\Support\Facades\Log::warning('InspectDatasetRequest validation failed', [
+            'errors' => $validator->errors()->toArray(),
+            'has_file' => $this->hasFile('file'),
+            'file_error' => $this->file('file')?->getError(),
+            'file_error_message' => $this->file('file')?->getErrorMessage(),
+        ]);
+
         throw new HttpResponseException(response()->json([
             'success' => false,
-            'message' => 'Dataset inspect request is invalid.',
+            'message' => $message,
             'errors' => $validator->errors(),
         ], 422));
     }

@@ -796,6 +796,7 @@ export async function inspectDataset(input: InspectDatasetInput): Promise<Datase
     headers: {
       Accept: "application/json",
     },
+    signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(600000) : undefined,
   });
   const payload = (await response.json().catch(() => null)) as
     ApiSuccess<DatasetInspectResult> | ApiFailure | null;
