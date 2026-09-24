@@ -1386,6 +1386,8 @@ const translations = {
     "preview.prevPage": "Previous Page",
     "preview.nextPage": "Next Page",
     "preview.lastPage": "Last Page",
+    "preview.jumpTo": "Page:",
+    "preview.jumpPrompt": "Type 1 - {total} and press Enter",
 
     // Re-run & Action i18n
     "matching.run.rerunTitle": "Re-run Matching",
@@ -2823,6 +2825,8 @@ const translations = {
     "preview.prevPage": "Halaman Sebelumnya",
     "preview.nextPage": "Halaman Selanjutnya",
     "preview.lastPage": "Halaman Terakhir",
+    "preview.jumpTo": "Hal:",
+    "preview.jumpPrompt": "Ketik 1 - {total} lalu tekan Enter",
 
     // Re-run & Action i18n
     "matching.run.rerunTitle": "Jalankan Ulang Matching",

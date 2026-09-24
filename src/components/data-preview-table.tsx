@@ -188,10 +188,15 @@ export function DataPreviewTable({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState(String(currentPage));
   const [pageSize, setPageSize] = useState(50);
   const [serverData, setServerData] = useState<{ data: Record<string, unknown>[]; total: number } | null>(null);
   const [isLoadingServer, setIsLoadingServer] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPageInput(String(currentPage));
+  }, [currentPage]);
 
   const effectivePlaceholder = searchPlaceholder ?? t("preview.searchPlaceholder");
   const effectiveEmptyMessage = emptyMessage ?? t("preview.emptyMessage");
@@ -648,7 +653,7 @@ export function DataPreviewTable({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/70 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-border/70 text-xs">
             <div className="text-muted-foreground">
               {t("preview.paginationShowing", {
                 from: activeTotalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1,
@@ -658,12 +663,12 @@ export function DataPreviewTable({
               })}
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap overflow-x-auto max-w-full py-0.5">
               <button
                 type="button"
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage(1)}
-                className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                className="size-7 shrink-0 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                 title={t("preview.firstPage")}
               >
                 <ChevronsLeft className="size-3.5" />
@@ -673,16 +678,16 @@ export function DataPreviewTable({
                 type="button"
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                className="size-7 shrink-0 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                 title={t("preview.prevPage")}
               >
                 <ChevronLeft className="size-3.5" />
               </button>
 
-              <div className="flex items-center gap-1 px-1">
+              <div className="flex items-center gap-1 px-0.5">
                 {paginationRange.map((page, idx) =>
                   typeof page === "string" ? (
-                    <span key={idx} className="px-1 text-muted-foreground">
+                    <span key={idx} className="px-1 text-muted-foreground font-mono">
                       ...
                     </span>
                   ) : (
@@ -690,9 +695,9 @@ export function DataPreviewTable({
                       key={idx}
                       type="button"
                       onClick={() => setCurrentPage(page)}
-                      className={`size-7 rounded text-xs font-semibold grid place-items-center transition-colors cursor-pointer ${
+                      className={`h-7 min-w-[28px] px-1.5 rounded text-xs font-semibold grid place-items-center tabular-nums transition-colors cursor-pointer shrink-0 ${
                         currentPage === page
-                          ? "bg-brand text-brand-foreground"
+                          ? "bg-brand text-brand-foreground shadow-sm"
                           : "border border-border bg-secondary/30 hover:bg-secondary text-foreground"
                       }`}
                     >
@@ -706,7 +711,7 @@ export function DataPreviewTable({
                 type="button"
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                className="size-7 shrink-0 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                 title={t("preview.nextPage")}
               >
                 <ChevronRight className="size-3.5" />
@@ -716,11 +721,43 @@ export function DataPreviewTable({
                 type="button"
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage(totalPages)}
-                className="size-7 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                className="size-7 shrink-0 rounded grid place-items-center border border-border bg-secondary/30 hover:bg-secondary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                 title={t("preview.lastPage")}
               >
                 <ChevronsRight className="size-3.5" />
               </button>
+
+              {totalPages > 5 && (
+                <div className="flex items-center gap-1.5 text-muted-foreground ml-2 pl-2 border-l border-border/70 shrink-0">
+                  <span className="text-[11px] whitespace-nowrap">{t("preview.jumpTo") ?? "Hal:"}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const target = parseInt(pageInput, 10);
+                        if (!isNaN(target) && target >= 1 && target <= totalPages) {
+                          setCurrentPage(target);
+                        }
+                      }
+                    }}
+                    onBlur={() => {
+                      const target = parseInt(pageInput, 10);
+                      if (!isNaN(target) && target >= 1 && target <= totalPages) {
+                        setCurrentPage(target);
+                      } else {
+                        setPageInput(String(currentPage));
+                      }
+                    }}
+                    className="w-16 h-7 rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-xs text-center text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-brand"
+                    title={t("preview.jumpPrompt", { total: totalPages.toLocaleString() }) ?? `Ketik 1 - ${totalPages.toLocaleString()} lalu tekan Enter`}
+                  />
+                  <span className="text-[11px] tabular-nums whitespace-nowrap">/ {totalPages.toLocaleString()}</span>
+                </div>
+              )}
             </div>
           </div>
         </DialogContent>
