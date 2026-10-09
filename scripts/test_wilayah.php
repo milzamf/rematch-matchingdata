@@ -35,6 +35,19 @@ $cmpProv1 = $service->compareProvinces('[11] ACEH', '11');
 echo "Compare [11] ACEH vs 11: " . ($cmpProv1 ? 'MATCH' : 'MISMATCH') . PHP_EOL;
 $cmpProv2 = $service->compareProvinces('[11] ACEH', 'Aceh');
 echo "Compare [11] ACEH vs Aceh: " . ($cmpProv2 ? 'MATCH' : 'MISMATCH') . PHP_EOL;
-$cmpProv3 = $service->compareProvinces('[11] ACEH', 'Sumatera Utara');
-echo "Compare [11] ACEH vs Sumut: " . ($cmpProv3 ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+// Test 7: Space variations "Gunung Kidul" vs "Gunungkidul"
+$gk1 = $service->resolve('Gunung Kidul');
+$gk2 = $service->resolve('Gunungkidul');
+echo "Test Gunung Kidul: id=" . ($gk1['id_kab'] ?? 'null') . " full=" . ($gk1['full_name'] ?? 'null') . PHP_EOL;
+echo "Compare Gunung Kidul vs Gunungkidul: " . ($service->compareRegencies('Gunung Kidul', 'Gunungkidul') ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+
+// Test 8: Historical / rename "Kabupaten Toba" vs "Kabupaten Toba Samosir"
+$tb1 = $service->resolve('Kabupaten Toba');
+$tb2 = $service->resolve('Kabupaten Toba Samosir');
+echo "Test Toba Samosir: id=" . ($tb2['id_kab'] ?? 'null') . " full=" . ($tb2['full_name'] ?? 'null') . PHP_EOL;
+echo "Compare Kab Toba vs Kab Toba Samosir: " . ($service->compareRegencies('Kabupaten Toba', 'Kabupaten Toba Samosir') ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+
+// Test 9: Historical rename "Pasangkayu" vs "Mamuju Utara"
+echo "Compare Pasangkayu vs Mamuju Utara: " . ($service->compareRegencies('Pasangkayu', 'Mamuju Utara') ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+
 

@@ -40,7 +40,35 @@ for (const [idKab, item] of Object.entries(WILAYAH_REGENCIES)) {
     NAME_TO_IDKAB_MAP.set(`kab. ${nm}`, idKab);
     NAME_TO_IDKAB_MAP.set(`kab ${nm}`, idKab);
     NAME_TO_IDKAB_MAP.set(`kota ${nm}`, idKab);
+
+    const spaceless = nm.replace(/[\s\-_.]+/g, "");
+    if (!NAME_TO_IDKAB_MAP.has(spaceless)) {
+      NAME_TO_IDKAB_MAP.set(spaceless, idKab);
+    }
   }
+}
+
+// Known historical renames & aliases
+const KNOWN_ALIASES: Record<string, string> = {
+  "toba samosir": "1206",
+  "tobasamosir": "1206",
+  "kabupaten toba samosir": "1206",
+  "kab toba samosir": "1206",
+  "mamuju utara": "7605",
+  "mamujuutara": "7605",
+  "kabupaten mamuju utara": "7605",
+  "kab mamuju utara": "7605",
+  "adm kepulauan seribu": "3101",
+  "administrasi kepulauan seribu": "3101",
+  "kepulauan seribu": "3101",
+  "kep seribu": "3101",
+  "pohuwato": "7504",
+  "bone bolango": "7503",
+};
+
+for (const [alias, idKab] of Object.entries(KNOWN_ALIASES)) {
+  NAME_TO_IDKAB_MAP.set(alias, idKab);
+  NAME_TO_IDKAB_MAP.set(alias.replace(/\s+/g, ""), idKab);
 }
 
 /**
@@ -53,6 +81,26 @@ export function resolveRegency(
   if (val === null || val === undefined) return null;
   const str = String(val).trim();
   if (!str) return null;
+
+  // 0. Bracket composite format e.g. "[3515] SIDOARJO", "[15] SIDOARJO"
+  const bracketMatch = str.match(/^\[?(\d{2,4})\]?[\s\-:]*(.*)$/);
+  if (bracketMatch) {
+    const code = bracketMatch[1];
+    const namePart = bracketMatch[2]?.trim();
+    if (code.length === 4 && WILAYAH_REGENCIES[code]) {
+      return WILAYAH_REGENCIES[code];
+    }
+    if (code.length === 2 && provCode) {
+      const combined = `${String(provCode).trim().padStart(2, "0")}${code.padStart(2, "0")}`;
+      if (WILAYAH_REGENCIES[combined]) {
+        return WILAYAH_REGENCIES[combined];
+      }
+    }
+    if (namePart) {
+      const res = findRegencyByName(namePart, provCode);
+      if (res) return res;
+    }
+  }
 
   // 1. 4-digit code e.g. "3515"
   if (/^\d{4}$/.test(str) && WILAYAH_REGENCIES[str]) {
@@ -100,6 +148,23 @@ export function findRegencyByName(
     // Strip prefixes
     const stripped = norm.replace(/^(kabupaten|kab|kota|adm\.?|administrasi)\s+/i, "").trim();
     idKab = NAME_TO_IDKAB_MAP.get(stripped);
+
+    // Spaceless lookup e.g. "gunung kidul" -> "gunungkidul"
+    if (!idKab) {
+      const spaceless = stripped.replace(/[\s\-_.]+/g, "");
+      idKab = NAME_TO_IDKAB_MAP.get(spaceless);
+    }
+
+    // Token containment (e.g. "toba samosir" contains "toba")
+    if (!idKab) {
+      const tokens = stripped.split(" ");
+      for (const t of tokens) {
+        if (t.length >= 4 && NAME_TO_IDKAB_MAP.has(t)) {
+          idKab = NAME_TO_IDKAB_MAP.get(t);
+          break;
+        }
+      }
+    }
   }
 
   if (idKab) {

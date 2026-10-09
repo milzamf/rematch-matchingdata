@@ -69,7 +69,37 @@ class WilayahDictionaryService
                 self::$nameToIdKab['kab. ' . $nmKab] = (string) $idKab;
                 self::$nameToIdKab['kab ' . $nmKab] = (string) $idKab;
                 self::$nameToIdKab['kota ' . $nmKab] = (string) $idKab;
+
+                // Spaceless indexing e.g. 'gunungkidul' -> matches 'gunung kidul'
+                $spaceless = str_replace([' ', '-', '.'], '', $nmKab);
+                if (!isset(self::$nameToIdKab[$spaceless])) {
+                    self::$nameToIdKab[$spaceless] = (string) $idKab;
+                }
             }
+        }
+
+        // Known historical name changes & administrative aliases (BPS codes)
+        $knownAliases = [
+            'toba samosir' => '1206',
+            'tobasamosir' => '1206',
+            'kabupaten toba samosir' => '1206',
+            'kab toba samosir' => '1206',
+            '1212' => '1206', // Kemendagri code crosswalk to BPS
+            'mamuju utara' => '7605',
+            'mamujuutara' => '7605',
+            'kabupaten mamuju utara' => '7605',
+            'kab mamuju utara' => '7605',
+            '7601' => '7605', // Kemendagri code crosswalk to BPS
+            'adm kepulauan seribu' => '3101',
+            'administrasi kepulauan seribu' => '3101',
+            'kepulauan seribu' => '3101',
+            'kep seribu' => '3101',
+            'pohuwato' => '7504',
+            'bone bolango' => '7503',
+        ];
+        foreach ($knownAliases as $alias => $idKab) {
+            self::$nameToIdKab[$alias] = $idKab;
+            self::$nameToIdKab[str_replace(' ', '', $alias)] = $idKab;
         }
     }
 
@@ -212,6 +242,27 @@ class WilayahDictionaryService
             $idKab = self::$nameToIdKab[$stripped];
             if ($provCode === null || str_starts_with($idKab, str_pad($provCode, 2, '0', STR_PAD_LEFT))) {
                 return self::$regencies[$idKab] ?? null;
+            }
+        }
+
+        // 3. Spaceless lookup e.g. "gunung kidul" -> "gunungkidul", "pangkal pinang" -> "pangkalpinang"
+        $spaceless = str_replace(' ', '', $stripped);
+        if (isset(self::$nameToIdKab[$spaceless])) {
+            $idKab = self::$nameToIdKab[$spaceless];
+            if ($provCode === null || str_starts_with($idKab, str_pad($provCode, 2, '0', STR_PAD_LEFT))) {
+                return self::$regencies[$idKab] ?? null;
+            }
+        }
+
+        // 4. Token containment match (e.g. "toba samosir" contains "toba")
+        $tokens = explode(' ', $stripped);
+        foreach ($tokens as $token) {
+            $tokenClean = trim($token);
+            if (mb_strlen($tokenClean) >= 4 && isset(self::$nameToIdKab[$tokenClean])) {
+                $idKab = self::$nameToIdKab[$tokenClean];
+                if ($provCode === null || str_starts_with($idKab, str_pad($provCode, 2, '0', STR_PAD_LEFT))) {
+                    return self::$regencies[$idKab] ?? null;
+                }
             }
         }
 
