@@ -20,10 +20,18 @@ class WorkspaceController extends Controller
     public function index(Request $request): JsonResponse
     {
         $workspaces = $this->ownership
-            ->scopeWorkspaces(Workspace::with(['user', 'referenceDataset', 'inputDataset', 'matchingJob']), $request->user())
+            ->scopeWorkspaces(
+                Workspace::with([
+                    'user',
+                    'referenceDataset:id,name,row_count',
+                    'inputDataset:id,name,row_count',
+                    'matchingJob:id,status,processed_count,total_count,record_counts,error_message,started_at,finished_at',
+                ]),
+                $request->user()
+            )
             ->latest('updated_at')
             ->get()
-            ->map(fn (Workspace $workspace) => $this->payload($workspace));
+            ->map(fn (Workspace $workspace) => $this->summaryPayload($workspace));
 
         return response()->json([
             'success' => true,
@@ -126,6 +134,49 @@ class WorkspaceController extends Controller
             'matching_jobs' => $workspace->relationLoaded('matchingJobs')
                 ? $workspace->matchingJobs->sortByDesc('created_at')->values()->map(fn ($j) => $this->jobPayload($j))->all()
                 : [],
+            'created_at' => optional($workspace->created_at)->toISOString(),
+            'updated_at' => optional($workspace->updated_at)->toISOString(),
+        ];
+    }
+
+    /**
+     * Lean workspace summary for dashboard and workspace listing.
+     * Excludes heavy serialized workflow_state and dataset preview rows to ensure sub-50ms responses.
+     *
+     * @return array<string, mixed>
+     */
+    private function summaryPayload(Workspace $workspace): array
+    {
+        return [
+            'id' => $workspace->id,
+            'name' => $workspace->name,
+            'status' => $workspace->status,
+            'current_step' => $workspace->current_step,
+            'reference_dataset_id' => $workspace->reference_dataset_id,
+            'input_dataset_id' => $workspace->input_dataset_id,
+            'matching_job_id' => $workspace->matching_job_id,
+            'record_count' => $workspace->inputDataset?->row_count ?? $workspace->matchingJob?->total_count,
+            'owner' => $workspace->user ? [
+                'id' => $workspace->user->getKey(),
+                'name' => $workspace->user->name,
+                'email' => $workspace->user->email,
+                'role' => $workspace->user->roleEnum()->value,
+            ] : null,
+            'matching_job' => $this->jobPayload($workspace->matchingJob),
+            'reference_dataset' => $workspace->referenceDataset ? [
+                'dataset' => [
+                    'id' => $workspace->referenceDataset->id,
+                    'name' => $workspace->referenceDataset->name,
+                    'row_count' => $workspace->referenceDataset->row_count,
+                ],
+            ] : null,
+            'input_dataset' => $workspace->inputDataset ? [
+                'dataset' => [
+                    'id' => $workspace->inputDataset->id,
+                    'name' => $workspace->inputDataset->name,
+                    'row_count' => $workspace->inputDataset->row_count,
+                ],
+            ] : null,
             'created_at' => optional($workspace->created_at)->toISOString(),
             'updated_at' => optional($workspace->updated_at)->toISOString(),
         ];

@@ -904,6 +904,13 @@ class MatchingEngineService
         $metrics['INDEX_REUSED'] = $indexReused;
         $metrics['index_initialization_ms'] = (microtime(true) - $indexInitStart) * 1000;
 
+        // Transition stage immediately to Phase 3 so the UI reflects active matching without delay
+        $job->update([
+            'record_counts' => array_merge($job->record_counts ?? [], [
+                'current_stage' => sprintf('Tahap 3/3: Memulai pencocokan data (%s baris)...', number_format($totalInputCount)),
+            ]),
+        ]);
+
         $userChunk = (int) ($configuration['runOptions']['chunkSize'] ?? 0);
         if ($userChunk > 0) {
             $chunkSize = $userChunk;
@@ -951,7 +958,8 @@ class MatchingEngineService
             ? array_flip($this->checkpointManager->getCompletedChunkIndices($checkpointKey))
             : [];
 
-        $canFork = function_exists('pcntl_fork') && $workerCount > 1 && ! app()->runningUnitTests();
+        // Use sequential execution for datasets <= 10,000 rows for rock-solid stability and zero fork IPC overhead.
+        $canFork = function_exists('pcntl_fork') && $workerCount > 1 && count($inputRows) > 10000 && ! app()->runningUnitTests();
 
         if ($canFork) {
             $pendingChunkIndices = [];
@@ -964,18 +972,23 @@ class MatchingEngineService
 
             $activeWorkers = [];
             $shmDir = is_dir('/dev/shm') && is_writable('/dev/shm') ? '/dev/shm' : sys_get_temp_dir();
+            $lastJobStatusCheck = microtime(true);
 
             while (! empty($pendingChunkIndices) || ! empty($activeWorkers)) {
-                $job->refresh();
-                if (in_array($job->status, ['cancelled', 'stopped']) || $job->error_message === 'Matching stopped by user.') {
-                    \Illuminate\Support\Facades\Log::info("Matching job {$job->id} cancelled/stopped. Terminating active child workers.");
-                    foreach ($activeWorkers as $pid => $meta) {
-                        @posix_kill($pid, SIGTERM);
-                        if (file_exists($meta['tmpFile'])) {
-                            @unlink($meta['tmpFile']);
+                // Throttle status check to at most once per second instead of every 5ms
+                if (microtime(true) - $lastJobStatusCheck >= 1.0) {
+                    $job->refresh();
+                    $lastJobStatusCheck = microtime(true);
+                    if (in_array($job->status, ['cancelled', 'stopped']) || $job->error_message === 'Matching stopped by user.') {
+                        \Illuminate\Support\Facades\Log::info("Matching job {$job->id} cancelled/stopped. Terminating active child workers.");
+                        foreach ($activeWorkers as $pid => $meta) {
+                            @posix_kill($pid, SIGTERM);
+                            if (file_exists($meta['tmpFile'])) {
+                                @unlink($meta['tmpFile']);
+                            }
                         }
+                        break;
                     }
-                    break;
                 }
 
                 while (count($activeWorkers) < $workerCount && ! empty($pendingChunkIndices)) {
@@ -984,8 +997,12 @@ class MatchingEngineService
                     $workerSlot = $chunkIndex % $workerCount;
                     $tmpFile = $shmDir . '/rematch_' . $job->id . '_' . $chunkIndex . '_' . Str::random(6) . '.tmp';
 
+                    // Disconnect DB before fork so child processes do not share PDO socket descriptors
+                    \Illuminate\Support\Facades\DB::disconnect();
+
                     $pid = pcntl_fork();
                     if ($pid === -1) {
+                        \Illuminate\Support\Facades\DB::reconnect();
                         \Illuminate\Support\Facades\Log::warning("pcntl_fork failed for chunk {$chunkIndex}, running synchronously.");
                         $chunkOutput = $this->processChunk(
                             $chunk,
@@ -1047,14 +1064,17 @@ class MatchingEngineService
                             );
 
                             file_put_contents($tmpFile, serialize($chunkOutput));
+                            \Illuminate\Support\Facades\DB::disconnect();
                             exit(0);
                         } catch (Throwable $e) {
                             \Illuminate\Support\Facades\Log::error("Child worker error on chunk {$chunkIndex}: " . $e->getMessage());
                             file_put_contents($tmpFile, serialize(['error' => $e->getMessage()]));
+                            \Illuminate\Support\Facades\DB::disconnect();
                             exit(1);
                         }
                     } else {
                         // Parent process
+                        \Illuminate\Support\Facades\DB::reconnect();
                         $activeWorkers[$pid] = [
                             'chunkIndex' => $chunkIndex,
                             'count' => count($chunk),
@@ -1093,9 +1113,11 @@ class MatchingEngineService
                         } else {
                             \Illuminate\Support\Facades\Log::error("Chunk {$meta['chunkIndex']} child worker failed: " . ($chunkOutput['error'] ?? 'Unknown error'));
                         }
+                    } else {
+                        \Illuminate\Support\Facades\Log::error("Chunk {$meta['chunkIndex']} child worker exited without producing output file.");
                     }
                 } else {
-                    usleep(5000); // 5ms yield to prevent CPU spinning in parent
+                    usleep(30000); // 30ms yield to keep CPU usage low
                 }
             }
         } else {
