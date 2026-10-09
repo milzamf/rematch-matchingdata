@@ -27,3 +27,14 @@ echo "Compare 3515 vs KAB. SIDOARJO: " . ($cmp1 ? 'MATCH' : 'MISMATCH') . PHP_EO
 // Test 5: Compare '3515' vs 'KOTA SURABAYA'
 $cmp2 = $service->compareRegencies('3515', 'KOTA SURABAYA');
 echo "Compare 3515 vs KOTA SURABAYA: " . ($cmp2 ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+
+// Test 6: Bracket province "[11] ACEH"
+$p1 = $service->resolveProvince('[11] ACEH');
+echo "Test [11] ACEH: kd=" . ($p1['kd_prov'] ?? 'null') . " nm=" . ($p1['nm_prov'] ?? 'null') . PHP_EOL;
+$cmpProv1 = $service->compareProvinces('[11] ACEH', '11');
+echo "Compare [11] ACEH vs 11: " . ($cmpProv1 ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+$cmpProv2 = $service->compareProvinces('[11] ACEH', 'Aceh');
+echo "Compare [11] ACEH vs Aceh: " . ($cmpProv2 ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+$cmpProv3 = $service->compareProvinces('[11] ACEH', 'Sumatera Utara');
+echo "Compare [11] ACEH vs Sumut: " . ($cmpProv3 ? 'MATCH' : 'MISMATCH') . PHP_EOL;
+

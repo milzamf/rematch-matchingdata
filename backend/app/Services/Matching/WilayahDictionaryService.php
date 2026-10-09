@@ -13,6 +13,9 @@ class WilayahDictionaryService
     private static ?array $regencies = null;
 
     /** @var array<string, string>|null */
+    private static ?array $nameToProvCode = null;
+
+    /** @var array<string, string>|null */
     private static ?array $nameToIdKab = null;
 
     public function __construct()
@@ -42,6 +45,17 @@ class WilayahDictionaryService
             self::$regencies = [];
         }
 
+        self::$nameToProvCode = [];
+        foreach (self::$provinces as $kdProv => $data) {
+            $nmProv = mb_strtolower(trim((string) ($data['nm_prov'] ?? '')));
+            if ($nmProv !== '') {
+                self::$nameToProvCode[$nmProv] = (string) $kdProv;
+                self::$nameToProvCode['provinsi ' . $nmProv] = (string) $kdProv;
+                self::$nameToProvCode['prov. ' . $nmProv] = (string) $kdProv;
+                self::$nameToProvCode['prov ' . $nmProv] = (string) $kdProv;
+            }
+        }
+
         self::$nameToIdKab = [];
         foreach (self::$regencies as $idKab => $data) {
             $nmKab = mb_strtolower(trim((string) ($data['nm_kab'] ?? '')));
@@ -66,6 +80,65 @@ class WilayahDictionaryService
     {
         $this->ensureLoaded();
         return self::$provinces ?? [];
+    }
+
+    /**
+     * Resolve a province record by code, name, or bracket composite e.g. "[11] ACEH", "11", "Aceh".
+     */
+    public function resolveProvince(mixed $value): ?array
+    {
+        $this->ensureLoaded();
+        if ($value === null) {
+            return null;
+        }
+
+        $str = trim((string) $value);
+        if ($str === '') {
+            return null;
+        }
+
+        // 1. Bracket composite format e.g. "[11] ACEH" or "[11] - ACEH"
+        if (preg_match('/^\[?(\d{2})\]?[\s\-:]*(.*)$/', $str, $matches)) {
+            $code = $matches[1];
+            if (isset(self::$provinces[$code])) {
+                return self::$provinces[$code];
+            }
+            $name = trim($matches[2]);
+            if ($name !== '') {
+                $normName = mb_strtolower($name);
+                if (isset(self::$nameToProvCode[$normName])) {
+                    return self::$provinces[self::$nameToProvCode[$normName]] ?? null;
+                }
+            }
+        }
+
+        // 2. Direct 2-digit code e.g. "11" or "35"
+        $cleanCode = str_pad($str, 2, '0', STR_PAD_LEFT);
+        if (isset(self::$provinces[$cleanCode])) {
+            return self::$provinces[$cleanCode];
+        }
+
+        // 3. Name lookup e.g. "Aceh", "Jawa Timur", "Provinsi Aceh"
+        $norm = mb_strtolower($str);
+        $norm = preg_replace('/^(provinsi|prov\.?|propinsi)\s+/i', '', $norm) ?? $norm;
+        $norm = trim($norm);
+        if (isset(self::$nameToProvCode[$norm])) {
+            return self::$provinces[self::$nameToProvCode[$norm]] ?? null;
+        }
+
+        return null;
+    }
+
+    public function compareProvinces(mixed $val1, mixed $val2): ?bool
+    {
+        $prov1 = $this->resolveProvince($val1);
+        $prov2 = $this->resolveProvince($val2);
+
+        if ($prov1 !== null && $prov2 !== null) {
+            return $prov1['kd_prov'] === $prov2['kd_prov'];
+        }
+
+        return null;
     }
 
     /**
@@ -166,7 +239,30 @@ class WilayahDictionaryService
         // Extract province code if available in context row
         $provCode = $this->extractProvCodeFromRow($contextRow);
 
-        // 1. If numeric / code-like
+        // 1. Bracket composite format e.g. "[3515] SIDOARJO", "[15] SIDOARJO", "[1101] BAKONGAN"
+        if (preg_match('/^\[?(\d{2,4})\]?[\s\-:]*(.*)$/', $str, $matches)) {
+            $extractedCode = $matches[1];
+            $extractedName = trim($matches[2]);
+            if (strlen($extractedCode) === 4) {
+                $byCode = $this->resolveRegencyCode($extractedCode);
+                if ($byCode !== null) {
+                    return $byCode;
+                }
+            } elseif (strlen($extractedCode) === 2 && $provCode !== null) {
+                $byCode = $this->resolveRegencyCode($extractedCode, $provCode);
+                if ($byCode !== null) {
+                    return $byCode;
+                }
+            }
+            if ($extractedName !== '') {
+                $byName = $this->findRegencyByName($extractedName, $provCode);
+                if ($byName !== null) {
+                    return $byName;
+                }
+            }
+        }
+
+        // 2. If numeric / code-like
         if (preg_match('/^\d{1,4}(\.\d{1,2})?$/', $str)) {
             $byCode = $this->resolveRegencyCode($str, $provCode);
             if ($byCode !== null) {
@@ -174,7 +270,7 @@ class WilayahDictionaryService
             }
         }
 
-        // 2. Try by name
+        // 3. Try by name
         $byName = $this->findRegencyByName($str, $provCode);
         if ($byName !== null) {
             return $byName;
@@ -259,10 +355,11 @@ class WilayahDictionaryService
     {
         foreach ($row as $k => $v) {
             $role = $this->detectWilayahColumnRole((string) $k);
-            if ($role === 'PROV_CODE' && !empty($v)) {
+            if (($role === 'PROV_CODE' || $role === 'PROV_NAME') && !empty($v)) {
                 $clean = trim((string) $v);
-                if (is_numeric($clean)) {
-                    return str_pad($clean, 2, '0', STR_PAD_LEFT);
+                $prov = $this->resolveProvince($clean);
+                if ($prov !== null) {
+                    return $prov['kd_prov'];
                 }
             }
         }
