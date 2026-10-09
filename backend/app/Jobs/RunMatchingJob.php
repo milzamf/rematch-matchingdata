@@ -19,7 +19,7 @@ class RunMatchingJob implements ShouldQueue
 
     public int $timeout = 0;
 
-    public int $tries = 1;
+    public int $tries = 3;
 
     public function __construct(public string $matchingJobId)
     {
@@ -68,10 +68,17 @@ class RunMatchingJob implements ShouldQueue
 
     public function failed(\Throwable $exception): void
     {
-        \Log::error("RunMatchingJob permanent failure: " . $exception->getMessage());
+        $rawMessage = $exception->getMessage();
+        if (str_contains($rawMessage, 'attempted too many times') || str_contains($rawMessage, 'MaxAttemptsExceededException')) {
+            $errorMessage = 'Proses terputus karena antrean/container sempat di-restart saat matching berjalan. Silakan klik tombol "Coba lagi" untuk memulai ulang proses matching.';
+        } else {
+            $errorMessage = substr($rawMessage, 0, 1000);
+        }
+
+        \Log::error("RunMatchingJob permanent failure: " . $rawMessage);
         MatchingJob::where('id', $this->matchingJobId)->update([
             'status' => 'failed',
-            'error_message' => substr($exception->getMessage(), 0, 1000),
+            'error_message' => $errorMessage,
         ]);
     }
 }
