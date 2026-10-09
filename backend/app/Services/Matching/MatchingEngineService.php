@@ -879,14 +879,14 @@ class MatchingEngineService
 
                     $index = $client->index($indexUid);
                     $task = $index->updateSearchableAttributes($searchableAttributes);
-                    $client->waitForTask($task['taskUid'], 30000);
+                    $client->waitForTask($task['taskUid'], 300000);
                     
                     if (count($searchableDocuments) > 0) {
                         $totalDocs = count($searchableDocuments);
                         $indexedDocs = 0;
                         foreach(array_chunk($searchableDocuments, 10000) as $chunkDocs) {
                             $task = $index->addDocuments($chunkDocs);
-                            $client->waitForTask($task['taskUid'], 30000);
+                            $client->waitForTask($task['taskUid'], 300000);
                             $indexedDocs += count($chunkDocs);
                             $job->update([
                                 'record_counts' => array_merge($job->record_counts ?? [], [

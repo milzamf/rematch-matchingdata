@@ -75,6 +75,7 @@ services:
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_KEY: rematch_meili_master_key
       QUEUE_CONNECTION: database
+      DB_QUEUE_RETRY_AFTER: 86400
       CACHE_STORE: database
       SESSION_DRIVER: database
       SESSION_SECURE_COOKIE: "false"
@@ -120,6 +121,7 @@ services:
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_KEY: rematch_meili_master_key
       QUEUE_CONNECTION: database
+      DB_QUEUE_RETRY_AFTER: 86400
       CACHE_STORE: database
       SESSION_DRIVER: database
     depends_on:
