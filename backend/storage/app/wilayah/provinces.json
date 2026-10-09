@@ -1,0 +1,154 @@
+{
+  "11": {
+    "kd_prov": "11",
+    "nm_prov": "ACEH"
+  },
+  "12": {
+    "kd_prov": "12",
+    "nm_prov": "SUMATERA UTARA"
+  },
+  "13": {
+    "kd_prov": "13",
+    "nm_prov": "SUMATERA BARAT"
+  },
+  "14": {
+    "kd_prov": "14",
+    "nm_prov": "RIAU"
+  },
+  "15": {
+    "kd_prov": "15",
+    "nm_prov": "JAMBI"
+  },
+  "16": {
+    "kd_prov": "16",
+    "nm_prov": "SUMATERA SELATAN"
+  },
+  "17": {
+    "kd_prov": "17",
+    "nm_prov": "BENGKULU"
+  },
+  "18": {
+    "kd_prov": "18",
+    "nm_prov": "LAMPUNG"
+  },
+  "19": {
+    "kd_prov": "19",
+    "nm_prov": "KEPULAUAN BANGKA BELITUNG"
+  },
+  "21": {
+    "kd_prov": "21",
+    "nm_prov": "KEPULAUAN RIAU"
+  },
+  "31": {
+    "kd_prov": "31",
+    "nm_prov": "DKI JAKARTA"
+  },
+  "32": {
+    "kd_prov": "32",
+    "nm_prov": "JAWA BARAT"
+  },
+  "33": {
+    "kd_prov": "33",
+    "nm_prov": "JAWA TENGAH"
+  },
+  "34": {
+    "kd_prov": "34",
+    "nm_prov": "DI YOGYAKARTA"
+  },
+  "35": {
+    "kd_prov": "35",
+    "nm_prov": "JAWA TIMUR"
+  },
+  "36": {
+    "kd_prov": "36",
+    "nm_prov": "BANTEN"
+  },
+  "51": {
+    "kd_prov": "51",
+    "nm_prov": "BALI"
+  },
+  "52": {
+    "kd_prov": "52",
+    "nm_prov": "NUSA TENGGARA BARAT"
+  },
+  "53": {
+    "kd_prov": "53",
+    "nm_prov": "NUSA TENGGARA TIMUR"
+  },
+  "61": {
+    "kd_prov": "61",
+    "nm_prov": "KALIMANTAN BARAT"
+  },
+  "62": {
+    "kd_prov": "62",
+    "nm_prov": "KALIMANTAN TENGAH"
+  },
+  "63": {
+    "kd_prov": "63",
+    "nm_prov": "KALIMANTAN SELATAN"
+  },
+  "64": {
+    "kd_prov": "64",
+    "nm_prov": "KALIMANTAN TIMUR"
+  },
+  "65": {
+    "kd_prov": "65",
+    "nm_prov": "KALIMANTAN UTARA"
+  },
+  "71": {
+    "kd_prov": "71",
+    "nm_prov": "SULAWESI UTARA"
+  },
+  "72": {
+    "kd_prov": "72",
+    "nm_prov": "SULAWESI TENGAH"
+  },
+  "73": {
+    "kd_prov": "73",
+    "nm_prov": "SULAWESI SELATAN"
+  },
+  "74": {
+    "kd_prov": "74",
+    "nm_prov": "SULAWESI TENGGARA"
+  },
+  "75": {
+    "kd_prov": "75",
+    "nm_prov": "GORONTALO"
+  },
+  "76": {
+    "kd_prov": "76",
+    "nm_prov": "SULAWESI BARAT"
+  },
+  "81": {
+    "kd_prov": "81",
+    "nm_prov": "MALUKU"
+  },
+  "82": {
+    "kd_prov": "82",
+    "nm_prov": "MALUKU UTARA"
+  },
+  "91": {
+    "kd_prov": "91",
+    "nm_prov": "PAPUA BARAT"
+  },
+  "92": {
+    "kd_prov": "92",
+    "nm_prov": "PAPUA BARAT DAYA"
+  },
+  "94": {
+    "kd_prov": "94",
+    "nm_prov": "PAPUA"
+  },
+  "95": {
+    "kd_prov": "95",
+    "nm_prov": "PAPUA SELATAN"
+  },
+  "96": {
+    "kd_prov": "96",
+    "nm_prov": "PAPUA TENGAH"
+  },
+  "97": {
+    "kd_prov": "97",
+    "nm_prov": "PAPUA PEGUNUNGAN"
+  }
+}

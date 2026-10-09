@@ -74,6 +74,8 @@ class RunMatchingRequest extends FormRequest
             'configuration.runOptions' => ['nullable', 'array'],
             'configuration.runOptions.chunkSize' => ['nullable', 'integer', 'min:10', 'max:1000'],
             'configuration.runOptions.workerCount' => ['nullable', 'integer', 'min:1', 'max:8'],
+            'configuration.runOptions.forceRestart' => ['nullable', 'boolean'],
+            'force_restart' => ['nullable', 'boolean'],
         ];
     }
 

@@ -23,7 +23,7 @@ import {
   type ExportPreset,
   type StoredExportHistoryEntry,
 } from "@/lib/result-exports";
-import type { ReviewItem } from "@/lib/api";
+import { type ReviewItem, downloadBackendExport } from "@/lib/api";
 
 import { DataPreviewTable } from "@/components/data-preview-table";
 
@@ -39,6 +39,15 @@ export interface IntentExportPanelProps {
   totalRaw?: number;
   totalUnique?: number;
   totalDuplicates?: number;
+  summary?: {
+    matched?: number;
+    possible_match?: number;
+    unmatched?: number;
+    reviewed?: number;
+    total_raw_input?: number;
+    total_unique_input?: number;
+    total_duplicates?: number;
+  };
 }
 
 export function IntentExportPanel({
@@ -51,6 +60,7 @@ export function IntentExportPanel({
   totalRaw,
   totalUnique,
   totalDuplicates,
+  summary,
 }: IntentExportPanelProps) {
   const { t } = usePreferences();
   const [preset, setPreset] = useState<ExportPreset>("master_update");
@@ -59,8 +69,23 @@ export function IntentExportPanel({
   const [activeSheetIndex, setActiveSheetIndex] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
 
-  // Calculate quick metrics for the preset cards
+  // Calculate quick metrics for the preset cards based on summary when available
   const metrics = useMemo(() => {
+    if (summary) {
+      const matched = summary.matched ?? 0;
+      const newCount = summary.unmatched ?? 0;
+      const pending = summary.possible_match ?? 0;
+      const total = summary.total_unique_input ?? (matched + newCount + pending);
+      return {
+        matchedCount: matched,
+        newCount,
+        pendingCount: pending,
+        rejectedCount: 0,
+        totalCount: total,
+        masterUpdateCount: matched + newCount,
+      };
+    }
+
     let matchedCount = 0;
     let newCount = 0;
     let pendingCount = 0;
@@ -87,14 +112,14 @@ export function IntentExportPanel({
       totalCount: items.length,
       masterUpdateCount: matchedCount + newCount,
     };
-  }, [items]);
+  }, [summary, items]);
 
-  // Full export rows
+  // Full export rows for live preview
   const fullExportTable = useMemo(() => {
     return buildIntentExportRows(items, { preset, autoEnrich });
   }, [items, preset, autoEnrich]);
 
-  // Multi-sheet export tables per status
+  // Multi-sheet export tables per status for live preview
   const exportTables = useMemo(() => {
     return buildIntentExportTables(items, { preset, autoEnrich, splitSheets });
   }, [items, preset, autoEnrich, splitSheets]);
@@ -102,8 +127,8 @@ export function IntentExportPanel({
   const safeSheetIndex = Math.min(activeSheetIndex, Math.max(0, exportTables.length - 1));
   const activeTable = exportTables[safeSheetIndex] ?? fullExportTable;
 
-  const handleDownload = (format: ExportFormat) => {
-    if (items.length === 0) {
+  const handleDownload = async (format: ExportFormat) => {
+    if (metrics.totalCount === 0 && items.length === 0) {
       toast.error(t("results.export.emptyDesc"));
       return;
     }
@@ -120,6 +145,137 @@ export function IntentExportPanel({
       const dateStr = new Date().toISOString().slice(0, 10);
       const fileName = `batchmatch-${baseName}-${presetSuffix}-${dateStr}.${format}`;
 
+      // 1. If jobId is available and user requests CSV, use high-speed backend streaming
+      if (jobId && format === "csv") {
+        const activeSheetName = splitSheets && exportTables.length > 1 ? activeTable.name : undefined;
+        let sheetParam = "";
+        if (activeSheetName) {
+          const lower = activeSheetName.toLowerCase();
+          if (lower.includes("matched") && !lower.includes("unmatched")) sheetParam = "matched";
+          else if (lower.includes("unmatched") || lower.includes("new")) sheetParam = "unmatched";
+          else if (lower.includes("review") || lower.includes("pending")) sheetParam = "need_review";
+          else if (lower.includes("reject")) sheetParam = "rejected";
+        }
+
+        const sheetSlug = sheetParam ? `-${sheetParam}` : "";
+        const csvFileName = `batchmatch-${baseName}-${presetSuffix}${sheetSlug}-${dateStr}.csv`;
+
+        await downloadBackendExport(
+          jobId,
+          {
+            preset,
+            format: "csv",
+            autoEnrich,
+            sheet: sheetParam,
+          },
+          csvFileName,
+        );
+
+        const exportedCount =
+          sheetParam === "matched"
+            ? metrics.matchedCount
+            : sheetParam === "unmatched"
+              ? metrics.newCount
+              : sheetParam === "need_review"
+                ? metrics.pendingCount
+                : preset === "master_update"
+                  ? metrics.masterUpdateCount
+                  : preset === "pending_review"
+                    ? metrics.pendingCount
+                    : metrics.totalCount;
+
+        if (onExportHistoryChange) {
+          const historyEntry = buildStoredExportHistoryEntry({
+            fileName: csvFileName,
+            format: "csv",
+            recordCount: exportedCount,
+            mode: "intent",
+            statuses:
+              preset === "master_update"
+                ? ["matched", "new"]
+                : preset === "pending_review"
+                  ? ["pending"]
+                  : ["matched", "new", "rejected", "pending"],
+            columns: activeTable.columns,
+            includeReferenceKey: true,
+            includeReviewFields: preset !== "master_update",
+            includeScore: preset !== "master_update",
+            sourceJobId: jobId,
+          });
+          historyEntry.preset = preset;
+          historyEntry.autoEnrich = autoEnrich;
+
+          onExportHistoryChange((current) => [historyEntry, ...current]);
+        }
+
+        toast.success(
+          t("matching.export.success", {
+            format: "CSV",
+            count: exportedCount.toLocaleString(),
+          }),
+        );
+        return;
+      }
+
+      // 2. If format is XLSX on large datasets (> 5,000 records), browser client-side Excel generation will freeze or crash memory.
+      if (format === "xlsx" && metrics.totalCount > 5000) {
+        toast.warning(
+          `Dataset berisi ${metrics.totalCount.toLocaleString()} record. Mengunduh via format CSV streaming untuk data besar agar browser tidak kehabisan memori.`,
+        );
+        if (jobId) {
+          const csvFileName = `batchmatch-${baseName}-${presetSuffix}-${dateStr}.csv`;
+          await downloadBackendExport(
+            jobId,
+            {
+              preset,
+              format: "csv",
+              autoEnrich,
+            },
+            csvFileName,
+          );
+
+          const exportedCount =
+            preset === "master_update"
+              ? metrics.masterUpdateCount
+              : preset === "pending_review"
+                ? metrics.pendingCount
+                : metrics.totalCount;
+
+          if (onExportHistoryChange) {
+            const historyEntry = buildStoredExportHistoryEntry({
+              fileName: csvFileName,
+              format: "csv",
+              recordCount: exportedCount,
+              mode: "intent",
+              statuses:
+                preset === "master_update"
+                  ? ["matched", "new"]
+                  : preset === "pending_review"
+                    ? ["pending"]
+                    : ["matched", "new", "rejected", "pending"],
+              columns: activeTable.columns,
+              includeReferenceKey: true,
+              includeReviewFields: preset !== "master_update",
+              includeScore: preset !== "master_update",
+              sourceJobId: jobId,
+            });
+            historyEntry.preset = preset;
+            historyEntry.autoEnrich = autoEnrich;
+
+            onExportHistoryChange((current) => [historyEntry, ...current]);
+          }
+
+          toast.success(
+            t("matching.export.success", {
+              format: "CSV",
+              count: exportedCount.toLocaleString(),
+            }),
+          );
+          return;
+        }
+      }
+
+      // 3. Fallback client-side generation for small datasets or mock mode
       if (format === "csv") {
         const tableToExport = splitSheets && exportTables.length > 1 ? activeTable : fullExportTable;
         const sheetSlug =
@@ -133,12 +289,12 @@ export function IntentExportPanel({
         downloadXlsx(fileName, tablesToExport);
       }
 
-      if (onExportHistoryChange) {
-        const exportedRowsCount =
-          format === "csv" && splitSheets && exportTables.length > 1
-            ? activeTable.rows.length
-            : fullExportTable.rows.length;
+      const exportedRowsCount =
+        format === "csv" && splitSheets && exportTables.length > 1
+          ? activeTable.rows.length
+          : fullExportTable.rows.length;
 
+      if (onExportHistoryChange) {
         const historyEntry = buildStoredExportHistoryEntry({
           fileName:
             format === "csv" && splitSheets && exportTables.length > 1
@@ -165,15 +321,10 @@ export function IntentExportPanel({
         onExportHistoryChange((current) => [historyEntry, ...current]);
       }
 
-      const exportedCount =
-        format === "csv" && splitSheets && exportTables.length > 1
-          ? activeTable.rows.length
-          : fullExportTable.rows.length;
-
       toast.success(
         t("matching.export.success", {
           format: format.toUpperCase(),
-          count: exportedCount,
+          count: exportedRowsCount.toLocaleString(),
         }),
       );
     } catch (err) {
@@ -248,7 +399,7 @@ export function IntentExportPanel({
           </h4>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>
-              {t("matching.export.totalProcessed", { count: metrics.totalCount })}
+              {t("matching.export.totalProcessed", { count: metrics.totalCount.toLocaleString() })}
             </span>
             {(totalDuplicates ?? 0) > 0 && (
               <span className="rounded bg-secondary/80 px-2 py-0.5 font-medium text-[11px] text-muted-foreground">
@@ -298,7 +449,7 @@ export function IntentExportPanel({
             <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
               <span className="text-muted-foreground">{t("matching.export.scope")}:</span>
               <span className="font-semibold tabular-nums text-success">
-                {t("matching.export.readyRecords", { count: metrics.masterUpdateCount })}
+                {t("matching.export.readyRecords", { count: metrics.masterUpdateCount.toLocaleString() })}
               </span>
             </div>
           </div>
@@ -342,7 +493,7 @@ export function IntentExportPanel({
             <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
               <span className="text-muted-foreground">{t("matching.export.scope")}:</span>
               <span className="font-semibold tabular-nums text-foreground">
-                {t("matching.export.allRecords", { count: metrics.totalCount })}
+                {t("matching.export.allRecords", { count: metrics.totalCount.toLocaleString() })}
               </span>
             </div>
           </div>
@@ -386,7 +537,7 @@ export function IntentExportPanel({
             <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
               <span className="text-muted-foreground">{t("matching.export.scope")}:</span>
               <span className="font-semibold tabular-nums text-warning">
-                {t("matching.export.pendingRecords", { count: metrics.pendingCount })}
+                {t("matching.export.pendingRecords", { count: metrics.pendingCount.toLocaleString() })}
               </span>
             </div>
           </div>
@@ -424,7 +575,18 @@ export function IntentExportPanel({
                           : "bg-muted text-muted-foreground"
                       }`}
                     >
-                      {table.rows.length}
+                      {summary
+                        ? (table.name.toLowerCase().includes("matched") && !table.name.toLowerCase().includes("unmatched")
+                            ? metrics.matchedCount
+                            : table.name.toLowerCase().includes("unmatched") || table.name.toLowerCase().includes("new")
+                              ? metrics.newCount
+                              : table.name.toLowerCase().includes("review") || table.name.toLowerCase().includes("pending")
+                                ? metrics.pendingCount
+                                : preset === "master_update"
+                                  ? metrics.masterUpdateCount
+                                  : metrics.totalCount
+                          ).toLocaleString()
+                        : table.rows.length}
                     </span>
                   </button>
                 );
@@ -437,6 +599,9 @@ export function IntentExportPanel({
         )}
 
         <DataPreviewTable
+          jobId={jobId ?? undefined}
+          exportPreset={preset}
+          autoEnrich={autoEnrich}
           title={
             splitSheets && exportTables.length > 1
               ? `${t("matching.export.livePreviewTitle")} (${activeTable.name})`
@@ -445,7 +610,15 @@ export function IntentExportPanel({
           subtitle={t("matching.export.livePreviewDesc")}
           columns={activeTable.columns}
           rows={activeTable.rows}
-          totalRows={activeTable.rows.length}
+          totalRows={
+            summary
+              ? preset === "master_update"
+                ? metrics.masterUpdateCount
+                : preset === "pending_review"
+                  ? metrics.pendingCount
+                  : metrics.totalCount
+              : activeTable.rows.length
+          }
           previewLimit={3}
           badgeColor="brand"
           badgeText={
@@ -468,12 +641,33 @@ export function IntentExportPanel({
                 <FileSpreadsheet className="size-3.5 text-emerald-600 shrink-0" />
                 <span>
                   XLSX akan berisi <strong>{exportTables.length} sheet</strong> (
-                  {exportTables.map((t) => `${t.name}: ${t.rows.length}`).join(", ")}).
+                  {exportTables
+                    .map((t) => {
+                      const count = summary
+                        ? t.name.toLowerCase().includes("matched") && !t.name.toLowerCase().includes("unmatched")
+                          ? metrics.matchedCount
+                          : t.name.toLowerCase().includes("unmatched") || t.name.toLowerCase().includes("new")
+                            ? metrics.newCount
+                            : t.name.toLowerCase().includes("review") || t.name.toLowerCase().includes("pending")
+                              ? metrics.pendingCount
+                              : preset === "master_update"
+                                ? metrics.masterUpdateCount
+                                : metrics.totalCount
+                        : t.rows.length;
+                      return `${t.name}: ${count.toLocaleString()}`;
+                    })
+                    .join(", ")}
+                  ).
                 </span>
               </span>
             ) : (
               t("matching.export.downloadHint", {
-                count: fullExportTable.rows.length.toLocaleString(),
+                count: (preset === "master_update"
+                  ? metrics.masterUpdateCount
+                  : preset === "pending_review"
+                    ? metrics.pendingCount
+                    : metrics.totalCount
+                ).toLocaleString(),
               })
             )}
           </div>

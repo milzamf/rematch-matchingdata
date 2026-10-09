@@ -51,7 +51,7 @@ class WorkspaceController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->payload($workspace->load(['referenceDataset', 'inputDataset', 'matchingJob'])),
+            'data' => $this->payload($workspace->load(['referenceDataset.columns', 'inputDataset.columns', 'matchingJob'])),
         ], 201);
     }
 
@@ -66,6 +66,7 @@ class WorkspaceController extends Controller
                 'referenceDataset.columns',
                 'inputDataset.columns',
                 'matchingJob',
+                'matchingJobs',
             ])),
         ]);
     }
@@ -80,7 +81,7 @@ class WorkspaceController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->payload($model->load(['user', 'referenceDataset', 'inputDataset', 'matchingJob'])),
+            'data' => $this->payload($model->load(['user', 'referenceDataset.columns', 'inputDataset.columns', 'matchingJob'])),
         ]);
     }
 
@@ -122,6 +123,9 @@ class WorkspaceController extends Controller
             'reference_dataset' => $this->datasetPayload($workspace->referenceDataset),
             'input_dataset' => $this->datasetPayload($workspace->inputDataset),
             'matching_job' => $this->jobPayload($workspace->matchingJob),
+            'matching_jobs' => $workspace->relationLoaded('matchingJobs')
+                ? $workspace->matchingJobs->sortByDesc('created_at')->values()->map(fn ($j) => $this->jobPayload($j))->all()
+                : [],
             'created_at' => optional($workspace->created_at)->toISOString(),
             'updated_at' => optional($workspace->updated_at)->toISOString(),
         ];

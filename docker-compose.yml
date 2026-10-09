@@ -4,6 +4,13 @@ services:
     image: mysql:8.0
     container_name: rematch-db
     restart: unless-stopped
+    command:
+      - mysqld
+      - --innodb_buffer_pool_size=2G
+      - --innodb_log_file_size=512M
+      - --innodb_flush_log_at_trx_commit=2
+      - --innodb_write_io_threads=8
+      - --max_allowed_packet=256M
     environment:
       MYSQL_DATABASE: rematch
       MYSQL_USER: rematch
@@ -44,13 +51,14 @@ services:
       dockerfile: Dockerfile
     container_name: rematch-backend
     restart: unless-stopped
-    command: php -d upload_max_filesize=550M -d post_max_size=550M -d memory_limit=1024M -d max_execution_time=600 artisan serve --host=0.0.0.0 --port=8000
+    command: php -d upload_max_filesize=550M -d post_max_size=550M -d memory_limit=1024M -d max_execution_time=600 artisan serve --host=0.0.0.0 --port=8000 --no-reload
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/var/www/html
       - ./backend/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
     environment:
+      PHP_CLI_SERVER_WORKERS: 16
       APP_NAME: RE-MATCH
       APP_ENV: local
       APP_KEY: base64:2ztv9sIppmYKL0RGNW10i6YmwXJZGUcCBF9GIY6BBmM=
@@ -90,6 +98,7 @@ services:
       dockerfile: Dockerfile
     container_name: rematch-queue-worker
     restart: unless-stopped
+    shm_size: 512m
     command: php -d memory_limit=-1 artisan queue:work --tries=3 --timeout=0
     volumes:
       - ./backend:/var/www/html

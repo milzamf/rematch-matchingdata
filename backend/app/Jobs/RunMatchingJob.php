@@ -19,7 +19,7 @@ class RunMatchingJob implements ShouldQueue
 
     public int $timeout = 0;
 
-    public int $tries = 3;
+    public int $tries = 1;
 
     public function __construct(public string $matchingJobId)
     {
@@ -35,6 +35,11 @@ class RunMatchingJob implements ShouldQueue
 
         if (! $job) {
             Log::error("RunMatchingJob failed: MatchingJob ID [{$this->matchingJobId}] not found.");
+            return;
+        }
+
+        if (in_array($job->status, ['cancelled', 'stopped', 'failed', 'completed']) || $job->error_message === 'Matching stopped by user.') {
+            Log::info("RunMatchingJob skipped for Job ID [{$this->matchingJobId}] because status is [{$job->status}] / error: [{$job->error_message}].");
             return;
         }
 

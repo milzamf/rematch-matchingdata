@@ -92,6 +92,7 @@ type RunMatchingInput = {
   inputDatasetId: string;
   mappings: unknown[];
   configuration: unknown;
+  forceRestart?: boolean;
 };
 
 export type WorkspaceStatus =
@@ -154,6 +155,17 @@ export type WorkspaceSummary = {
     started_at: string | null;
     finished_at: string | null;
   } | null;
+  matching_jobs?: Array<{
+    id: string;
+    name: string | null;
+    status: string;
+    processed_count: number;
+    total_count: number;
+    record_counts: Record<string, number>;
+    error_message: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+  }>;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -236,7 +248,13 @@ export type MatchingRunResult = {
     processed: number;
     total: number;
     percentage: number;
+    stage?: string | null;
   };
+  checkpoint?: {
+    is_resumed: boolean;
+    resumed_at_record?: number;
+    checkpoint_key?: string | null;
+  } | null;
   summary: {
     matched: number;
     possible_match: number;
@@ -390,7 +408,7 @@ export type ReviewCaseGroup = {
   decision_history?: ReviewDecisionSummary[];
   item_keys: string[];
   representative_input_key: string | null;
-  representative: ReviewItem;
+  representative?: ReviewItem | null;
   representative_samples?: ReviewItem[];
   rule_type?: "system_preset" | "custom_rule" | "dynamic_fallback";
   preset_number?: number | null;
@@ -474,17 +492,44 @@ export type ReviewResults = {
     matched: number;
     possible_match: number;
     unmatched: number;
+    auto_matched?: number;
+    manual_accepted?: number;
+    manual_rejected?: number;
     reviewed: number;
     total_raw_input?: number;
     total_unique_input?: number;
     total_duplicates?: number;
     duplicate_details?: DuplicateDetail[];
+    processed_count?: number;
+    is_completed?: boolean;
+    unprocessed_count?: number;
+  };
+  pagination?: {
+    current_page: number;
+    per_page: number;
+    total_items: number;
+    total_pages: number;
+    from: number;
+    to: number;
   };
   items: ReviewItem[];
   case_groups: ReviewPresetGroup[];
   system_presets?: ReviewPresetGroup[];
   custom_rules?: ReviewPresetGroup[];
   dynamic_patterns?: ReviewPresetGroup[];
+  field_quality_summary?: Record<string, {
+    fieldKey: string;
+    referenceColumn: string;
+    inputColumn: string;
+    totalEvaluated: number;
+    avgScore: number;
+    highCount: number;
+    medCount: number;
+    lowCount: number;
+    highPct: number;
+    medPct: number;
+    lowPct: number;
+  }>;
 };
 
 export type AiEnvelope<T> = {
@@ -907,6 +952,7 @@ export async function runMatching(input: RunMatchingInput): Promise<MatchingRunR
       input_dataset_id: input.inputDatasetId,
       mappings: input.mappings,
       configuration: input.configuration,
+      force_restart: input.forceRestart,
     }),
   });
   const payload = (await response.json().catch(() => null)) as
@@ -943,8 +989,34 @@ export async function fetchMatchingJobStatus(jobId: string): Promise<MatchingRun
   return payload.data;
 }
 
-export async function fetchReviewResults(jobId: string): Promise<ReviewResults> {
-  const response = await apiFetch(`/matching-jobs/${jobId}/review-results`, {
+export async function fetchReviewResults(
+  jobId: string,
+  params?: {
+    page?: number;
+    per_page?: number;
+    status?: string;
+    filter?: string;
+    search?: string;
+    query?: string;
+    case_group_id?: string;
+  },
+): Promise<ReviewResults> {
+  const searchParams = new URLSearchParams();
+  if (params) {
+    if (params.page !== undefined && params.page !== null) searchParams.set("page", String(params.page));
+    if (params.per_page !== undefined && params.per_page !== null) searchParams.set("per_page", String(params.per_page));
+    const statusVal = params.status || params.filter;
+    if (statusVal) searchParams.set("status", statusVal);
+    const searchVal = params.search || params.query;
+    if (searchVal) searchParams.set("search", searchVal);
+    if (params.case_group_id) searchParams.set("case_group_id", params.case_group_id);
+  }
+  const queryString = searchParams.toString();
+  const endpoint = queryString
+    ? `/matching-jobs/${jobId}/review-results?${queryString}`
+    : `/matching-jobs/${jobId}/review-results`;
+
+  const response = await apiFetch(endpoint, {
     headers: { Accept: "application/json" },
   });
   const payload = (await response.json().catch(() => null)) as
@@ -1470,4 +1542,40 @@ export async function deleteReviewRule(jobId: string, ruleId: string): Promise<v
     throw new ApiError(payload?.message ?? "Gagal menghapus aturan review", response.status);
   }
 }
+
+export async function downloadBackendExport(
+  jobId: string,
+  params: {
+    preset: string;
+    format: "csv" | "xlsx";
+    autoEnrich?: boolean;
+    sheet?: string;
+  },
+  fileName: string,
+): Promise<void> {
+  const query = new URLSearchParams();
+  query.set("preset", params.preset);
+  query.set("format", params.format);
+  if (params.autoEnrich !== undefined) {
+    query.set("auto_enrich", params.autoEnrich ? "1" : "0");
+  }
+  if (params.sheet) {
+    query.set("sheet", params.sheet);
+  }
+
+  const exportUrl = buildApiUrl(`/matching-jobs/${jobId}/export?${query.toString()}`);
+
+  // Direct native browser download: trigger download anchor without buffering whole stream into JS memory.
+  // The backend streams with 'Content-Disposition: attachment', engaging browser's native download manager.
+  const a = document.createElement("a");
+  a.href = exportUrl;
+  a.setAttribute("download", fileName);
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    a.remove();
+  }, 1000);
+}
+
 

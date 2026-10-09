@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,24 @@ export function ExtractionModal({
   const [applyTo, setApplyTo] = useState<"both" | "reference" | "input">("both");
   const [refSourceId, setRefSourceId] = useState("");
   const [inpSourceId, setInpSourceId] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (!refSourceId && referenceColumns.length > 0) {
+      const match = referenceColumns.find((c) =>
+        /nama|perusahaan|company|name|usaha|badan/i.test(c.name)
+      );
+      if (match) setRefSourceId(match.id);
+    }
+
+    if (!inpSourceId && inputColumns.length > 0) {
+      const match = inputColumns.find((c) =>
+        /nama|perusahaan|company|name|usaha|badan/i.test(c.name)
+      );
+      if (match) setInpSourceId(match.id);
+    }
+  }, [isOpen, referenceColumns, inputColumns, refSourceId, inpSourceId]);
 
   const handleConfirm = () => {
     onConfirm({
@@ -96,10 +114,14 @@ export function ExtractionModal({
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose}>
             Batal
           </Button>
-          <Button onClick={handleConfirm} disabled={(applyTo !== "input" && !refSourceId) || (applyTo !== "reference" && !inpSourceId) || (!extractLegalForm && !extractCoreName)}>
+          <Button
+            type="button"
+            onClick={handleConfirm}
+            disabled={(applyTo !== "input" && !refSourceId) || (applyTo !== "reference" && !inpSourceId) || (!extractLegalForm && !extractCoreName)}
+          >
             Terapkan Ekstraksi
           </Button>
         </DialogFooter>

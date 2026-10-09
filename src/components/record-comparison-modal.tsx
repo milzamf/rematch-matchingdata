@@ -21,7 +21,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import type { ReviewItem, ReviewCandidate } from "@/lib/api";
-import type { IdentityFieldPair } from "@/lib/result-identity";
+import { formatLegalFormDisplay, type IdentityFieldPair } from "@/lib/result-identity";
 import { normalizeLegalForm } from "@/lib/data-normalizer";
 import { LegalEntityDictionaryDialog } from "@/components/legal-entity-dictionary-dialog";
 
@@ -244,6 +244,40 @@ function resolveFieldScoreDisplay(
   };
 }
 
+function findEntityName(data: Record<string, unknown> | null | undefined): string | null {
+  if (!data) return null;
+  for (const key of [
+    "nama_penyedia",
+    "nama_perusahaan",
+    "[Generated] Nama Inti",
+    "nama_inti",
+    "nama_usaha",
+    "nama_rekanan",
+    "nama_kontraktor",
+    "nama_vendor",
+    "company_name",
+    "entity_name",
+    "nama",
+    "name",
+  ]) {
+    if (data[key] !== undefined && data[key] !== null && String(data[key]).trim() !== "") {
+      return String(data[key]).trim();
+    }
+  }
+  for (const [k, v] of Object.entries(data)) {
+    const lower = k.toLowerCase();
+    if (
+      (lower.includes("perusahaan") || lower.includes("penyedia") || lower.includes("usaha") || lower === "nama" || lower === "name") &&
+      !lower.includes("cp") && !lower.includes("pic") && !lower.includes("pengusaha") && !lower.includes("badan")
+    ) {
+      if (v !== undefined && v !== null && String(v).trim() !== "") {
+        return String(v).trim();
+      }
+    }
+  }
+  return null;
+}
+
 function getOverviewFields(
   inputData: Record<string, unknown>,
   referenceData: Record<string, unknown>,
@@ -256,44 +290,35 @@ function getOverviewFields(
     reference: string;
   }>;
 } {
-  // 1. Badan Usaha (Normalized with Kamus Badan Usaha)
-  const rawInputBU = inputData.bentuk_usaha ?? inputData.badan_usaha ?? meta?.input?.legal_form;
-  const normInputBU = normalizeLegalForm(rawInputBU) ?? meta?.input?.legal_form;
-  let inputBU = "- (kosong)";
-  if (rawInputBU) {
-    if (normInputBU && String(rawInputBU).trim().toUpperCase() !== String(normInputBU).trim().toUpperCase()) {
-      inputBU = `${rawInputBU} (${normInputBU})`;
-    } else {
-      inputBU = String(rawInputBU);
-    }
-  } else if (normInputBU) {
-    inputBU = String(normInputBU);
-  }
+  // 1. Nama Entitas
+  const inputNama = findEntityName(inputData) ?? meta?.input?.raw_name ?? meta?.input?.core_name ?? "- (tidak terisi)";
+  const refNama = findEntityName(referenceData) ?? meta?.reference?.raw_name ?? meta?.reference?.core_name ?? "- (tidak terisi di acuan)";
 
-  const rawRefBU = referenceData.badan_usaha ?? referenceData.bentuk_usaha;
-  const normRefBU = normalizeLegalForm(rawRefBU) ?? meta?.reference?.legal_form;
-  let refBU = "- (kosong)";
-  if (rawRefBU) {
-    if (normRefBU && String(rawRefBU).trim().toUpperCase() !== String(normRefBU).trim().toUpperCase()) {
-      refBU = `${rawRefBU} (${normRefBU})`; // e.g. "3 (CV)" or "Commanditaire Vennootschap (CV)"
-    } else {
-      refBU = String(rawRefBU);
-    }
-  } else if (normRefBU) {
-    refBU = String(normRefBU);
-  }
+  // 2. Badan Usaha (Normalized with Kamus Badan Usaha)
+  const rawInputBU = inputData.bentuk_usaha ?? inputData.badan_usaha ?? inputData["[Generated] Badan Usaha"] ?? meta?.input?.legal_form;
+  const inputBU = rawInputBU ? formatLegalFormDisplay(rawInputBU) : (meta?.input?.legal_form ? String(meta.input.legal_form) : "- (tidak terisi)");
 
-  // 2. Alamat
-  const rawInputAlamat = inputData.alamat ?? inputData.alamat_penyedia ?? inputData.alamat_perusahaan;
-  const inputAlamat = rawInputAlamat ? String(rawInputAlamat) : "- (kosong)";
+  const rawRefBU = referenceData.badan_usaha ?? referenceData.bentuk_usaha ?? referenceData["[Generated] Badan Usaha"] ?? meta?.reference?.legal_form;
+  const refBU = rawRefBU ? formatLegalFormDisplay(rawRefBU) : (meta?.reference?.legal_form ? String(meta.reference.legal_form) : "- (tidak terisi di acuan)");
+
+  // 3. Alamat
+  const rawInputAlamat = inputData.alamat ?? inputData.alamat_penyedia ?? inputData.alamat_perusahaan ?? inputData.alamat_operasional;
+  const inputAlamat = rawInputAlamat ? String(rawInputAlamat) : "- (tidak terisi)";
 
   const rawRefAlamat = referenceData.alamat_perusahaan ?? referenceData.alamat_operasional ?? referenceData.alamat;
-  const refAlamat = rawRefAlamat ? String(rawRefAlamat) : "- (kosong)";
+  const refAlamat = rawRefAlamat ? String(rawRefAlamat) : "- (tidak terisi di acuan)";
 
-  // 3. Kode kabupaten/kota - Nama Kabupaten/kota
-  const inputKodeKab = inputData.kd_kab ?? inputData.kode_kab ?? inputData.id_kab ?? "";
+  // 4. NIB
+  const rawInputNIB = inputData.nib ?? inputData.nomor_izin_usaha ?? inputData.no_nib ?? inputData.id_perusahaan;
+  const inputNIB = rawInputNIB ? String(rawInputNIB) : "- (tidak terisi)";
+
+  const rawRefNIB = referenceData.nib ?? referenceData.no_nib ?? referenceData.nomor_izin_usaha;
+  const refNIB = rawRefNIB ? String(rawRefNIB) : "- (tidak terisi di acuan)";
+
+  // 5. Kode kabupaten/kota - Nama Kabupaten/kota
+  const inputKodeKab = inputData.kd_kab ?? inputData.kode_kab ?? inputData.id_kab ?? inputData.kdkab ?? "";
   const inputNamaKab = inputData.nmkab ?? inputData.kabupaten ?? inputData.nama_kab ?? inputData.kab ?? "";
-  let inputKabText = "- (kosong)";
+  let inputKabText = "- (tidak terisi)";
   if (inputKodeKab && inputNamaKab) {
     inputKabText = `${inputKodeKab} - ${inputNamaKab}`;
   } else if (inputNamaKab) {
@@ -304,7 +329,7 @@ function getOverviewFields(
 
   const refKodeKab = referenceData.kab ?? referenceData.kd_kab ?? referenceData.kode_kab ?? "";
   const refNamaKab = referenceData.nm_kab ?? referenceData.nmkab ?? referenceData.kabupaten ?? "";
-  let refKabText = "- (kosong)";
+  let refKabText = "- (tidak terisi di acuan)";
   if (refKodeKab && refNamaKab) {
     refKabText = `${refKodeKab} - ${refNamaKab}`;
   } else if (refNamaKab) {
@@ -313,22 +338,19 @@ function getOverviewFields(
     refKabText = String(refKodeKab);
   }
 
-  // 4. NIB
-  const inputNIB = String(inputData.nib ?? inputData.no_nib ?? "- (tidak terisi)");
-  const refNIB = String(referenceData.nib ?? referenceData.no_nib ?? "- (tidak terisi di acuan)");
-
-  // 5. NPWP (Symmetric)
+  // 6. NPWP (Symmetric)
   const hasNPWP = Boolean(inputData.npwp_penyedia || inputData.npwp || referenceData.npwp || referenceData.npwp_penyedia);
   const inputNPWP = String(inputData.npwp_penyedia ?? inputData.npwp ?? "- (tidak terisi)");
   const refNPWP = String(referenceData.npwp ?? referenceData.npwp_penyedia ?? "- (tidak terisi di acuan)");
 
   return {
     rows: [
-      { key: "badan_usaha", label: "1. Badan Usaha", input: inputBU, reference: refBU },
-      { key: "alamat", label: "2. Alamat", input: inputAlamat, reference: refAlamat },
-      { key: "kab_kota", label: "3. Kode - Nama Kab/Kota", input: inputKabText, reference: refKabText },
+      { key: "nama_entitas", label: "1. Nama Entitas", input: String(inputNama), reference: String(refNama) },
+      { key: "badan_usaha", label: "2. Badan Usaha", input: inputBU, reference: refBU },
+      { key: "alamat", label: "3. Alamat", input: inputAlamat, reference: refAlamat },
       { key: "nib", label: "4. NIB", input: inputNIB, reference: refNIB },
-      ...(hasNPWP ? [{ key: "npwp", label: "NPWP", input: inputNPWP, reference: refNPWP }] : []),
+      { key: "kab_kota", label: "5. Kode - Nama Kab/Kota", input: inputKabText, reference: refKabText },
+      ...(hasNPWP ? [{ key: "npwp", label: "6. NPWP", input: inputNPWP, reference: refNPWP }] : []),
     ],
   };
 }
@@ -539,21 +561,10 @@ export function RecordComparisonModal({
   const totalScore = typeof currentCandidate?.score === "number" ? currentCandidate.score : 0;
   const fieldScores = Array.isArray(currentCandidate?.field_scores) ? currentCandidate.field_scores : [];
 
-  // Identify primary entity names
-  const inputName =
-    (inputData.nama_penyedia as string) ??
-    (inputData.nama_perusahaan as string) ??
-    (inputData.nama as string) ??
-    (inputData.name as string) ??
-    item.input_record_key;
-
-  const referenceName =
-    (referenceData.nama_perusahaan as string) ??
-    (referenceData.nama_penyedia as string) ??
-    (referenceData.nama as string) ??
-    (referenceData.name as string) ??
-    currentCandidate?.reference_record_key ??
-    "-";
+  const inputName = findEntityName(inputData) ?? `Record #${item.input_record_key}`;
+  const referenceName = currentCandidate
+    ? (findEntityName(referenceData) ?? `Acuan #${currentCandidate.reference_record_key}`)
+    : "-";
 
   // First field metadata for identity normalization
   const firstFieldMeta = currentCandidate?.field_scores?.find(

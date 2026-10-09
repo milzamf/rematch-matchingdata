@@ -14,20 +14,73 @@ use InvalidArgumentException;
 
 class ReviewResultService
 {
-    public function __construct(private readonly ResourceOwnership $ownership)
-    {
+    private readonly WilayahDictionaryService $wilayahService;
+
+    public function __construct(
+        private readonly ResourceOwnership $ownership,
+        ?WilayahDictionaryService $wilayahService = null,
+    ) {
+        $this->wilayahService = $wilayahService ?? app(WilayahDictionaryService::class);
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function list(User $user, string $jobId): array
+    public function list(User $user, string $jobId, array $params = []): array
     {
         $job = $this->ownership->findMatchingJob($user, $jobId);
-        $results = $job->results()
-            ->orderBy('input_record_key')
-            ->orderBy('candidate_rank')
-            ->get();
+
+        // Guard: If job is still processing/queued, return early without heavy unindexed queries
+        if (in_array($job->status, ['processing', 'queued', 'pending'], true)) {
+            $recordCounts = $job->record_counts ?? [];
+            $totalRawInput = (int) ($recordCounts['total_raw_input'] ?? $job->inputDataset?->row_count ?? $job->total_count ?? 0);
+            $totalUniqueInput = (int) ($recordCounts['total_unique_input'] ?? $totalRawInput);
+            $totalDuplicates = (int) ($recordCounts['total_duplicates'] ?? 0);
+
+            return [
+                'job' => [
+                    'id' => $job->id,
+                    'name' => $job->name,
+                    'status' => $job->status,
+                    'thresholds' => $job->configuration?->thresholds ?? null,
+                    'configuration' => [
+                        'thresholds' => $job->configuration?->thresholds ?? null,
+                        'strategy' => $job->configuration?->strategy ?? null,
+                    ],
+                ],
+                'summary' => [
+                    'matched' => (int) ($recordCounts['matched'] ?? 0),
+                    'possible_match' => (int) ($recordCounts['possible_match'] ?? 0),
+                    'unmatched' => (int) ($recordCounts['unmatched'] ?? 0),
+                    'auto_matched' => (int) ($recordCounts['matched'] ?? 0),
+                    'manual_accepted' => 0,
+                    'manual_rejected' => 0,
+                    'reviewed' => 0,
+                    'total_raw_input' => $totalRawInput,
+                    'total_unique_input' => $totalUniqueInput,
+                    'total_duplicates' => $totalDuplicates,
+                    'duplicate_details' => $recordCounts['duplicate_details'] ?? [],
+                    'processed_count' => (int) ($job->processed_count ?? 0),
+                    'is_completed' => false,
+                    'unprocessed_count' => max(0, $totalUniqueInput - (int) ($job->processed_count ?? 0)),
+                ],
+                'pagination' => [
+                    'current_page' => 1,
+                    'per_page' => 25,
+                    'total_items' => 0,
+                    'total_pages' => 1,
+                    'from' => 0,
+                    'to' => 0,
+                ],
+                'items' => [],
+                'system_presets' => [],
+                'custom_rules' => [],
+                'dynamic_patterns' => [],
+                'case_groups' => [],
+                'is_processing' => true,
+            ];
+        }
+
         $allDecisions = $job->reviewDecisions()
             ->latest()
             ->get();
@@ -43,7 +96,301 @@ class ReviewResultService
             $customRules = data_get($job->workspace->workflow_state, 'custom_review_rules', []);
         }
 
-        $items = $results->groupBy('input_record_key')->map(function ($group, string $inputKey) use ($latestDecisions, $decisionHistory, $customRules) {
+        $page = max(1, (int) ($params['page'] ?? 1));
+        $perPage = min(100, max(10, (int) ($params['per_page'] ?? 25)));
+        $status = (string) ($params['status'] ?? $params['filter'] ?? 'all');
+        $search = trim((string) ($params['search'] ?? $params['query'] ?? ''));
+        $caseGroupId = trim((string) ($params['case_group_id'] ?? $params['group_id'] ?? ''));
+
+        $recordCounts = $job->record_counts ?? [];
+        $totalRawInput = (int) ($recordCounts['total_raw_input'] ?? $job->total_count ?? count($items ?? []));
+        $totalUniqueInput = (int) ($recordCounts['total_unique_input'] ?? $totalRawInput);
+        $totalDuplicates = (int) ($recordCounts['total_duplicates'] ?? max(0, $totalRawInput - $totalUniqueInput));
+        $duplicateDetails = $recordCounts['duplicate_details'] ?? [];
+
+        if (empty($recordCounts) || (!isset($recordCounts['matched']) && !isset($recordCounts['possible_match']) && !isset($recordCounts['unmatched']))) {
+            $matchedCount = (int) MatchingResult::where('matching_job_id', $job->id)->where('result_type', 'matched')->count();
+            $possibleMatchCount = (int) MatchingResult::where('matching_job_id', $job->id)->where('result_type', 'possible_match')->count();
+            $unmatchedCount = (int) MatchingResult::where('matching_job_id', $job->id)->where('result_type', 'unmatched')->count();
+        } else {
+            $matchedCount = (int) ($recordCounts['matched'] ?? 0);
+            $possibleMatchCount = (int) ($recordCounts['possible_match'] ?? 0);
+            $unmatchedCount = (int) ($recordCounts['unmatched'] ?? 0);
+        }
+
+        $reviewedCount = $job->reviewDecisions()->whereNull('undone_at')->distinct('input_record_key')->count('input_record_key');
+
+        // Aggregate review groups across all reviewable database records (with caching)
+        $reviewGroups = $this->aggregateJobReviewGroups($job, $latestDecisions, $decisionHistory, $customRules, $reviewedCount);
+
+        if ($caseGroupId !== '') {
+            $allGroups = array_merge(
+                $reviewGroups['system_presets'] ?? [],
+                $reviewGroups['custom_rules'] ?? [],
+                $reviewGroups['dynamic_patterns'] ?? [],
+                $reviewGroups['case_groups'] ?? []
+            );
+            $matchedGroup = collect($allGroups)->first(fn ($g) => ($g['id'] ?? '') === $caseGroupId);
+            $groupKeys = $matchedGroup['item_keys'] ?? [];
+
+            if ($search !== '') {
+                $groupKeys = array_values(array_filter($groupKeys, fn ($k) => str_contains(strtolower($k), strtolower($search))));
+            }
+
+            $totalFiltered = count($groupKeys);
+            $totalPages = max(1, (int) ceil($totalFiltered / $perPage));
+            $pageKeys = array_slice($groupKeys, ($page - 1) * $perPage, $perPage);
+
+            $results = MatchingResult::where('matching_job_id', $job->id)
+                ->whereIn('input_record_key', $pageKeys)
+                ->orderBy('input_record_key')
+                ->orderBy('candidate_rank')
+                ->get();
+
+            $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
+        } else {
+            // Query input keys using the index on candidate_rank = 1
+            $keysQuery = DB::table('matching_results')
+                ->where('matching_job_id', $job->id)
+                ->where('candidate_rank', 1);
+
+            if ($status !== 'all' && in_array($status, ['possible_match', 'matched', 'unmatched'], true)) {
+                $keysQuery->where('result_type', $status);
+            }
+
+            if ($search !== '') {
+                $keysQuery->where(function ($q) use ($search) {
+                    $q->where('input_record_key', 'LIKE', "%{$search}%")
+                      ->orWhere('candidate_metadata', 'LIKE', "%{$search}%");
+                });
+            }
+
+            if ($search !== '') {
+                $totalFiltered = (clone $keysQuery)->count();
+            } else {
+                $totalFiltered = match ($status) {
+                    'possible_match' => $possibleMatchCount,
+                    'matched' => $matchedCount,
+                    'unmatched' => $unmatchedCount,
+                    default => (int) ($job->total_count ?? $totalRawInput),
+                };
+                if ($totalFiltered === 0) {
+                    $totalFiltered = (clone $keysQuery)->count();
+                }
+            }
+            $totalPages = max(1, (int) ceil($totalFiltered / $perPage));
+
+            $pageKeys = $keysQuery
+                ->orderBy('id', 'asc')
+                ->forPage($page, $perPage)
+                ->pluck('input_record_key');
+
+            $results = MatchingResult::where('matching_job_id', $job->id)
+                ->whereIn('input_record_key', $pageKeys)
+                ->orderBy('input_record_key')
+                ->orderBy('candidate_rank')
+                ->get();
+
+            $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
+        }
+
+        $manualAccepted = $latestDecisions->filter(fn ($d) => in_array($d->decision, ['accept_match', 'accepted', 'accept'], true))->count();
+        $manualRejected = $latestDecisions->filter(fn ($d) => in_array($d->decision, ['reject_match', 'rejected', 'reject'], true))->count();
+
+        $effectiveMatched = $matchedCount + $manualAccepted;
+        $effectiveReview = max(0, $possibleMatchCount - $manualAccepted - $manualRejected);
+        $effectiveUnmatched = $unmatchedCount + $manualRejected;
+        $processedCount = (int) ($job->processed_count ?? ($matchedCount + $possibleMatchCount + $unmatchedCount));
+        $isCompleted = ($job->status === 'completed');
+        $unprocessedCount = max(0, $totalUniqueInput - $processedCount);
+
+        return [
+            'job' => [
+                'id' => $job->id,
+                'name' => $job->name,
+                'status' => $job->status,
+                'thresholds' => $job->configuration?->thresholds ?? null,
+                'configuration' => [
+                    'thresholds' => $job->configuration?->thresholds ?? null,
+                    'strategy' => $job->configuration?->strategy ?? null,
+                ],
+            ],
+            'summary' => [
+                'matched' => $effectiveMatched,
+                'possible_match' => $effectiveReview,
+                'unmatched' => $effectiveUnmatched,
+                'auto_matched' => $matchedCount,
+                'manual_accepted' => $manualAccepted,
+                'manual_rejected' => $manualRejected,
+                'reviewed' => $reviewedCount,
+                'total_raw_input' => $totalRawInput,
+                'total_unique_input' => $totalUniqueInput,
+                'total_duplicates' => $totalDuplicates,
+                'duplicate_details' => $duplicateDetails,
+                'processed_count' => $processedCount,
+                'is_completed' => $isCompleted,
+                'unprocessed_count' => $unprocessedCount,
+            ],
+            'pagination' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total_items' => $totalFiltered,
+                'total_pages' => $totalPages,
+                'from' => $totalFiltered > 0 ? (($page - 1) * $perPage + 1) : 0,
+                'to' => min($totalFiltered, $page * $perPage),
+            ],
+            'items' => $items->sortBy(fn (array $item) => match ($item['status']) {
+                'possible_match' => 0,
+                'matched' => 1,
+                default => 2,
+            })->values()->all(),
+            'system_presets' => $reviewGroups['system_presets'],
+            'custom_rules' => $reviewGroups['custom_rules'],
+            'dynamic_patterns' => $reviewGroups['dynamic_patterns'],
+            'case_groups' => $reviewGroups['case_groups'],
+            'field_quality_summary' => $this->aggregateFieldQuality($job, $totalUniqueInput),
+        ];
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function aggregateFieldQuality(MatchingJob $job, int $totalEvaluated): array
+    {
+        $cacheKey = "matching_job_field_quality_{$job->id}";
+        return cache()->remember($cacheKey, 3600, function () use ($job, $totalEvaluated) {
+            if (!empty($job->record_counts['field_quality_summary'])) {
+                return $job->record_counts['field_quality_summary'];
+            }
+
+            $samples = MatchingResult::where('matching_job_id', $job->id)
+                ->where('candidate_rank', 1)
+                ->whereNotNull('field_scores')
+                ->limit(2000)
+                ->pluck('field_scores');
+
+            if ($samples->isEmpty()) {
+                return [];
+            }
+
+            $stats = [];
+            foreach ($samples as $scores) {
+                if (!is_array($scores)) {
+                    continue;
+                }
+                foreach ($scores as $scoreItem) {
+                    $refCol = (string) ($scoreItem['reference_column'] ?? '');
+                    $inpCol = (string) ($scoreItem['input_column'] ?? '');
+                    if ($refCol === '' && $inpCol === '') {
+                        continue;
+                    }
+                    $key = "{$refCol}:::{$inpCol}";
+                    if (!isset($stats[$key])) {
+                        $stats[$key] = [
+                            'fieldKey' => $key,
+                            'referenceColumn' => $refCol,
+                            'inputColumn' => $inpCol,
+                            'totalSample' => 0,
+                            'scoreSum' => 0.0,
+                            'highCount' => 0,
+                            'medCount' => 0,
+                            'lowCount' => 0,
+                        ];
+                    }
+                    $s = (float) ($scoreItem['score'] ?? 0);
+                    $stats[$key]['totalSample']++;
+                    $stats[$key]['scoreSum'] += $s;
+                    if ($s >= 90) {
+                        $stats[$key]['highCount']++;
+                    } elseif ($s >= 80) {
+                        $stats[$key]['medCount']++;
+                    } else {
+                        $stats[$key]['lowCount']++;
+                    }
+                }
+            }
+
+            $effectiveTotal = max(1, $totalEvaluated);
+            $result = [];
+            foreach ($stats as $key => $st) {
+                if ($st['totalSample'] === 0) {
+                    continue;
+                }
+                $highRatio = $st['highCount'] / $st['totalSample'];
+                $medRatio = $st['medCount'] / $st['totalSample'];
+                $lowRatio = $st['lowCount'] / $st['totalSample'];
+
+                $scaledHigh = (int) round($highRatio * $effectiveTotal);
+                $scaledMed = (int) round($medRatio * $effectiveTotal);
+                $scaledLow = max(0, $effectiveTotal - $scaledHigh - $scaledMed);
+
+                $result[$key] = [
+                    'fieldKey' => $key,
+                    'referenceColumn' => $st['referenceColumn'],
+                    'inputColumn' => $st['inputColumn'],
+                    'totalEvaluated' => $effectiveTotal,
+                    'avgScore' => (int) round($st['scoreSum'] / $st['totalSample']),
+                    'highCount' => $scaledHigh,
+                    'medCount' => $scaledMed,
+                    'lowCount' => $scaledLow,
+                    'highPct' => (int) round($highRatio * 100),
+                    'medPct' => (int) round($medRatio * 100),
+                    'lowPct' => (int) round($lowRatio * 100),
+                ];
+            }
+
+            return $result;
+        });
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<string, ReviewDecision> $latestDecisions
+     * @param \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, ReviewDecision>> $decisionHistory
+     * @param array<int, array<string, mixed>> $customRules
+     * @return array{system_presets: array<int, array<string, mixed>>, custom_rules: array<int, array<string, mixed>>, dynamic_patterns: array<int, array<string, mixed>>, case_groups: array<int, array<string, mixed>>}
+     */
+    private function aggregateJobReviewGroups(MatchingJob $job, $latestDecisions, $decisionHistory, array $customRules, int $reviewedCount): array
+    {
+        $rulesHash = md5(json_encode($customRules));
+        $cacheKey = "matching_job_case_groups_{$job->id}_{$reviewedCount}_{$rulesHash}";
+
+        if (cache()->has($cacheKey)) {
+            $cached = cache()->get($cacheKey);
+            if (is_array($cached) && (!empty($cached['case_groups']) || !empty($cached['system_presets']))) {
+                return $cached;
+            }
+        }
+
+        $results = MatchingResult::where('matching_job_id', $job->id)
+            ->where(function ($q) {
+                $q->where('result_type', 'possible_match')
+                  ->orWhere('review_status', 'reviewed')
+                  ->orWhereNotNull('review_decision');
+            })
+            ->whereIn('candidate_rank', [1, 2])
+            ->orderBy('input_record_key')
+            ->orderBy('candidate_rank')
+            ->limit(1000)
+            ->get();
+
+        $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
+        $groups = $this->buildReviewGroups($items, $customRules);
+
+        cache()->put($cacheKey, $groups, 1800);
+
+        return $groups;
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, MatchingResult> $results
+     * @param \Illuminate\Support\Collection<string, ReviewDecision> $latestDecisions
+     * @param \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, ReviewDecision>> $decisionHistory
+     * @param array<int, array<string, mixed>> $customRules
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function transformResultsToItems($results, $latestDecisions, $decisionHistory, array $customRules = []): \Illuminate\Support\Collection
+    {
+        return $results->groupBy('input_record_key')->map(function ($group, string $inputKey) use ($latestDecisions, $decisionHistory, $customRules) {
             /** @var \Illuminate\Support\Collection<int, MatchingResult> $group */
             $group = $group->sortBy('candidate_rank')->values();
             $primary = $group->first();
@@ -67,66 +414,6 @@ class ReviewResultService
                 'case_features' => $this->caseFeatures($item, $customRules),
             ];
         })->values();
-
-        $recordCounts = $job->record_counts ?? [];
-        $totalRawInput = (int) ($recordCounts['total_raw_input'] ?? $job->inputDataset?->row_count ?? count($items));
-        $totalUniqueInput = (int) ($recordCounts['total_unique_input'] ?? count($items));
-        $totalDuplicates = (int) ($recordCounts['total_duplicates'] ?? max(0, $totalRawInput - $totalUniqueInput));
-        $duplicateDetails = $recordCounts['duplicate_details'] ?? [];
-
-        if (empty($duplicateDetails) && $totalDuplicates > 0 && $job->inputDataset) {
-            try {
-                $engine = app(\App\Services\Matching\MatchingEngineService::class);
-                $rawRows = $engine->loadDatasetRows($job->inputDataset);
-                $analysis = $engine->analyzeAndDeduplicateInputRows($rawRows);
-                $totalRawInput = $analysis['raw_count'];
-                $totalUniqueInput = $analysis['unique_count'];
-                $totalDuplicates = $analysis['duplicate_count'];
-                $duplicateDetails = array_slice($analysis['duplicate_details'], 0, 100);
-
-                $recordCounts['total_raw_input'] = $totalRawInput;
-                $recordCounts['total_unique_input'] = $totalUniqueInput;
-                $recordCounts['total_duplicates'] = $totalDuplicates;
-                $recordCounts['duplicate_details'] = $duplicateDetails;
-                $job->update(['record_counts' => $recordCounts]);
-            } catch (\Throwable $e) {
-                // Graceful fallback
-            }
-        }
-
-        $reviewGroups = $this->buildReviewGroups($items, $customRules);
-
-        return [
-            'job' => [
-                'id' => $job->id,
-                'name' => $job->name,
-                'status' => $job->status,
-                'thresholds' => $job->configuration?->thresholds ?? null,
-                'configuration' => [
-                    'thresholds' => $job->configuration?->thresholds ?? null,
-                    'strategy' => $job->configuration?->strategy ?? null,
-                ],
-            ],
-            'summary' => [
-                'matched' => $items->where('status', 'matched')->count(),
-                'possible_match' => $items->where('status', 'possible_match')->count(),
-                'unmatched' => $items->where('status', 'unmatched')->count(),
-                'reviewed' => $items->filter(fn (array $item) => $item['decision'] !== null)->count(),
-                'total_raw_input' => $totalRawInput,
-                'total_unique_input' => $totalUniqueInput,
-                'total_duplicates' => $totalDuplicates,
-                'duplicate_details' => $duplicateDetails,
-            ],
-            'items' => $items->sortBy(fn (array $item) => match ($item['status']) {
-                'possible_match' => 0,
-                'matched' => 1,
-                default => 2,
-            })->values()->all(),
-            'system_presets' => $reviewGroups['system_presets'],
-            'custom_rules' => $reviewGroups['custom_rules'],
-            'dynamic_patterns' => $reviewGroups['dynamic_patterns'],
-            'case_groups' => $reviewGroups['case_groups'],
-        ];
     }
 
     /**
@@ -142,7 +429,37 @@ class ReviewResultService
             $reviewSnapshot = $this->list($user, $job->id);
             $itemsByKey = collect($reviewSnapshot['items'])->keyBy('input_record_key');
             $caseGroupsById = collect($reviewSnapshot['case_groups'])->keyBy('id');
+            if (empty($caseGroupsById[$payload['case_group_id'] ?? ''])) {
+                $allReviewGroups = collect(array_merge(
+                    $reviewSnapshot['system_presets'] ?? [],
+                    $reviewSnapshot['custom_rules'] ?? [],
+                    $reviewSnapshot['dynamic_patterns'] ?? [],
+                    $reviewSnapshot['case_groups'] ?? []
+                ))->keyBy('id');
+                $caseGroupsById = $allReviewGroups;
+            }
             $inputKeys = $this->targetInputKeys($payload, $scope, $caseGroupsById);
+
+            // Fetch any target records not present in current page snapshot
+            $missingKeys = array_diff($inputKeys, $itemsByKey->keys()->all());
+            if (! empty($missingKeys)) {
+                $customRules = data_get($job->configuration?->advanced_settings, 'custom_review_rules', []);
+                if (empty($customRules) && $job->workspace) {
+                    $customRules = data_get($job->workspace->workflow_state, 'custom_review_rules', []);
+                }
+                $allDecisions = $job->reviewDecisions()->latest()->get();
+                $latestDecisions = $allDecisions->whereNull('undone_at')->unique('input_record_key')->keyBy('input_record_key');
+                $decisionHistory = $allDecisions->groupBy('input_record_key');
+
+                $missingResults = MatchingResult::where('matching_job_id', $job->id)
+                    ->whereIn('input_record_key', $missingKeys)
+                    ->orderBy('input_record_key')
+                    ->orderBy('candidate_rank')
+                    ->get();
+                $missingItems = $this->transformResultsToItems($missingResults, $latestDecisions, $decisionHistory, $customRules);
+                $itemsByKey = $itemsByKey->union($missingItems->keyBy('input_record_key'));
+            }
+
             $inputKeys = $this->openInputKeys($itemsByKey, $inputKeys, $scope);
             $safetyFailures = $this->bulkSafetyFailures($itemsByKey, $inputKeys, $decision, $scope, $payload);
             $inputKeys = array_values(array_filter(
@@ -626,22 +943,77 @@ class ReviewResultService
             ->values()
             ->all();
 
-        // 1. NIB / Identifier conflict check
-        $nibInp = preg_replace('/[^0-9A-Za-z]/', '', (string) ($inp['nib'] ?? $inp['nib_penyedia'] ?? ''));
-        $nibRef = preg_replace('/[^0-9A-Za-z]/', '', (string) ($ref['nib'] ?? $ref['nib_perusahaan'] ?? ''));
-        $hasNibConflict = !empty($nibInp) && !empty($nibRef) && $nibInp !== $nibRef;
+        // 1. NIB / NPWP / Identifier conflict check (Type-safe semantic comparison)
+        $nibInp = null;
+        foreach ($inp as $k => $v) {
+            if (preg_match('/\b(nib|nomor_induk_berusaha)\b/i', (string) $k) || strtolower((string) $k) === 'nib') {
+                $cleaned = preg_replace('/[^0-9A-Za-z]/', '', (string) $v);
+                if ($cleaned !== '') { $nibInp = $cleaned; break; }
+            }
+        }
+        $nibRef = null;
+        foreach ($ref as $k => $v) {
+            if (preg_match('/\b(nib|nomor_induk_berusaha)\b/i', (string) $k) || strtolower((string) $k) === 'nib') {
+                $cleaned = preg_replace('/[^0-9A-Za-z]/', '', (string) $v);
+                if ($cleaned !== '') { $nibRef = $cleaned; break; }
+            }
+        }
+        $hasNibConflict = ($nibInp !== null && $nibRef !== null && $nibInp !== $nibRef);
 
-        $npwpInp = preg_replace('/[^0-9]/', '', (string) ($inp['npwp_penyedia'] ?? $inp['npwp'] ?? ''));
-        $npwpRef = preg_replace('/[^0-9]/', '', (string) ($ref['npwp'] ?? $ref['npwp_perusahaan'] ?? ''));
-        $hasNpwpConflict = !empty($npwpInp) && !empty($npwpRef) && $npwpInp !== $npwpRef;
+        $npwpInp = null;
+        foreach ($inp as $k => $v) {
+            if (preg_match('/\b(npwp|nomor_pokok_wajib_pajak|tax_id)\b/i', (string) $k) || strtolower((string) $k) === 'npwp') {
+                $cleaned = preg_replace('/[^0-9]/', '', (string) $v);
+                if ($cleaned !== '') { $npwpInp = $cleaned; break; }
+            }
+        }
+        $npwpRef = null;
+        foreach ($ref as $k => $v) {
+            if (preg_match('/\b(npwp|nomor_pokok_wajib_pajak|tax_id)\b/i', (string) $k) || strtolower((string) $k) === 'npwp') {
+                $cleaned = preg_replace('/[^0-9]/', '', (string) $v);
+                if ($cleaned !== '') { $npwpRef = $cleaned; break; }
+            }
+        }
+        $hasNpwpConflict = ($npwpInp !== null && $npwpRef !== null && $npwpInp !== $npwpRef);
 
-        $hasIdConflict = $hasNibConflict || $hasNpwpConflict || $this->hasIdentifierConflict($candidate);
+        $nikInp = null;
+        foreach ($inp as $k => $v) {
+            if (preg_match('/\b(nik|nomor_induk_kependudukan)\b/i', (string) $k) || strtolower((string) $k) === 'nik') {
+                $cleaned = preg_replace('/[^0-9]/', '', (string) $v);
+                if ($cleaned !== '') { $nikInp = $cleaned; break; }
+            }
+        }
+        $nikRef = null;
+        foreach ($ref as $k => $v) {
+            if (preg_match('/\b(nik|nomor_induk_kependudukan)\b/i', (string) $k) || strtolower((string) $k) === 'nik') {
+                $cleaned = preg_replace('/[^0-9]/', '', (string) $v);
+                if ($cleaned !== '') { $nikRef = $cleaned; break; }
+            }
+        }
+        $hasNikConflict = ($nikInp !== null && $nikRef !== null && $nikInp !== $nikRef);
+
+        // Same-named identifier column match (e.g. custom identifier columns present in both)
+        $sameColIdConflict = false;
+        if (! $hasNibConflict && ! $hasNpwpConflict && ! $hasNikConflict) {
+            foreach ($inp as $col => $val) {
+                if ($this->isIdentifierField((string) $col) && isset($ref[$col])) {
+                    $cleanInp = preg_replace('/[^0-9A-Za-z]/', '', (string) $val);
+                    $cleanRef = preg_replace('/[^0-9A-Za-z]/', '', (string) $ref[$col]);
+                    if ($cleanInp !== '' && $cleanRef !== '' && $cleanInp !== $cleanRef) {
+                        $sameColIdConflict = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        $hasIdConflict = $hasNibConflict || $hasNpwpConflict || $hasNikConflict || $sameColIdConflict || $this->hasIdentifierConflict($candidate);
 
         // Name core score
         $coreNameScore = $score;
         foreach ($fieldScores as $fs) {
-            $col = strtolower((string) ($fs['reference_column'] ?? ''));
-            if (str_contains($col, 'nama inti') || str_contains($col, 'core') || str_contains($col, 'nama')) {
+            $col = strtolower((string) ($fs['reference_column'] ?? '').' '.(string) ($fs['input_column'] ?? ''));
+            if (str_contains($col, 'nama inti') || str_contains($col, 'core') || str_contains($col, 'nama') || str_contains($col, 'name')) {
                 $coreNameScore = max($coreNameScore, (float) ($fs['score'] ?? 0));
             }
         }
@@ -661,8 +1033,8 @@ class ReviewResultService
             if ($comparison === 'same' || $fieldScore >= 90) {
                 $legalConflict = false;
             } else {
-                $normInp = $this->normalizeLegalForm($inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? null);
-                $normRef = $this->normalizeLegalForm($ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? null);
+                $normInp = $this->normalizeLegalForm($inp['[Generated] Badan Usaha'] ?? $inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? $inp['legal_form'] ?? null);
+                $normRef = $this->normalizeLegalForm($ref['[Generated] Badan Usaha'] ?? $ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? $ref['legal_form'] ?? null);
 
                 if ($normInp !== null && $normRef !== null) {
                     $legalConflict = ($normInp !== $normRef);
@@ -673,19 +1045,29 @@ class ReviewResultService
         } else {
             $legalConflict = $identityConflict;
             if (! $legalConflict) {
-                $normInp = $this->normalizeLegalForm($inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? null);
-                $normRef = $this->normalizeLegalForm($ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? null);
+                $normInp = $this->normalizeLegalForm($inp['[Generated] Badan Usaha'] ?? $inp['bentuk_usaha'] ?? $inp['badan_usaha'] ?? $inp['legal_form'] ?? null);
+                $normRef = $this->normalizeLegalForm($ref['[Generated] Badan Usaha'] ?? $ref['badan_usaha'] ?? $ref['bentuk_usaha'] ?? $ref['legal_form'] ?? null);
 
-                if ($normInp === null && ! empty($inp['nama_penyedia'] ?? $inp['nama'] ?? '')) {
-                    $parsedInp = (new EntityNameParser())->parse((string) ($inp['nama_penyedia'] ?? $inp['nama'] ?? ''));
-                    $normInp = $parsedInp['legal_form'] ?? null;
+                if ($normInp === null) {
+                    foreach ($inp as $k => $v) {
+                        if (Str::contains(strtolower((string) $k), ['nama', 'name', 'perusahaan', 'penyedia']) && !empty($v)) {
+                            $parsedInp = (new EntityNameParser())->parse((string) $v);
+                            $normInp = $parsedInp['legal_form'] ?? null;
+                            if ($normInp !== null) break;
+                        }
+                    }
                 }
-                if ($normRef === null && ! empty($ref['nama_perusahaan'] ?? $ref['nama'] ?? '')) {
-                    $parsedRef = (new EntityNameParser())->parse((string) ($ref['nama_perusahaan'] ?? $ref['nama'] ?? ''));
-                    $normRef = $parsedRef['legal_form'] ?? null;
+                if ($normRef === null) {
+                    foreach ($ref as $k => $v) {
+                        if (Str::contains(strtolower((string) $k), ['nama', 'name', 'perusahaan', 'penyedia']) && !empty($v)) {
+                            $parsedRef = (new EntityNameParser())->parse((string) $v);
+                            $normRef = $parsedRef['legal_form'] ?? null;
+                            if ($normRef !== null) break;
+                        }
+                    }
                 }
 
-                if ($normInp !== null && $normRef !== null && $normInp !== $normRef && $coreNameScore >= 80) {
+                if ($normInp !== null && $normRef !== null && $normInp !== $normRef && $coreNameScore >= 75) {
                     $legalConflict = true;
                 }
             }
@@ -696,37 +1078,70 @@ class ReviewResultService
         if (count($candidates) >= 2) {
             $top1Score = (float) ($candidates[0]['score'] ?? 0);
             $top2Score = (float) ($candidates[1]['score'] ?? 0);
-            if (abs($top1Score - $top2Score) <= 5.0 || ($top1Score >= 70 && $top2Score >= 70)) {
+            if ($top1Score >= 65 && $top2Score >= 65 && abs($top1Score - $top2Score) <= 5.0) {
                 $hasMultiCandidate = true;
             }
         }
 
-        // 4. Location / Kabupaten conflict check
-        $locationConflict = collect($differentFields)->contains(function (string $col) {
-            $c = strtolower($col);
-            return Str::contains($c, ['kab', 'kota', 'city', 'wilayah', 'district', 'lokasi', 'prov', 'kd_kab', 'kode_kab', 'regency']);
-        });
-        if (! $locationConflict && $coreNameScore >= 80) {
-            $kabInp = mb_strtolower(trim((string) ($inp['kd_kab'] ?? $inp['kabupaten'] ?? $inp['nmkab'] ?? '')));
-            $kabRef = mb_strtolower(trim((string) ($ref['kab'] ?? $ref['nm_kab'] ?? '')));
-            if (!empty($kabInp) && !empty($kabRef) && $kabInp !== $kabRef) {
-                $locationConflict = true;
+        // 4. Location / Kabupaten conflict check with MFD dictionary resolution
+        $kabInp = null;
+        foreach ($inp as $k => $v) {
+            if (Str::contains(strtolower((string) $k), ['kab', 'kota', 'city', 'wilayah', 'district', 'kd_kab', 'kode_kab', 'regency']) && !empty($v)) {
+                $kabInp = (string) $v;
+                break;
             }
+        }
+        $kabRef = null;
+        foreach ($ref as $k => $v) {
+            if (Str::contains(strtolower((string) $k), ['kab', 'kota', 'city', 'wilayah', 'district', 'kd_kab', 'kode_kab', 'regency']) && !empty($v)) {
+                $kabRef = (string) $v;
+                break;
+            }
+        }
+
+        $locationConflict = false;
+        if ($kabInp !== null && $kabRef !== null && trim($kabInp) !== '' && trim($kabRef) !== '') {
+            $isSameRegency = $this->wilayahService->compareRegencies($kabInp, $kabRef, $inp, $ref);
+            if ($isSameRegency === false) {
+                // Different regencies confirmed via MFD resolution
+                $locationConflict = true;
+            } elseif ($isSameRegency === null) {
+                // Fallback for custom location strings outside MFD
+                $locationConflict = (mb_strtolower(trim($kabInp)) !== mb_strtolower(trim($kabRef)));
+            }
+            // If $isSameRegency === true, $locationConflict remains false (no false conflict!)
+        } elseif ($coreNameScore >= 80) {
+            $locationConflict = collect($differentFields)->contains(function (string $col) {
+                $c = strtolower($col);
+                return Str::contains($c, ['kab', 'kota', 'city', 'wilayah', 'district', 'lokasi', 'prov', 'kd_kab', 'kode_kab', 'regency']);
+            });
         }
 
         // 5. Address evaluation
         $addrScore = null;
         foreach ($fieldScores as $fs) {
             $col = strtolower((string) ($fs['reference_column'] ?? '').' '.(string) ($fs['input_column'] ?? ''));
-            if (str_contains($col, 'alamat') || str_contains($col, 'address')) {
+            if (str_contains($col, 'alamat') || str_contains($col, 'address') || str_contains($col, 'jalan') || str_contains($col, 'street')) {
                 $addrScore = max($addrScore ?? 0.0, (float) ($fs['score'] ?? 0));
             }
         }
         if ($addrScore === null) {
-            $addrInp = trim((string) ($inp['alamat'] ?? $inp['alamat_perusahaan'] ?? $inp['address'] ?? ''));
-            $addrRef = trim((string) ($ref['alamat'] ?? $ref['alamat_perusahaan'] ?? $ref['address'] ?? ''));
-            if ($addrInp !== '' && $addrRef !== '' && strcasecmp($addrInp, $addrRef) === 0) {
-                $addrScore = 100.0;
+            $addrInp = null;
+            foreach ($inp as $k => $v) {
+                if (Str::contains(strtolower((string) $k), ['alamat', 'address', 'jalan', 'street']) && !empty($v)) {
+                    $addrInp = trim((string) $v);
+                    break;
+                }
+            }
+            $addrRef = null;
+            foreach ($ref as $k => $v) {
+                if (Str::contains(strtolower((string) $k), ['alamat', 'address', 'jalan', 'street']) && !empty($v)) {
+                    $addrRef = trim((string) $v);
+                    break;
+                }
+            }
+            if ($addrInp !== null && $addrRef !== null && $addrInp !== '' && $addrRef !== '') {
+                $addrScore = strcasecmp($addrInp, $addrRef) === 0 ? 100.0 : 0.0;
             }
         }
 
@@ -735,7 +1150,7 @@ class ReviewResultService
         if ($coreNameScore >= 80 && ! $locationConflict) {
             if ($addrScore !== null && $addrScore < 60) {
                 $addressConflict = true;
-            } elseif (collect($differentFields)->contains(fn ($c) => str_contains(strtolower($c), 'alamat'))) {
+            } elseif (collect($differentFields)->contains(fn ($c) => Str::contains(strtolower($c), ['alamat', 'address', 'jalan', 'street']))) {
                 $addressConflict = true;
             }
         }
@@ -1227,25 +1642,12 @@ class ReviewResultService
 
     private function isIdentifierField(string $field): bool
     {
-        return Str::contains($field, ['nik', 'npwp', 'id', 'identifier', 'kode', 'code']);
+        return (bool) preg_match('/\b(nib|npwp|nik|nomor_induk|tax_id)\b/i', $field);
     }
 
     private function isStrongField(string $field): bool
     {
-        return Str::contains($field, [
-            'nik',
-            'npwp',
-            'id',
-            'identifier',
-            'kode',
-            'code',
-            'email',
-            'phone',
-            'telepon',
-            'telp',
-            'tanggal',
-            'date',
-        ]);
+        return (bool) preg_match('/\b(nib|npwp|nik|nomor_induk|tax_id|email|phone|telepon|telp|tanggal|date)\b/i', $field);
     }
 
     /**

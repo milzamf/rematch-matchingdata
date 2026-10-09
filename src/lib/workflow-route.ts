@@ -24,8 +24,8 @@ export function normalizeWorkflowStep(value: unknown) {
   if (!Number.isInteger(parsed)) return undefined;
   if (parsed < 1) return 1;
   if (parsed === 1 || parsed === 2 || parsed === 3) return parsed;
-  // Map legacy steps (4..5 -> 2, 6..8 -> 3)
-  if (parsed <= 5) return 2;
+  // Map legacy steps: 4 (Configure) -> 2, 5 (Run) -> 2, 6..8 (Review, Sync, Export) -> 3
+  if (parsed === 4 || parsed === 5) return 2;
   return 3;
 }
 

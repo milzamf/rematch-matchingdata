@@ -41,6 +41,7 @@ import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
 import { ReviewRuleModal } from "@/components/review-rule-modal";
 import { RecordComparisonModal } from "@/components/record-comparison-modal";
 import { LegalEntityDictionaryDialog } from "@/components/legal-entity-dictionary-dialog";
+import { WilayahDictionaryDialog } from "@/components/wilayah-dictionary-dialog";
 import {
   fetchAiMatchingConfiguration,
   fetchAiReviewAnalysis,
@@ -89,6 +90,7 @@ import {
   buildResultsSearch,
   validateWorkflowSearch,
 } from "@/lib/workflow-route";
+import { cn } from "@/lib/utils";
 import {
   Check,
   Upload,
@@ -118,6 +120,11 @@ import {
   Split,
   BookmarkPlus,
   Activity,
+  Timer,
+  Clock,
+  Hourglass,
+  Zap,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Sheet,
@@ -320,11 +327,16 @@ function MatchingPage() {
   const requestedStepRef = useRef(requestedStep);
   const hasRequestedStepRef = useRef(hasRequestedStep);
   const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     return () => {
       if (pollingTimeoutRef.current) {
         clearTimeout(pollingTimeoutRef.current);
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
     };
   }, []);
@@ -451,78 +463,194 @@ function MatchingPage() {
 
   const pollMatchingJob = useCallback(
     (jobId: string, currentWorkspaceId: string | null) => {
+      // Clean up previous eventSource or polling timeout
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
       if (pollingTimeoutRef.current) {
         clearTimeout(pollingTimeoutRef.current);
         pollingTimeoutRef.current = null;
       }
 
-      const checkStatus = async () => {
-        try {
-          const statusResult = await fetchMatchingJobStatus(jobId);
-          setRunResult(statusResult);
+      // Fallback polling function
+      const startPollingFallback = () => {
+        const checkStatus = async () => {
+          try {
+            const statusResult = await fetchMatchingJobStatus(jobId);
+            setRunResult(statusResult);
 
-          const currentStatus = statusResult.job.status;
-          const pct = statusResult.progress.percentage ?? 0;
+            const currentStatus = statusResult.job.status;
+            const pct = statusResult.progress.percentage ?? 0;
 
-          if (currentStatus === "completed" || pct >= 100) {
-            if (pollingTimeoutRef.current) {
-              clearTimeout(pollingTimeoutRef.current);
-              pollingTimeoutRef.current = null;
+            if (currentStatus === "completed" || pct >= 100) {
+              if (pollingTimeoutRef.current) {
+                clearTimeout(pollingTimeoutRef.current);
+                pollingTimeoutRef.current = null;
+              }
+              setProgress(100);
+              setRunState("success");
+              setStep(3);
+              void navigate({
+                to: "/matching",
+                search: buildMatchingSearch(currentWorkspaceId, 3),
+                replace: true,
+              });
+              return;
             }
-            setProgress(100);
-            setRunState("success");
-            setStep(3);
-            void navigate({
-              to: "/matching",
-              search: buildMatchingSearch(currentWorkspaceId, 3),
-              replace: true,
-            });
-            return;
-          }
 
-          if (currentStatus === "cancelled" || currentStatus === "stopped") {
-            if (pollingTimeoutRef.current) {
-              clearTimeout(pollingTimeoutRef.current);
-              pollingTimeoutRef.current = null;
+            if (currentStatus === "cancelled" || currentStatus === "stopped") {
+              if (pollingTimeoutRef.current) {
+                clearTimeout(pollingTimeoutRef.current);
+                pollingTimeoutRef.current = null;
+              }
+              setProgress(0);
+              setRunState("idle");
+              return;
             }
-            setProgress(0);
-            setRunState("idle");
-            return;
-          }
 
-          if (currentStatus === "failed") {
-            if (pollingTimeoutRef.current) {
-              clearTimeout(pollingTimeoutRef.current);
-              pollingTimeoutRef.current = null;
+            if (currentStatus === "failed") {
+              if (pollingTimeoutRef.current) {
+                clearTimeout(pollingTimeoutRef.current);
+                pollingTimeoutRef.current = null;
+              }
+              setProgress(0);
+              setRunState("failed");
+              setRunError(statusResult.job.error_message ?? t("matching.run.failedGeneric"));
+              return;
             }
-            setProgress(0);
-            setRunState("failed");
-            setRunError(statusResult.job.error_message ?? t("matching.run.failedGeneric"));
-            return;
-          }
 
-          if (currentStatus !== "processing" && currentStatus !== "queued") {
-            if (pollingTimeoutRef.current) {
-              clearTimeout(pollingTimeoutRef.current);
-              pollingTimeoutRef.current = null;
+            if (currentStatus !== "processing" && currentStatus !== "queued") {
+              if (pollingTimeoutRef.current) {
+                clearTimeout(pollingTimeoutRef.current);
+                pollingTimeoutRef.current = null;
+              }
+              setRunState("idle");
+              return;
             }
-            setRunState("idle");
-            return;
+
+            // Job is still processing or queued
+            setProgress(pct);
+            setRunState("running");
+            pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
+          } catch (error) {
+            pollingTimeoutRef.current = setTimeout(checkStatus, 3000);
           }
+        };
 
-          // Job is still processing or queued
-          setProgress(pct);
-          setRunState("running");
-
-          // Keep polling until the backend explicitly returns 'completed', 'cancelled', 'stopped', or 'failed'
-          pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
-        } catch (error) {
-          // On network errors, wait a bit longer and retry indefinitely
-          pollingTimeoutRef.current = setTimeout(checkStatus, 3000);
-        }
+        pollingTimeoutRef.current = setTimeout(checkStatus, 1000);
       };
 
-      pollingTimeoutRef.current = setTimeout(checkStatus, 2000);
+      // Check if EventSource is supported in browser
+      if (typeof window !== "undefined" && typeof EventSource !== "undefined") {
+        try {
+          const streamUrl = `/api/matching-jobs/${jobId}/progress-stream`;
+          const es = new EventSource(streamUrl, { withCredentials: true });
+          eventSourceRef.current = es;
+
+          es.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              const currentStatus = data.status;
+              const pct = typeof data.percentage === "number" ? data.percentage : 0;
+              const processed = typeof data.processed === "number" ? data.processed : 0;
+              const total = typeof data.total === "number" ? data.total : 0;
+
+              if (currentStatus === "completed" || pct >= 100) {
+                if (eventSourceRef.current) {
+                  eventSourceRef.current.close();
+                  eventSourceRef.current = null;
+                }
+                setProgress(100);
+                setRunState("success");
+                void fetchMatchingJobStatus(jobId)
+                  .then((fullResult) => setRunResult(fullResult))
+                  .catch(() => {});
+                setStep(3);
+                void navigate({
+                  to: "/matching",
+                  search: buildMatchingSearch(currentWorkspaceId, 3),
+                  replace: true,
+                });
+                return;
+              }
+
+              if (currentStatus === "cancelled" || currentStatus === "stopped") {
+                if (eventSourceRef.current) {
+                  eventSourceRef.current.close();
+                  eventSourceRef.current = null;
+                }
+                setProgress(0);
+                setRunState("idle");
+                return;
+              }
+
+              if (currentStatus === "failed") {
+                if (eventSourceRef.current) {
+                  eventSourceRef.current.close();
+                  eventSourceRef.current = null;
+                }
+                setProgress(0);
+                setRunState("failed");
+                setRunError(data.job?.error_message || data.error || t("matching.run.failedGeneric"));
+                return;
+              }
+
+              // Update progress state with continuous stream data
+              setProgress(pct);
+              setRunState("running");
+              setRunResult((prev) => ({
+                job: {
+                  id: jobId,
+                  name: data.job?.name ?? prev?.job?.name ?? null,
+                  status: currentStatus,
+                  reference_dataset_id: data.job?.reference_dataset_id ?? prev?.job?.reference_dataset_id ?? "",
+                  input_dataset_id: data.job?.input_dataset_id ?? prev?.job?.input_dataset_id ?? "",
+                  started_at: data.job?.started_at ?? prev?.job?.started_at ?? null,
+                  finished_at: data.job?.finished_at ?? prev?.job?.finished_at ?? null,
+                  error_message: data.job?.error_message ?? prev?.job?.error_message ?? null,
+                },
+                progress: {
+                  status: currentStatus,
+                  processed,
+                  total,
+                  percentage: pct,
+                  stage: data.stage ?? prev?.progress?.stage,
+                },
+                checkpoint: data.checkpoint ?? prev?.checkpoint ?? null,
+                summary: {
+                  matched: data.summary?.matched ?? prev?.summary?.matched ?? 0,
+                  possible_match: data.summary?.possible_match ?? prev?.summary?.possible_match ?? 0,
+                  unmatched: data.summary?.unmatched ?? prev?.summary?.unmatched ?? 0,
+                  candidates_scored: data.summary?.candidates_scored ?? prev?.summary?.candidates_scored ?? 0,
+                  total_raw_input: data.summary?.total_raw_input ?? prev?.summary?.total_raw_input ?? total,
+                  total_unique_input: data.summary?.total_unique_input ?? prev?.summary?.total_unique_input ?? total,
+                  total_duplicates: data.summary?.total_duplicates ?? prev?.summary?.total_duplicates ?? 0,
+                  duplicate_details: data.summary?.duplicate_details ?? prev?.summary?.duplicate_details ?? [],
+                },
+                top_results: prev?.top_results ?? [],
+              }));
+            } catch (err) {
+              console.error("SSE parsing error:", err);
+            }
+          };
+
+          es.onerror = () => {
+            // If SSE connection drops or errors, fallback to polling
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close();
+              eventSourceRef.current = null;
+            }
+            startPollingFallback();
+          };
+
+          return;
+        } catch (err) {
+          console.warn("EventSource initialization failed, using polling fallback:", err);
+        }
+      }
+
+      startPollingFallback();
     },
     [navigate, t],
   );
@@ -555,8 +683,11 @@ function MatchingPage() {
           (snapshot?.columnMappings as ColumnMappingDraft[] | undefined) ?? [];
         const restoredConfiguration =
           (snapshot?.matchingConfiguration as MatchingConfiguration | null | undefined) ?? null;
-        const restoredRunResult = snapshot?.runResult ?? jobToRunResult(workspace);
         const actualJobStatus = workspace.matching_job?.status ?? snapshot?.runResult?.job.status ?? null;
+        const isJobActive = actualJobStatus === "processing" || actualJobStatus === "queued";
+        const restoredRunResult = isJobActive
+          ? (jobToRunResult(workspace) ?? snapshot?.runResult ?? null)
+          : (snapshot?.runResult ?? jobToRunResult(workspace) ?? null);
         
         let restoredRunState: RunState = "idle";
         if (actualJobStatus === "completed") {
@@ -565,8 +696,8 @@ function MatchingPage() {
           restoredRunState = "failed";
         } else if (actualJobStatus === "cancelled" || actualJobStatus === "stopped") {
           restoredRunState = "idle";
-        } else if (actualJobStatus === "processing" || actualJobStatus === "queued") {
-          restoredRunState = (snapshot?.runState as RunState | undefined) === "running" ? "running" : "idle";
+        } else if (isJobActive) {
+          restoredRunState = "running";
         } else {
           restoredRunState = (snapshot?.runState as RunState | undefined) ?? "idle";
         }
@@ -576,10 +707,11 @@ function MatchingPage() {
             (workspace.sync_state as SyncState | null | undefined) ??
             null,
         );
-        const restoredProgress =
-          actualJobStatus === "cancelled" || actualJobStatus === "stopped"
-            ? 0
-            : (snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0);
+        const restoredProgress = isJobActive
+          ? (restoredRunResult?.progress.percentage ?? 0)
+          : (actualJobStatus === "cancelled" || actualJobStatus === "stopped"
+              ? 0
+              : (snapshot?.progress ?? restoredRunResult?.progress.percentage ?? 0));
         const restoredRunError =
           actualJobStatus === "cancelled" || actualJobStatus === "stopped"
             ? null
@@ -599,10 +731,11 @@ function MatchingPage() {
           runState: restoredRunState,
           syncState: restoredSyncState,
         });
-        const nextStep =
+        const targetStep =
           options?.preferRequestedStep && options.requestedStep
-            ? Math.min(options.requestedStep, restoredHighestStep)
-            : restoredHighestStep;
+            ? options.requestedStep
+            : (workspace.current_step ?? 1);
+        const nextStep = isJobActive ? 2 : Math.min(targetStep, restoredHighestStep);
 
         suppressMappingSuggestRef.current = true;
         workspaceIdRef.current = workspace.id;
@@ -632,12 +765,13 @@ function MatchingPage() {
         setWorkspaceError(null);
         hydratedWorkspaceRouteRef.current = workspace.id;
 
+        const activeJobId = workspace.matching_job_id ?? restoredRunResult?.job.id;
         if (
-          restoredRunResult?.job.id &&
+          activeJobId &&
           (actualJobStatus === "processing" || actualJobStatus === "queued") &&
           restoredRunState === "running"
         ) {
-          pollMatchingJob(restoredRunResult.job.id, workspace.id);
+          pollMatchingJob(activeJobId, workspace.id);
         }
 
         // Record initial state hash so initial load does not trigger autosave
@@ -764,25 +898,6 @@ function MatchingPage() {
     setWorkspaceNotFound(false);
   }, [initialWorkspaceId]);
 
-  useEffect(() => {
-    if (!initialWorkspaceId || isHydratingWorkspace || restoringWorkspaceRef.current) return;
-    if (workspaceId !== initialWorkspaceId) return;
-
-    const resolvedStep = hasRequestedStep
-      ? Math.min(requestedStep, highestAllowedStep)
-      : highestAllowedStep;
-    if (step !== resolvedStep) {
-      setStep(resolvedStep);
-    }
-  }, [
-    hasRequestedStep,
-    highestAllowedStep,
-    initialWorkspaceId,
-    isHydratingWorkspace,
-    requestedStep,
-    step,
-    workspaceId,
-  ]);
 
   useEffect(() => {
     if (
@@ -905,7 +1020,7 @@ function MatchingPage() {
         setWorkspaceError(null);
 
         navigate({
-          search: ((prev: Record<string, unknown>) => ({ ...prev, workspace: workspace.id })) as any,
+          search: ((prev: Record<string, unknown>) => ({ ...prev, workspace: workspace.id, step: activeStepRef.current })) as any,
           replace: true,
         });
       } catch (error) {
@@ -918,7 +1033,8 @@ function MatchingPage() {
     return workspaceMutexRef.current;
   };
 
-  const startRun = async () => {
+  const startRun = async (options?: { forceRestart?: boolean }) => {
+    const forceRestart = Boolean(options?.forceRestart);
     if (!reference?.result || !input?.result || !matchingConfiguration) {
       setRunState("failed");
       setRunError(t("matching.run.missingConfig"));
@@ -931,7 +1047,7 @@ function MatchingPage() {
       return;
     }
 
-    toast.info(t("feedback.toast.runStarted"));
+    toast.info(forceRestart ? "Memulai ulang pencocokan dari awal..." : t("feedback.toast.runStarted"));
     setRunState("running");
     setProgress(0);
     setRunError(null);
@@ -957,6 +1073,7 @@ function MatchingPage() {
         name: `${reference.result.dataset.name} vs ${input.result.dataset.name}`,
         referenceDatasetId: reference.result.dataset.id,
         inputDatasetId: input.result.dataset.id,
+        forceRestart,
         mappings: columnMappings
           .filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
           .map((mapping) => {
@@ -990,7 +1107,13 @@ function MatchingPage() {
               },
             };
           }),
-        configuration: matchingConfiguration,
+        configuration: {
+          ...matchingConfiguration,
+          runOptions: {
+            ...((matchingConfiguration as any)?.runOptions ?? {}),
+            forceRestart,
+          },
+        },
       });
 
       setRunResult(result);
@@ -1027,6 +1150,10 @@ function MatchingPage() {
   const handleStopMatching = async () => {
     if (!runResult?.job?.id) return;
     
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
     if (pollingTimeoutRef.current) {
       clearTimeout(pollingTimeoutRef.current);
       pollingTimeoutRef.current = null;
@@ -1245,19 +1372,24 @@ function MatchingPage() {
       try {
         if (workspaceIdRef.current && canUpdateWorkspace) {
           setWorkspaceSaveState("saving");
-          await updateWorkspace(workspaceIdRef.current, {
-            name: workspaceName,
-            status: deriveWorkspaceStatus(2, runState),
-            currentStep: 2,
-            referenceDatasetId: reference?.result?.dataset.id ?? null,
-            inputDatasetId: input?.result?.dataset.id ?? null,
-            matchingJobId: runResult?.job.id ?? null,
-            workflowState: workspaceSnapshot,
-            syncState: syncState as Record<string, unknown> | null,
-            exportHistory,
-          });
-          setWorkspaceSaveState("saved");
-          setWorkspaceError(null);
+          try {
+            await updateWorkspace(workspaceIdRef.current, {
+              name: workspaceName,
+              status: deriveWorkspaceStatus(2, runState),
+              currentStep: 2,
+              referenceDatasetId: reference?.result?.dataset.id ?? null,
+              inputDatasetId: input?.result?.dataset.id ?? null,
+              matchingJobId: runResult?.job.id ?? null,
+              workflowState: workspaceSnapshot,
+              syncState: syncState as Record<string, unknown> | null,
+              exportHistory,
+            });
+            setWorkspaceSaveState("saved");
+            setWorkspaceError(null);
+          } catch (saveError: any) {
+            console.warn("Non-fatal workspace save on Step 1 transition failed/timed out:", saveError);
+            setWorkspaceSaveState("error");
+          }
         }
 
         setStep(2);
@@ -1268,12 +1400,11 @@ function MatchingPage() {
         });
       } catch (error: any) {
         console.error("Critical Error during Step 1 transition:", error);
-        setWorkspaceSaveState("error");
-        toast.error(t("feedback.error.saveFailed"), {
-          description:
-            error?.response?.data?.message ||
-            (error instanceof ApiError ? error.message : error?.message) ||
-            t("matching.validation.serverError"),
+        setStep(2);
+        void navigate({
+          to: "/matching",
+          search: (prev: any) => ({ ...prev, step: 2 }),
+          replace: true,
         });
       } finally {
         setIsNavigatingStep(false);
@@ -1521,7 +1652,15 @@ function MatchingPage() {
                       configuration={matchingConfiguration}
                       result={runResult}
                       error={runError}
-                      onStart={() => setRunConfirmOpen(true)}
+                      onStart={(options) => {
+                        if (options?.forceRestart) {
+                          startRun({ forceRestart: true });
+                        } else if (hasPreviousRun) {
+                          setRunConfirmOpen(true);
+                        } else {
+                          startRun({ forceRestart: false });
+                        }
+                      }}
                       onStop={() => setIsCancelConfirmOpen(true)}
                       onRetry={() => {
                         setRunState("idle");
@@ -1754,6 +1893,7 @@ function jobToRunResult(workspace: WorkspaceSummary): MatchingRunResult | null {
       processed: job.processed_count,
       total: job.total_count,
       percentage,
+      stage: ((counts as Record<string, unknown>).current_stage as string | undefined) ?? null,
     },
     summary: {
       matched: counts.matched ?? 0,
@@ -2292,6 +2432,7 @@ function StepStandardizedPreview({
 
         <div className="flex items-center gap-2">
           <LegalEntityDictionaryDialog />
+          <WilayahDictionaryDialog />
           <div className="inline-flex rounded-lg border border-border bg-secondary/30 p-1">
             <button
               type="button"
@@ -2471,7 +2612,14 @@ function StepColumnMapping({
       });
     }
 
-    setMappings(current => [...current, ...newMappings]);
+    setMappings(current => {
+      // Remove any previously generated extraction mappings to avoid accumulating duplicate virtual rows
+      const nonExtracted = current.filter(
+        m => m.transform !== "EXTRACT_LEGAL_FORM" && m.transform !== "EXTRACT_CORE_NAME"
+      );
+      return [...nonExtracted, ...newMappings];
+    });
+    toast.success("Ekstraksi entitas berhasil diterapkan. Anda tetap di Langkah 1 untuk melanjutkan pemetaan kolom lainnya.");
   };
 
   const usedReferenceIds = new Set(mappings?.map((mapping) => mapping.referenceColumnId));
@@ -3216,8 +3364,13 @@ function StepConfigV2({
   };
 
   const activeVerificationFields = useMemo(
-    () => verificationOrder.filter((id) => enabledVerificationIds[id] !== false),
-    [verificationOrder, enabledVerificationIds],
+    () =>
+      verificationOrder.filter((id) => {
+        const field = fields?.find((item) => item.id === id);
+        if (field?.strict) return false;
+        return enabledVerificationIds[id] !== false;
+      }),
+    [verificationOrder, enabledVerificationIds, fields],
   );
 
   const verificationSteps = useMemo(
@@ -3225,16 +3378,14 @@ function StepConfigV2({
       activeVerificationFields
         .map((id, index) => {
           const field = fields?.find((item) => item.id === id);
-          if (!field) return null;
-          const method: ConfigureAlgorithm = field.strict
-            ? "Exact"
-            : (methods[field.id]?.algorithm ?? field.algorithm);
+          if (!field || field.strict) return null;
+          const method: ConfigureAlgorithm = methods[field.id]?.algorithm ?? field.algorithm;
           return {
             order: index + 1,
             field: field.label,
             mappingId: field.id,
             method,
-            threshold: field.strict ? 100 : (verificationThresholds[field.id] ?? reviewThreshold),
+            threshold: verificationThresholds[field.id] ?? reviewThreshold,
           };
         })
         .filter(
@@ -3295,13 +3446,12 @@ function StepConfigV2({
 
   useEffect(() => {
     setVerificationOrder((current) => {
-      const fieldIds = fields?.map((field) => field.id);
+      const fieldIds = similarityFields?.map((field) => field.id);
       const currentValid = current?.filter((id) => fieldIds.includes(id));
       const missing = fieldIds?.filter((id) => !currentValid.includes(id));
       if (currentValid.length === 0) {
-        return [...fields]
+        return [...similarityFields]
           .sort((a, b) => {
-            if (a.strict !== b.strict) return a.strict ? -1 : 1;
             const aName = isEntityNameField(a.reference + " " + a.input);
             const bName = isEntityNameField(b.reference + " " + b.input);
             if (aName !== bName) return aName ? -1 : 1;
@@ -3317,18 +3467,17 @@ function StepConfigV2({
 
     setVerificationThresholds((current) => {
       const next = { ...current };
-      fields.forEach((field) => {
+      similarityFields.forEach((field) => {
         if (next[field.id] === undefined) {
           const names = `${field.reference} ${field.input}`;
-          if (field.strict) next[field.id] = 100;
-          else if (isEntityNameField(names)) next[field.id] = 90;
+          if (isEntityNameField(names)) next[field.id] = 90;
           else if (isLocationField(names)) next[field.id] = 100;
           else next[field.id] = 75;
         }
       });
       return next;
     });
-  }, [fields]);
+  }, [similarityFields]);
 
   const totalWeight = similarityFields.reduce((sum, field) => sum + (weights[field.id] ?? 0), 0);
   const methodsValid = similarityFields.every((field) => {
@@ -3728,9 +3877,11 @@ function StepConfigV2({
       });
       setVerificationThresholds(newThresholds);
 
-      [...locationFields, ...legalFormFields, ...coreNameFields, ...addressFields, ...otherFields].forEach((f) => {
-        if (!newOrder.includes(f.id)) newOrder.push(f.id);
-      });
+      [...locationFields, ...legalFormFields, ...coreNameFields, ...addressFields, ...otherFields]
+        .filter((f) => !f.strict)
+        .forEach((f) => {
+          if (!newOrder.includes(f.id)) newOrder.push(f.id);
+        });
       setVerificationOrder(newOrder);
 
       toast.success("Preset Konstruksi aktif: Nama Inti 55%, Alamat 30%, Badan Usaha 10%, Kode Kab 5%");
@@ -4140,39 +4291,53 @@ function StepConfigV2({
                 </span>
               </label>
               {verificationEnabled && (
-                <div className="mt-4 overflow-x-auto rounded-md border border-border">
-                  <table className="w-full min-w-[760px] text-left text-xs">
-                    <thead className="bg-secondary/40 text-muted-foreground">
-                      <tr>
-                        <th className="w-36 px-3 py-2 font-semibold">
-                          {t("matching.configV2.status")}
-                        </th>
-                        <th className="w-20 px-3 py-2 font-semibold">
-                          {t("matching.configV2.order")}
-                        </th>
-                        <th className="px-3 py-2 font-semibold">{t("matching.configV2.field")}</th>
-                        <th className="px-3 py-2 font-semibold">{t("matching.configV2.method")}</th>
-                        <th className="px-3 py-2 text-right font-semibold">
-                          {t("matching.configV2.threshold")}
-                        </th>
-                        <th className="w-28 px-3 py-2 text-right font-semibold">{t("common.action")}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {verificationOrder?.map((mappingId, index) => {
-                        const field = fields?.find((item) => item.id === mappingId);
-                        if (!field) return null;
-                        const isEnabled = enabledVerificationIds[mappingId] !== false;
-                        const activeIndex = activeVerificationFields.indexOf(mappingId);
-                        const orderNumber = isEnabled && activeIndex >= 0 ? activeIndex + 1 : null;
-                        const isDragging = draggedIndex === index;
-                        const isDragOver = dragOverIndex === index;
-                        const method: ConfigureAlgorithm = field.strict
-                          ? "Exact"
-                          : (methods[field.id]?.algorithm ?? field.algorithm);
-                        const threshold = field.strict
-                          ? 100
-                          : (verificationThresholds[field.id] ?? reviewThreshold);
+                <>
+                  {strictFields.length > 0 && (
+                    <div className="mt-4 rounded-lg border border-brand/20 bg-brand/5 p-3.5 text-xs">
+                      <div className="flex items-center gap-2 font-semibold text-brand">
+                        <ShieldCheck className="size-4" />
+                        <span>Mandatory Key (Fast-Path Tier 1)</span>
+                      </div>
+                      <p className="mt-1 text-muted-foreground leading-relaxed">
+                        Kolom identifier unik berikut dialokasikan khusus untuk pencocokan instan O(1) di memori:{" "}
+                        <span className="font-semibold text-foreground">
+                          {strictFields.map((f) => f.label).join(", ")}
+                        </span>
+                        . Kolom ini dipisahkan dari tabel verifikasi lanjutan di bawah agar tidak menggugurkan kandidat yang valid ketika dicocokkan berdasarkan kemiripan nama dan atribut lainnya.
+                      </p>
+                    </div>
+                  )}
+                  <div className="mt-4 overflow-x-auto rounded-md border border-border">
+                    <table className="w-full min-w-[760px] text-left text-xs">
+                      <thead className="bg-secondary/40 text-muted-foreground">
+                        <tr>
+                          <th className="w-36 px-3 py-2 font-semibold">
+                            {t("matching.configV2.status")}
+                          </th>
+                          <th className="w-20 px-3 py-2 font-semibold">
+                            {t("matching.configV2.order")}
+                          </th>
+                          <th className="px-3 py-2 font-semibold">{t("matching.configV2.field")}</th>
+                          <th className="px-3 py-2 font-semibold">{t("matching.configV2.method")}</th>
+                          <th className="px-3 py-2 text-right font-semibold">
+                            {t("matching.configV2.threshold")}
+                          </th>
+                          <th className="w-28 px-3 py-2 text-right font-semibold">{t("common.action")}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {verificationOrder?.map((mappingId, index) => {
+                          const field = fields?.find((item) => item.id === mappingId);
+                          if (!field || field.strict) return null;
+                          const isEnabled = enabledVerificationIds[mappingId] !== false;
+                          const activeIndex = activeVerificationFields.indexOf(mappingId);
+                          const orderNumber = isEnabled && activeIndex >= 0 ? activeIndex + 1 : null;
+                          const isDragging = draggedIndex === index;
+                          const isDragOver = dragOverIndex === index;
+                          const method: ConfigureAlgorithm =
+                            methods[field.id]?.algorithm ?? field.algorithm;
+                          const threshold =
+                            verificationThresholds[field.id] ?? reviewThreshold;
 
                         return (
                           <tr
@@ -4321,7 +4486,8 @@ function StepConfigV2({
                     </tbody>
                   </table>
                 </div>
-              )}
+              </>
+            )}
             </section>
           </div>
         )}
@@ -4686,7 +4852,7 @@ function StepRunCard({
   configuration: MatchingConfiguration | null;
   result: MatchingRunResult | null;
   error: string | null;
-  onStart: () => void;
+  onStart: (options?: { forceRestart?: boolean }) => void;
   onRetry: () => void;
   onProceed: () => void;
   canRun: boolean;
@@ -4694,9 +4860,198 @@ function StepRunCard({
   onStop?: () => void;
 }) {
   const { t } = usePreferences();
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isStalled, setIsStalled] = useState(false);
+  const runStartedAtRef = useRef<number | null>(null);
+  const lastProcessedRef = useRef<number>(0);
+  const lastProgressUpdateRef = useRef<number>(Date.now());
+
+  const hasResumableCheckpoint = Boolean(
+    (result?.checkpoint?.is_resumed || (result?.progress?.processed ?? 0) > 0) &&
+    (result?.progress?.total ?? 0) > 0 &&
+    (result?.progress?.processed ?? 0) < (result?.progress?.total ?? 0)
+  );
+
+  useEffect(() => {
+    if (state !== "running") {
+      runStartedAtRef.current = null;
+      setElapsedSeconds(0);
+      setIsStalled(false);
+      return;
+    }
+
+    if (!runStartedAtRef.current) {
+      if (result?.job?.started_at) {
+        const parsed = Date.parse(result.job.started_at);
+        runStartedAtRef.current = isNaN(parsed) ? Date.now() : parsed;
+      } else {
+        runStartedAtRef.current = Date.now();
+      }
+      lastProgressUpdateRef.current = Date.now();
+      lastProcessedRef.current = result?.progress?.processed ?? 0;
+    }
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      if (runStartedAtRef.current) {
+        setElapsedSeconds(Math.max(0, Math.floor((now - runStartedAtRef.current) / 1000)));
+      }
+
+      const currentProcessed = result?.progress?.processed ?? 0;
+      if (currentProcessed > lastProcessedRef.current) {
+        lastProcessedRef.current = currentProcessed;
+        lastProgressUpdateRef.current = now;
+        setIsStalled(false);
+      } else if (now - lastProgressUpdateRef.current > 10000) {
+        setIsStalled(true);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [state, result?.progress?.processed, result?.job?.started_at]);
+
+  const formatDurationClock = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins >= 60) {
+      const hrs = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      return `${hrs}:${remMins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const formatDurationHuman = (seconds: number): string => {
+    if (seconds <= 0) return "Beberapa saat lagi";
+    if (seconds < 60) return `~${Math.round(seconds)} dtk`;
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    if (mins < 60) {
+      return secs > 0 ? `~${mins} m ${secs} d` : `~${mins} menit`;
+    }
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `~${hrs} j ${remMins} m`;
+  };
+
+  const etaText = useMemo(() => {
+    if (state !== "running") return null;
+    if (elapsedSeconds < 2 || progress <= 0) return "Menghitung...";
+    if (progress >= 100) return "Hampir selesai";
+
+    const total = result?.progress?.total ?? 0;
+    const processed = result?.progress?.processed ?? 0;
+    const isResumed = Boolean(result?.checkpoint?.is_resumed);
+    const resumedAt = result?.checkpoint?.resumed_at_record ?? 0;
+
+    let remainingSeconds: number | null = null;
+
+    if (total > 0 && processed > 0 && processed < total) {
+      const netProcessed = isResumed && processed > resumedAt ? processed - resumedAt : processed;
+      if (netProcessed > 0 && elapsedSeconds > 0) {
+        const rate = netProcessed / elapsedSeconds;
+        const remainingRecords = total - processed;
+        remainingSeconds = remainingRecords / rate;
+      }
+    }
+
+    if (remainingSeconds === null) {
+      remainingSeconds = (elapsedSeconds / Math.max(1, progress)) * (100 - progress);
+    }
+
+    return formatDurationHuman(remainingSeconds);
+  }, [state, elapsedSeconds, progress, result?.progress?.total, result?.progress?.processed, result?.checkpoint]);
+
+  const dynamicActivity = useMemo(() => {
+    const isResumed = Boolean(result?.checkpoint?.is_resumed);
+    const resumedAt = result?.checkpoint?.resumed_at_record ?? 0;
+    const stage = result?.progress?.stage;
+    const processed = result?.progress?.processed ?? 0;
+    const total = result?.progress?.total ?? 0;
+
+    if (isResumed && progress < 10) {
+      return {
+        label: `Melanjutkan dari Checkpoint SQLite (${resumedAt.toLocaleString("id-ID")} record tersimpan)`,
+        sublabel: "Memuat cache chunk SQLite & melanjutkan sisa baris data",
+        icon: Zap,
+        isCheckpoint: true,
+      };
+    }
+
+    if (stage) {
+      return {
+        label: stage,
+        sublabel: isStalled
+          ? "Sedang memproses komputasi batch besar (mesin tetap aktif)..."
+          : "Algoritma pencocokan multi-kandidat sedang memproses data",
+        icon: isStalled ? Hourglass : Activity,
+        isCheckpoint: isResumed,
+      };
+    }
+
+    if (progress < 15) {
+      return {
+        label: "Normalisasi & Pra-pemrosesan Atribut",
+        sublabel: "Membersihkan teks, tokenisasi kata, dan mengekstrak entitas",
+        icon: SlidersHorizontal,
+        isCheckpoint: isResumed,
+      };
+    }
+
+    if (progress < 30) {
+      return {
+        label: "Pencarian Kandidat & Pengindeksan Meilisearch",
+        sublabel: "Membangun indeks typo-tolerant dan filter pemblokiran record",
+        icon: Database,
+        isCheckpoint: isResumed,
+      };
+    }
+
+    if (progress < 95) {
+      const batchInfo = total > 0 ? ` (${processed.toLocaleString("id-ID")} / ${total.toLocaleString("id-ID")})` : "";
+      return {
+        label: `Pencocokan & Penskoran Record${batchInfo}`,
+        sublabel: isStalled
+          ? "Memproses komputasi skor kemiripan batch besar..."
+          : "Menghitung similarity (Jaro-Winkler, Levenshtein, Exact Match)",
+        icon: isStalled ? Hourglass : Activity,
+        isCheckpoint: isResumed,
+      };
+    }
+
+    return {
+      label: "Finalisasi Hasil & Penyimpanan Riwayat",
+      sublabel: "Menyimpan peringkat kecocokan ke basis data",
+      icon: Check,
+      isCheckpoint: isResumed,
+    };
+  }, [result?.checkpoint, result?.progress?.stage, result?.progress?.processed, result?.progress?.total, progress, isStalled]);
+
+  const ActivityIcon = dynamicActivity.icon;
+
+  const totalRunDuration = useMemo(() => {
+    if (!result?.job?.started_at || !result?.job?.finished_at) return null;
+    const start = Date.parse(result.job.started_at);
+    const end = Date.parse(result.job.finished_at);
+    if (isNaN(start) || isNaN(end) || end < start) return null;
+    return formatDurationClock(Math.floor((end - start) / 1000));
+  }, [result?.job?.started_at, result?.job?.finished_at]);
 
   return (
     <div className="rounded-lg border border-border bg-card p-5 space-y-4">
+      {/* Checkpoint Resume Banner when matching was previously interrupted */}
+      {state === "idle" && hasResumableCheckpoint && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 text-xs text-sky-800 dark:text-sky-300">
+          <Zap className="size-4 text-sky-500 shrink-0 mt-0.5" />
+          <div className="space-y-0.5 min-w-0">
+            <p className="font-semibold text-sky-900 dark:text-sky-200">Checkpoint Tersimpan Ditemukan</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Sebanyak <span className="font-semibold text-foreground">{(result?.progress?.processed ?? 0).toLocaleString("id-ID")}</span> dari <span className="font-semibold text-foreground">{(result?.progress?.total ?? 0).toLocaleString("id-ID")}</span> data tersimpan di cache SQLite. Anda dapat melanjutkan tanpa mengulang dari awal atau memulai ulang.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
@@ -4704,9 +5059,11 @@ function StepRunCard({
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             {state === "idle"
-              ? hasPreviousRun
-                ? t("matching.run.rerunIdleDesc")
-                : t("matching.run.idleDesc")
+              ? hasResumableCheckpoint
+                ? "Tersedia checkpoint tersimpan dari proses sebelumnya."
+                : hasPreviousRun
+                  ? t("matching.run.rerunIdleDesc")
+                  : t("matching.run.idleDesc")
               : state === "running"
                 ? t("matching.run.progressTitle")
                 : state === "success"
@@ -4717,21 +5074,44 @@ function StepRunCard({
 
         <div className="flex items-center gap-2">
           {state === "idle" && (
-            <button
-              type="button"
-              disabled={!canRun || !configuration?.isValid}
-              onClick={onStart}
-              className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground shadow hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {hasPreviousRun ? <RefreshCw className="size-4" /> : <Play className="size-4" />}
-              <span>{hasPreviousRun ? t("matching.run.rerunOverwrite") : t("matching.run.start")}</span>
-            </button>
+            hasResumableCheckpoint ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  disabled={!canRun || !configuration?.isValid}
+                  onClick={() => onStart({ forceRestart: true })}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary cursor-pointer"
+                >
+                  <RefreshCw className="size-3.5" />
+                  <span>Mulai dari Awal</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!canRun || !configuration?.isValid}
+                  onClick={() => onStart({ forceRestart: false })}
+                  className="inline-flex items-center gap-2 rounded-md bg-brand px-3.5 py-2 text-xs sm:text-sm font-semibold text-brand-foreground shadow hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <Zap className="size-4 fill-brand-foreground text-brand-foreground" />
+                  <span>Lanjutkan Matching (dari baris {(result?.progress?.processed ?? 0).toLocaleString("id-ID")})</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={!canRun || !configuration?.isValid}
+                onClick={() => onStart({ forceRestart: false })}
+                className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground shadow hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {hasPreviousRun ? <RefreshCw className="size-4" /> : <Play className="size-4" />}
+                <span>{hasPreviousRun ? t("matching.run.rerunOverwrite") : t("matching.run.start")}</span>
+              </button>
+            )
           )}
 
           {state === "running" && (
             <div className="flex items-center gap-2 text-xs font-semibold text-brand">
               <Loader2 className="size-4 animate-spin" />
-              <span>{t("matching.run.processingPercent", { progress })}</span>
+              <span>{t("matching.run.processingPercent", { progress: Math.round(progress) })}</span>
             </div>
           )}
 
@@ -4771,40 +5151,125 @@ function StepRunCard({
       </div>
 
       {state === "running" && (
-        <div className="space-y-1.5">
-          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
-            <div
-              className="h-full bg-brand transition-all duration-300 rounded-full"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="flex justify-between items-center mt-2">
-            <div className="flex items-center gap-3">
-              {onStop && (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  className="text-xs font-medium text-destructive hover:text-destructive/80"
-                >
-                  Batalkan Matching
-                </button>
-              )}
-              <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono hidden sm:flex">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-                  <Activity className="w-3 h-3 text-emerald-500"/>
-                  Engine: Meilisearch MultiSearch Active (Batch Mode)
-                </span>
+        <div className="space-y-4 pt-1">
+          {/* Dynamic Activity Header & Blinking Status Lamp */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/80 bg-secondary/20 p-3 sm:p-3.5">
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Pulsing indicator lamp: green when actively progressing, amber when stalled */}
+              <div className="relative flex size-3 items-center justify-center shrink-0">
+                <span
+                  className={cn(
+                    "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                    isStalled ? "bg-amber-400" : "bg-emerald-400",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "relative inline-flex size-2.5 rounded-full shadow-sm",
+                    isStalled
+                      ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.8)]"
+                      : "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]",
+                  )}
+                />
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-semibold border",
+                      isStalled
+                        ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                        : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+                    )}
+                  >
+                    <ActivityIcon className="size-3.5 shrink-0" />
+                    <span>{dynamicActivity.label}</span>
+                  </span>
+
+                  {result?.checkpoint?.is_resumed && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/30">
+                      <Zap className="size-3 fill-sky-500 text-sky-500" />
+                      Checkpoint SQLite
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                  {dynamicActivity.sublabel}
+                </p>
               </div>
             </div>
-            {result?.progress?.total ? (
-              <p className="text-xs text-muted-foreground tabular-nums text-right">
-                {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
+
+            {onStop && (
+              <button
+                type="button"
+                onClick={onStop}
+                className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 hover:border-destructive/50 transition-colors cursor-pointer"
+              >
+                Batalkan Matching
+              </button>
+            )}
+          </div>
+
+          {/* Progress Bar */}
+          <div className="space-y-1.5">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full bg-brand rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Progres Keseluruhan</span>
+              <span className="font-semibold tabular-nums text-foreground">{Math.round(progress)}%</span>
+            </div>
+          </div>
+
+          {/* Metric Stat Cards (Waktu Berjalan, Estimasi Sisa, Progres Data) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+            <div className="rounded-lg border border-border/60 bg-card p-3 shadow-xs">
+              <div className="flex items-center justify-between gap-1 text-muted-foreground">
+                <span className="text-[11px] font-medium">Waktu Berjalan</span>
+                <Timer className="size-3.5 text-muted-foreground/70" />
+              </div>
+              <p className="mt-1 text-lg font-bold font-mono tracking-tight text-foreground tabular-nums">
+                {formatDurationClock(elapsedSeconds)}
               </p>
-            ) : <div />}
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {result?.job?.started_at ? "Sejak proses dimulai" : "Menghitung aktif"}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border/60 bg-card p-3 shadow-xs">
+              <div className="flex items-center justify-between gap-1 text-muted-foreground">
+                <span className="text-[11px] font-medium">Estimasi Sisa Waktu</span>
+                <Hourglass className="size-3.5 text-muted-foreground/70" />
+              </div>
+              <p className="mt-1 text-lg font-bold font-mono tracking-tight text-brand tabular-nums">
+                {etaText ?? "Menghitung..."}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {isStalled ? "Berdasarkan throughput batch" : "Berdasarkan kecepatan data"}
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-border/60 bg-card p-3 shadow-xs">
+              <div className="flex items-center justify-between gap-1 text-muted-foreground">
+                <span className="text-[11px] font-medium">Progres Data</span>
+                <Activity className="size-3.5 text-muted-foreground/70" />
+              </div>
+              <p className="mt-1 text-lg font-bold tracking-tight text-foreground tabular-nums">
+                {(result?.progress?.processed ?? 0).toLocaleString("id-ID")}
+                <span className="text-xs font-normal text-muted-foreground ml-1">
+                  / {(result?.progress?.total ?? 0).toLocaleString("id-ID")}
+                </span>
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {(result?.summary?.candidates_scored ?? 0) > 0
+                  ? `${(result?.summary?.candidates_scored ?? 0).toLocaleString("id-ID")} kandidat diskor`
+                  : "Rekor data input"}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -4816,33 +5281,52 @@ function StepRunCard({
       )}
 
       {state === "success" && result && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 pt-2 border-t border-border/60 text-xs">
-          <div className="rounded-md bg-secondary/30 p-2.5">
-            <p className="text-[10px] text-muted-foreground uppercase">{t("results.totalRecords")}</p>
-            <p className="mt-1 text-sm font-bold">{result.progress.total.toLocaleString()}</p>
-            {(result.summary.total_duplicates ?? 0) > 0 && (
-              <p className="mt-0.5 text-[10px] text-muted-foreground">
-                +{result.summary.total_duplicates?.toLocaleString()} duplikat diabaikan
+        <div className="space-y-3 pt-2 border-t border-border/60 text-xs">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-md bg-secondary/30 p-2.5">
+              <p className="text-[10px] text-muted-foreground uppercase">{t("results.totalRecords")}</p>
+              <p className="mt-1 text-sm font-bold">{result.progress.total.toLocaleString()}</p>
+              {(result.summary.total_duplicates ?? 0) > 0 && (
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  +{result.summary.total_duplicates?.toLocaleString()} duplikat diabaikan
+                </p>
+              )}
+            </div>
+            <div className="rounded-md bg-secondary/30 p-2.5">
+              <p className="text-[10px] text-muted-foreground uppercase">{t("results.matchedRecords")}</p>
+              <p className="mt-1 text-sm font-bold text-success">
+                {result.summary.matched.toLocaleString()}
               </p>
+            </div>
+            <div className="rounded-md bg-secondary/30 p-2.5">
+              <p className="text-[10px] text-muted-foreground uppercase">{t("results.possibleMatches")}</p>
+              <p className="mt-1 text-sm font-bold text-warning">
+                {result.summary.possible_match.toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-md bg-secondary/30 p-2.5">
+              <p className="text-[10px] text-muted-foreground uppercase">{t("results.unmatchedRecords")}</p>
+              <p className="mt-1 text-sm font-bold text-muted-foreground">
+                {result.summary.unmatched.toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-1 px-0.5">
+            {totalRunDuration && (
+              <div className="flex items-center gap-1.5">
+                <Clock className="size-3.5 text-muted-foreground" />
+                <span>
+                  Total Durasi: <span className="font-semibold font-mono text-foreground">{totalRunDuration}</span>
+                </span>
+              </div>
             )}
-          </div>
-          <div className="rounded-md bg-secondary/30 p-2.5">
-            <p className="text-[10px] text-muted-foreground uppercase">{t("results.matchedRecords")}</p>
-            <p className="mt-1 text-sm font-bold text-success">
-              {result.summary.matched.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-md bg-secondary/30 p-2.5">
-            <p className="text-[10px] text-muted-foreground uppercase">{t("results.possibleMatches")}</p>
-            <p className="mt-1 text-sm font-bold text-warning">
-              {result.summary.possible_match.toLocaleString()}
-            </p>
-          </div>
-          <div className="rounded-md bg-secondary/30 p-2.5">
-            <p className="text-[10px] text-muted-foreground uppercase">{t("results.unmatchedRecords")}</p>
-            <p className="mt-1 text-sm font-bold text-muted-foreground">
-              {result.summary.unmatched.toLocaleString()}
-            </p>
+            {result.checkpoint?.is_resumed && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 dark:text-sky-400">
+                <Zap className="size-3 fill-sky-500 text-sky-500" />
+                Dilanjutkan dari checkpoint SQLite (Baris {(result.checkpoint.resumed_at_record ?? 0).toLocaleString("id-ID")})
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -5026,11 +5510,11 @@ function StepRun({
             <div>
               <p className="text-xs sm:text-sm font-semibold">{t("matching.run.progressTitle")}</p>
               <p className="text-[11px] sm:text-xs text-muted-foreground">
-                {progress < 40
+                {result?.progress?.stage || (progress < 40
                   ? t("matching.run.building")
                   : progress < 80
                     ? t("matching.run.scoring")
-                    : t("matching.run.finalizing")}
+                    : t("matching.run.finalizing"))}
               </p>
             </div>
           </div>
@@ -5039,11 +5523,11 @@ function StepRun({
             <span className="font-medium tabular-nums">{Math.round(progress)}%</span>
           </div>
           <div className="h-2 bg-secondary rounded-full overflow-hidden mb-2">
-            <div className="h-full bg-accent transition-all" style={{ width: `${progress}%` }} />
+            <div className="h-full bg-accent" style={{ width: `${progress}%`, transition: "width 0.15s ease-out" }} />
           </div>
           {result?.progress?.total ? (
             <p className="text-[11px] sm:text-xs text-muted-foreground tabular-nums text-right mt-1.5 sm:mt-2">
-              {result.progress.processed.toLocaleString()} / {result.progress.total.toLocaleString()} data diproses
+              {(result.progress.processed ?? 0).toLocaleString("id-ID")} / {(result.progress.total ?? 0).toLocaleString("id-ID")} data diproses
             </p>
           ) : null}
         </div>
@@ -5152,6 +5636,16 @@ function StepReview({
   const [isBulkDecidingAllRecords, setIsBulkDecidingAllRecords] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedQuery(query);
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [query]);
+
   const identityMappings = useMemo(
     () => extractIdentityMappings({ columnMappings }),
     [columnMappings],
@@ -5166,7 +5660,12 @@ function StepReview({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchReviewResults(jobId)
+    fetchReviewResults(jobId, {
+      page,
+      per_page: pageSize,
+      status: filter,
+      search: debouncedQuery,
+    })
       .then((data) => {
         if (!cancelled) setReview(data);
       })
@@ -5182,7 +5681,7 @@ function StepReview({
     return () => {
       cancelled = true;
     };
-  }, [jobId, t]);
+  }, [jobId, page, pageSize, filter, debouncedQuery, t]);
 
   const items = review?.items ?? [];
   const caseGroups = review?.case_groups ?? [];
@@ -5265,26 +5764,8 @@ function StepReview({
   };
   const selectedCaseGroup =
     (selectedGroupId ? caseGroups?.find((group) => group.id === selectedGroupId) : null) ?? null;
-  const filtered = items
-    .filter((item) => filter === "all" || item.status === filter)
-    .filter((item) => {
-      if (!query) return true;
-      const haystack = JSON.stringify([
-        item.input_record_key,
-        item.status,
-        item.input_record,
-        item.candidates?.map((candidate) => candidate.reference_record),
-      ]).toLowerCase();
-      return haystack.includes(query.toLowerCase());
-    })
-    .sort((a, b) => {
-      const priority = (status: string) =>
-        status === "possible_match" ? 0 : status === "matched" ? 1 : 2;
-      const priorityDiff = priority(a.status) - priority(b.status);
-      if (priorityDiff !== 0) return priorityDiff;
-      return candidateScore(b) - candidateScore(a);
-    });
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const filtered = items;
+  const paged = items;
   const activeReviewItems = useMemo(() => {
     if (viewMode === "case_groups" && selectedCaseGroup) {
       const keysSet = new Set(selectedCaseGroup.item_keys ?? []);
@@ -5577,7 +6058,7 @@ function StepReview({
     );
   }
 
-  if (loading) {
+  if (loading && !review) {
     return (
       <>
         <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
@@ -5633,7 +6114,9 @@ function StepReview({
       <div className="mb-6">
         <ReviewDiagnosticCharts
           items={items}
+          caseGroups={caseGroups}
           columnMappings={columnMappings}
+          fieldQualitySummary={review?.field_quality_summary}
           thresholds={review?.job?.thresholds ?? review?.job?.configuration?.thresholds}
         />
       </div>
@@ -5683,8 +6166,8 @@ function StepReview({
       {viewMode === "case_groups" &&
         (selectedCaseGroup ? (
           <GroupReviewSubview
+            jobId={jobId}
             group={selectedCaseGroup}
-            items={items}
             identityMappings={identityMappings}
             canDecide={canDecide}
             pendingGroups={pendingGroups}
@@ -5744,10 +6227,14 @@ function StepReview({
                     ].join(" ")}
                   >
                     {reviewFilterLabel(status, t)}
-                    <span className="ml-2 tabular-nums text-muted-foreground">
+                    <span className="ml-2 tabular-nums text-muted-foreground font-semibold">
                       {status === "all"
-                        ? items.length
-                        : items?.filter((item) => item.status === status).length}
+                        ? (review?.summary?.total_raw_input ?? review?.summary?.total_unique_input ?? 0).toLocaleString("id-ID")
+                        : status === "possible_match"
+                        ? (review?.summary?.possible_match ?? 0).toLocaleString("id-ID")
+                        : status === "matched"
+                        ? (review?.summary?.matched ?? 0).toLocaleString("id-ID")
+                        : (review?.summary?.unmatched ?? 0).toLocaleString("id-ID")}
                     </span>
                   </button>
                 ),
@@ -5755,7 +6242,7 @@ function StepReview({
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {items.length === 0 && !loading ? (
             <div className="rounded-lg border border-border">
               <EmptyState
                 icon={Inbox}
@@ -5970,13 +6457,22 @@ function StepReview({
               <TablePagination
                 currentPage={page}
                 pageSize={pageSize}
-                totalItems={filtered.length}
+                totalItems={
+                  review?.pagination?.total_items ??
+                  (filter === "all"
+                    ? (review?.summary?.total_raw_input ?? review?.summary?.total_unique_input ?? 0)
+                    : filter === "possible_match"
+                    ? (review?.summary?.possible_match ?? 0)
+                    : filter === "matched"
+                    ? (review?.summary?.matched ?? 0)
+                    : (review?.summary?.unmatched ?? 0))
+                }
                 onPageChange={setPage}
                 onPageSizeChange={(newPageSize) => {
                   setPageSize(newPageSize);
                   setPage(1);
                 }}
-                pageSizeOptions={[10, 25, 50]}
+                pageSizeOptions={[10, 25, 50, 100]}
               />
             </div>
             </div>
@@ -6252,6 +6748,7 @@ function CaseGroupsReview({
       ) : (
         groups?.map((group) => {
           const representative = group.representative;
+          if (!representative) return null;
           const candidate = representative.candidates[0] ?? null;
           const representativeSummary = buildIdentitySummary(
             representative,
@@ -6427,8 +6924,8 @@ function CaseGroupsReview({
 }
 
 function GroupReviewSubview({
+  jobId,
   group,
-  items,
   identityMappings,
   canDecide,
   pendingGroups,
@@ -6441,8 +6938,8 @@ function GroupReviewSubview({
   onDecideRecord,
   onDecideGroup,
 }: {
+  jobId?: string | null;
   group: ReviewCaseGroup;
-  items: ReviewItem[];
   identityMappings: IdentityFieldPair[];
   canDecide: boolean;
   pendingGroups: Record<string, string>;
@@ -6464,39 +6961,91 @@ function GroupReviewSubview({
   ) => Promise<void>;
 }) {
   const { t } = usePreferences();
-  const groupItems = useMemo(
-    () =>
-      group.item_keys
-        .map((key) => items?.find((item) => item.input_record_key === key))
-        .filter((item): item is ReviewItem => Boolean(item)),
-    [group.item_keys, items],
-  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const pagedGroupItems = useMemo(
-    () => groupItems.slice((page - 1) * pageSize, page * pageSize),
-    [groupItems, page, pageSize],
+  const [groupItems, setGroupItems] = useState<ReviewItem[]>([]);
+  const [totalItems, setTotalItems] = useState<number>(group.item_count ?? 0);
+  const [loading, setLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (!jobId) return;
+    let cancelled = false;
+    setLoading(true);
+    fetchReviewResults(jobId, {
+      page,
+      per_page: pageSize,
+      case_group_id: group.id,
+    })
+      .then((data) => {
+        if (!cancelled && data) {
+          setGroupItems(data.items ?? []);
+          if (data.pagination?.total_items !== undefined) {
+            setTotalItems(data.pagination.total_items);
+          }
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load group items", err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, group.id, page, pageSize, reloadKey]);
+
+  const currentPageKeys = useMemo(
+    () => groupItems.map((item) => item.input_record_key),
+    [groupItems],
   );
-  const allSelectableKeys = groupItems?.map((item) => item.input_record_key);
   const selectedSet = new Set(selectedKeys);
   const allSelected =
-    allSelectableKeys.length > 0 && allSelectableKeys.every((key) => selectedSet.has(key));
-  const representativeCandidate = group.representative.candidates[0] ?? null;
-  const representativeSummary = buildIdentitySummary(
-    group.representative,
-    representativeCandidate,
-    identityMappings,
-  );
-  const representativeIdentity = buildSideIdentity(representativeSummary, "input");
+    currentPageKeys.length > 0 && currentPageKeys.every((key) => selectedSet.has(key));
+  const representativeCandidate = group.representative?.candidates?.[0] ?? null;
+  const representativeSummary = group.representative
+    ? buildIdentitySummary(
+        group.representative,
+        representativeCandidate,
+        identityMappings,
+      )
+    : null;
+  const representativeIdentity = representativeSummary
+    ? buildSideIdentity(representativeSummary, "input")
+    : null;
   const canAcceptGroup = Boolean(representativeCandidate?.reference_record_key);
   const groupPending = pendingGroups[group.id];
 
   const toggleSelectAll = () => {
     if (allSelected) {
-      onReplaceSelectedKeys(group.id, []);
+      onReplaceSelectedKeys(
+        group.id,
+        selectedKeys.filter((k) => !currentPageKeys.includes(k)),
+      );
       return;
     }
-    onReplaceSelectedKeys(group.id, allSelectableKeys);
+    const merged = Array.from(new Set([...selectedKeys, ...currentPageKeys]));
+    onReplaceSelectedKeys(group.id, merged);
+  };
+
+  const handleDecideRecord = async (
+    item: ReviewItem,
+    decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
+    candidate?: ReviewCandidate | null,
+  ) => {
+    await onDecideRecord(item, decision, candidate);
+    setReloadKey((k) => k + 1);
+  };
+
+  const handleDecideGroup = async (
+    targetGroup: ReviewCaseGroup,
+    decision: "accept_match" | "reject_match" | "select_candidate" | "mark_unmatched",
+    scope: "selected" | "group",
+  ) => {
+    await onDecideGroup(targetGroup, decision, scope);
+    setReloadKey((k) => k + 1);
   };
 
   return (
@@ -6535,20 +7084,22 @@ function GroupReviewSubview({
               </span>
             </p>
           ) : null}
-          <p className="mt-2 text-xs text-muted-foreground">
-            {t("matching.review.representative")}:{" "}
-            <span className="font-medium text-foreground">{representativeIdentity.headline}</span>
-            {representativeIdentity.meta !== "-" ? (
-              <span className="ml-2">{representativeIdentity.meta}</span>
-            ) : null}
-          </p>
+          {representativeIdentity ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {t("matching.review.representative")}:{" "}
+              <span className="font-medium text-foreground">{representativeIdentity.headline}</span>
+              {representativeIdentity.meta !== "-" ? (
+                <span className="ml-2">{representativeIdentity.meta}</span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
 
         {canDecide ? (
           <div className="flex flex-wrap justify-start gap-2">
             <button
               type="button"
-              onClick={() => onDecideGroup(group, "accept_match", "group")}
+              onClick={() => handleDecideGroup(group, "accept_match", "group")}
               disabled={!group.eligible_for_bulk || !canAcceptGroup || Boolean(groupPending)}
               className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -6558,7 +7109,7 @@ function GroupReviewSubview({
             </button>
             <button
               type="button"
-              onClick={() => onDecideGroup(group, "mark_unmatched", "group")}
+              onClick={() => handleDecideGroup(group, "mark_unmatched", "group")}
               disabled={!group.eligible_for_bulk || Boolean(groupPending)}
               className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -6582,7 +7133,7 @@ function GroupReviewSubview({
             <button
               type="button"
               onClick={toggleSelectAll}
-              disabled={!canDecide || allSelectableKeys.length === 0 || Boolean(groupPending)}
+              disabled={!canDecide || currentPageKeys.length === 0 || Boolean(groupPending)}
               className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t("matching.review.selectAll")}
@@ -6594,7 +7145,7 @@ function GroupReviewSubview({
                 </span>
                 <button
                   type="button"
-                  onClick={() => onDecideGroup(group, "accept_match", "selected")}
+                  onClick={() => handleDecideGroup(group, "accept_match", "selected")}
                   disabled={!canDecide || selectedKeys.length === 0 || Boolean(groupPending)}
                   className="cursor-pointer rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -6604,7 +7155,7 @@ function GroupReviewSubview({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onDecideGroup(group, "mark_unmatched", "selected")}
+                  onClick={() => handleDecideGroup(group, "mark_unmatched", "selected")}
                   disabled={!canDecide || Boolean(groupPending)}
                   className="cursor-pointer rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -6633,7 +7184,7 @@ function GroupReviewSubview({
                     type="checkbox"
                     checked={allSelected}
                     onChange={toggleSelectAll}
-                    disabled={!canDecide || allSelectableKeys.length === 0 || Boolean(groupPending)}
+                    disabled={!canDecide || currentPageKeys.length === 0 || Boolean(groupPending)}
                     aria-label={t("matching.review.selectAll")}
                   />
                 </th>
@@ -6656,109 +7207,124 @@ function GroupReviewSubview({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {pagedGroupItems?.map((item) => {
-                const candidate = item.candidates[0] ?? null;
-                const summary = buildIdentitySummary(item, candidate, identityMappings);
-                const inputIdentity = candidate
-                  ? buildSideIdentity(summary, "input")
-                  : buildRecordIdentity(item.input_record, "input", identityMappings);
-                const referenceIdentity = candidate?.reference_record_key
-                  ? buildSideIdentity(summary, "reference")
-                  : null;
-                const rowPending = pendingRecords[item.input_record_key];
-                const rowCanAccept = Boolean(candidate?.reference_record_key);
+              {loading && groupItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                    <Loader2 className="inline-block size-4 animate-spin mr-2" />
+                    {t("common.loading")}
+                  </td>
+                </tr>
+              ) : groupItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-xs text-muted-foreground">
+                    {t("feedback.empty.desc")}
+                  </td>
+                </tr>
+              ) : (
+                groupItems.map((item) => {
+                  const candidate = item.candidates[0] ?? null;
+                  const summary = buildIdentitySummary(item, candidate, identityMappings);
+                  const inputIdentity = candidate
+                    ? buildSideIdentity(summary, "input")
+                    : buildRecordIdentity(item.input_record, "input", identityMappings);
+                  const referenceIdentity = candidate?.reference_record_key
+                    ? buildSideIdentity(summary, "reference")
+                    : null;
+                  const rowPending = pendingRecords[item.input_record_key];
+                  const rowCanAccept = Boolean(candidate?.reference_record_key);
 
-                return (
-                  <tr
-                    key={item.input_record_key}
-                    onClick={() => onOpenRecord(item, candidate?.id ?? null)}
-                    className="align-top hover:bg-secondary/40 cursor-pointer transition-colors"
-                  >
-                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selectedSet.has(item.input_record_key)}
-                        disabled={!canDecide || Boolean(rowPending) || Boolean(groupPending)}
-                        onChange={() => onToggleKey(group, item.input_record_key)}
-                        aria-label={t("matching.review.selectRecord")}
-                      />
-                    </td>
-                    <td className="px-3 py-3 min-w-0">
-                      <IdentityCell identity={inputIdentity} />
-                    </td>
-                    <td className="px-3 py-3 min-w-0">
-                      <IdentityCell
-                        identity={referenceIdentity}
-                        emptyHeadline={t("matching.review.noCandidate")}
-                        emptyMeta={t("matching.review.noCandidateDesc")}
-                      />
-                    </td>
-                    <td
-                      className={`px-3 py-3 text-right font-semibold tabular-nums ${scoreTone(candidate?.score ?? 0)}`}
+                  return (
+                    <tr
+                      key={item.input_record_key}
+                      onClick={() => onOpenRecord(item, candidate?.id ?? null)}
+                      className="align-top hover:bg-secondary/40 cursor-pointer transition-colors"
                     >
-                      {candidate ? `${candidate.score}%` : "-"}
-                    </td>
-                    <td className="px-3 py-3 min-w-0">
-                      <DifferenceSummaryCell scores={candidate?.field_scores ?? []} t={t} />
-                    </td>
-                    <td className="px-3 py-3">
-                      <span
-                        className={statusBadgeClass(
-                          item.status_code ?? item.display_status ?? item.status,
-                        )}
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(item.input_record_key)}
+                          disabled={!canDecide || Boolean(rowPending) || Boolean(groupPending)}
+                          onChange={() => onToggleKey(group, item.input_record_key)}
+                          aria-label={t("matching.review.selectRecord")}
+                        />
+                      </td>
+                      <td className="px-3 py-3 min-w-0">
+                        <IdentityCell identity={inputIdentity} />
+                      </td>
+                      <td className="px-3 py-3 min-w-0">
+                        <IdentityCell
+                          identity={referenceIdentity}
+                          emptyHeadline={t("matching.review.noCandidate")}
+                          emptyMeta={t("matching.review.noCandidateDesc")}
+                        />
+                      </td>
+                      <td
+                        className={`px-3 py-3 text-right font-semibold tabular-nums ${scoreTone(candidate?.score ?? 0)}`}
                       >
-                        {reviewStatusLabel(
-                          item.status_code ?? item.display_status ?? item.status,
-                          t,
-                        )}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                      {canDecide ? (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => onDecideRecord(item, "accept_match", candidate)}
-                            disabled={!rowCanAccept || Boolean(rowPending) || Boolean(groupPending)}
-                            className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-semibold text-brand-foreground transition-all hover:bg-brand/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
-                          >
-                            {rowPending === "accept_match" ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Loader2 className="size-3 animate-spin" />
-                                <span className="text-[11px]">{t("common.loading")}</span>
-                              </span>
-                            ) : (
-                              "Terima Match"
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDecideRecord(item, "mark_unmatched", null)}
-                            disabled={Boolean(rowPending) || Boolean(groupPending)}
-                            className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
-                          >
-                            {rowPending === "mark_unmatched" ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Loader2 className="size-3 animate-spin" />
-                                <span className="text-[11px]">{t("common.loading")}</span>
-                              </span>
-                            ) : (
-                              "Tandai Unmatched"
-                            )}
-                          </button>
-                        </div>
-                      ) : null}
-                    </td>
-                  </tr>
-                );
-              })}
+                        {candidate ? `${candidate.score}%` : "-"}
+                      </td>
+                      <td className="px-3 py-3 min-w-0">
+                        <DifferenceSummaryCell scores={candidate?.field_scores ?? []} t={t} />
+                      </td>
+                      <td className="px-3 py-3">
+                        <span
+                          className={statusBadgeClass(
+                            item.status_code ?? item.display_status ?? item.status,
+                          )}
+                        >
+                          {reviewStatusLabel(
+                            item.status_code ?? item.display_status ?? item.status,
+                            t,
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        {canDecide ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleDecideRecord(item, "accept_match", candidate)}
+                              disabled={!rowCanAccept || Boolean(rowPending) || Boolean(groupPending)}
+                              className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-semibold text-brand-foreground transition-all hover:bg-brand/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
+                            >
+                              {rowPending === "accept_match" ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Loader2 className="size-3 animate-spin" />
+                                  <span className="text-[11px]">{t("common.loading")}</span>
+                                </span>
+                              ) : (
+                                "Terima Match"
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDecideRecord(item, "mark_unmatched", null)}
+                              disabled={Boolean(rowPending) || Boolean(groupPending)}
+                              className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
+                            >
+                              {rowPending === "mark_unmatched" ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Loader2 className="size-3 animate-spin" />
+                                  <span className="text-[11px]">{t("common.loading")}</span>
+                                </span>
+                              ) : (
+                                "Tandai Unmatched"
+                              )}
+                            </button>
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
         <TablePagination
           currentPage={page}
           pageSize={pageSize}
-          totalItems={groupItems.length}
+          totalItems={totalItems}
           onPageChange={setPage}
           onPageSizeChange={(newPageSize) => {
             setPageSize(newPageSize);
@@ -6795,7 +7361,10 @@ function IdentityCell({
 
   const headline = identity.headline;
 
-  // 1. Identifiers (NPWP, etc.), contact person & contacts
+  // 1. Legal form, Identifiers (NIB, NPWP), contact person & contacts
+  const legalFormField = identity.fields.find(
+    (f) => f.semantic === "legal_form" && f.value !== headline && f.value !== "-",
+  );
   const identifiers = identity.fields
     .filter((f) => f.semantic === "strong_identifier" && f.value !== headline)
     .map((f) => (f.label ? `${f.label}: ${f.value}` : f.value));
@@ -6818,7 +7387,12 @@ function IdentityCell({
     )
     .map((f) => (f.label ? `${f.label}: ${f.value}` : f.value));
 
-  const secondLineParts = [...identifiers, personText, ...contacts].filter(Boolean);
+  const secondLineParts = [
+    legalFormField?.value,
+    ...identifiers,
+    personText,
+    ...contacts,
+  ].filter(Boolean);
   const secondLine = secondLineParts.join(" • ") || null;
 
   // 2. Address and City / Province
@@ -7435,6 +8009,7 @@ function StepExport({
           jobName={review.job.name}
           canExecute={canExecute}
           onExportHistoryChange={onExportHistoryChange}
+          summary={review.summary}
           totalRaw={review.summary.total_raw_input}
           totalUnique={review.summary.total_unique_input}
           totalDuplicates={review.summary.total_duplicates}

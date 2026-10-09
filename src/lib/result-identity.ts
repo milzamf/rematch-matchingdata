@@ -1,4 +1,5 @@
 import type { ReviewCandidate, ReviewItem } from "@/lib/api";
+import { normalizeLegalForm } from "@/lib/data-normalizer";
 
 type RecordValue = string | number | boolean | null;
 type RecordData = Record<string, RecordValue>;
@@ -6,10 +7,11 @@ export type IdentitySide = "input" | "reference";
 
 export type IdentitySemantic =
   | "name"
+  | "legal_form"
   | "strong_identifier"
   | "address"
-  | "province"
   | "city"
+  | "province"
   | "email"
   | "phone"
   | "person"
@@ -58,12 +60,10 @@ export type RecordIdentity = {
 const EXCLUDED_HINTS = [
   "industry",
   "sector",
-  "status",
   "kategori",
   "category",
   "sektor",
   "bidang",
-  "jenis",
 ];
 
 const COMPANY_NAME_HINTS = [
@@ -84,6 +84,9 @@ const COMPANY_NAME_HINTS = [
   "namaentitas",
   "namaentity",
   "namarekanan",
+  "namakontraktor",
+  "namavendor",
+  "namamitra",
   "namainstansi",
   "namawajibpajak",
   "namakomersial",
@@ -99,6 +102,58 @@ const COMPANY_NAME_HINTS = [
   "namainti",
   "corename",
 ];
+
+const LEGAL_FORM_HINTS = [
+  "badanusaha",
+  "bentukusaha",
+  "legalform",
+  "jenisusaha",
+  "jenisbadanusaha",
+  "statususaha",
+];
+
+const STRONG_IDENTIFIER_HINTS = [
+  "idperusahaan",
+  "companyid",
+  "idusaha",
+  "businessid",
+  "entityid",
+  "nib",
+  "npwp",
+  "nomornpwp",
+  "taxid",
+  "kodeperusahaan",
+  "kodeusaha",
+  "registrationnumber",
+  "registrationid",
+  "businessregistration",
+  "nomorizinusaha",
+  "noizinusaha",
+  "izinusaha",
+  "nomorizin",
+  "noizin",
+];
+
+const EMAIL_HINTS = ["emailperusahaan", "emailusaha", "email"];
+const PHONE_HINTS = ["notelp", "nomortelp", "notelepon", "telephone", "telepon", "phone", "nohp", "mobile"];
+const ADDRESS_HINTS = ["alamatperusahaan", "alamatoperasional", "alamatpenyedia", "address", "alamat", "jalan", "street", "addr", "lokasi"];
+const PROVINCE_HINTS = ["provinsi", "province", "nmprov", "kdprov", "prov"];
+const CITY_HINTS = ["kabupatenkota", "kabkota", "kabupaten", "regency", "city", "kota", "nmkab", "kdkab", "kab"];
+
+export function formatLegalFormDisplay(value: unknown): string {
+  if (value === null || value === undefined) return "-";
+  const raw = String(value).trim();
+  if (!raw) return "-";
+  const norm = normalizeLegalForm(raw);
+  if (!norm) return raw;
+  if (/^\d+$/.test(raw)) {
+    return `${raw} (${norm})`;
+  }
+  if (raw.toUpperCase().includes(`(${norm})`) || raw.toUpperCase() === norm) {
+    return raw;
+  }
+  return `${raw} (${norm})`;
+}
 
 export function isPersonOrContactColumn(columnName: string): boolean {
   const norm = normalizeColumnName(columnName);
@@ -174,59 +229,49 @@ export function isPersonOrContactColumn(columnName: string): boolean {
   return false;
 }
 
-const STRONG_IDENTIFIER_HINTS = [
-  "idperusahaan",
-  "companyid",
-  "idusaha",
-  "businessid",
-  "entityid",
-  "nib",
-  "npwp",
-  "nomornpwp",
-  "taxid",
-  "kodeperusahaan",
-  "kodeusaha",
-  "registrationnumber",
-  "registrationid",
-  "businessregistration",
-];
-
-const EMAIL_HINTS = ["emailperusahaan", "emailusaha", "email"];
-const PHONE_HINTS = ["notelp", "nomortelp", "notelepon", "telephone", "telepon", "phone", "nohp", "mobile"];
-const ADDRESS_HINTS = ["alamatperusahaan", "alamatoperasional", "address", "alamat", "jalan", "street", "addr", "lokasi"];
-const PROVINCE_HINTS = ["provinsi", "province", "nmprov", "prov"];
-const CITY_HINTS = ["kabupatenkota", "kabkota", "kabupaten", "regency", "city", "kota", "nmkab", "kab"];
-
 export function extractIdentityMappings(workflowState: unknown): IdentityFieldPair[] {
   const state = readRecord(workflowState);
   const columnMappings = Array.isArray(state.columnMappings) ? state.columnMappings : [];
+  const pairs: IdentityFieldPair[] = [];
 
-  return dedupePairs(
-    columnMappings
-      .map((mapping) => {
-        const item = readRecord(mapping);
-        const inputColumn =
-          readString(item.parent_input_column) ??
-          readString(item.parentInputColumn) ??
-          readString(item.inputColumnName);
-        const referenceColumn =
-          readString(item.parent_reference_column) ??
-          readString(item.parentReferenceColumn) ??
-          readString(item.referenceColumnName);
-        if (!inputColumn && !referenceColumn) return null;
+  for (const mapping of columnMappings) {
+    const item = readRecord(mapping);
+    const inputCol = readString(item.inputColumnName) ?? readString(item.input_column_name);
+    const refCol = readString(item.referenceColumnName) ?? readString(item.reference_column_name);
+    const parentInp = readString(item.parent_input_column) ?? readString(item.parentInputColumn);
+    const parentRef = readString(item.parent_reference_column) ?? readString(item.parentReferenceColumn);
+    const transform = readString(item.transform);
 
-        const semantic = classifyPairSemantic(inputColumn, referenceColumn);
+    // If parent raw entity name columns exist, preserve them as primary entity name pair
+    if (parentInp && parentRef) {
+      pairs.push({
+        semantic: "name",
+        inputColumn: parentInp,
+        referenceColumn: parentRef,
+        priority: 1,
+        source: "mapping",
+      });
+    }
 
-        return {
-          semantic,
-          inputColumn: inputColumn ?? null,
-          referenceColumn: referenceColumn ?? null,
-          priority: semanticPriority(semantic),
-          source: "mapping" as const,
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null),
-  );
+    if (inputCol || refCol) {
+      let semantic = classifyPairSemantic(inputCol, refCol);
+      if (transform === "EXTRACT_LEGAL_FORM" || (inputCol && matchesAny(normalizeColumnName(inputCol), LEGAL_FORM_HINTS))) {
+        semantic = "legal_form";
+      } else if (transform === "EXTRACT_CORE_NAME" || (inputCol && matchesAny(normalizeColumnName(inputCol), COMPANY_NAME_HINTS))) {
+        semantic = "name";
+      }
+
+      pairs.push({
+        semantic,
+        inputColumn: inputCol ?? null,
+        referenceColumn: refCol ?? null,
+        priority: semanticPriority(semantic),
+        source: "mapping",
+      });
+    }
+  }
+
+  return dedupePairs(pairs);
 }
 
 export function buildIdentitySummary(
@@ -270,15 +315,14 @@ export function buildRecordIdentity(
     pairs
       .map((pair) => {
         const column = side === "input" ? pair.inputColumn : pair.referenceColumn;
-        if (!column) return null;
-        const value = stringifyRecordValue(record[column]);
-        if (!value) return null;
+        const res = resolveRecordValueForPair(record, column, pair.semantic);
+        if (!res.value) return null;
 
         return {
           semantic: pair.semantic,
-          label: humanizeColumn(column),
-          column,
-          value,
+          label: bestLabel(res.column, null, pair.semantic),
+          column: res.column,
+          value: res.value,
           priority: semanticPriority(pair.semantic),
         };
       })
@@ -290,14 +334,11 @@ export function buildRecordIdentity(
     (left, right) => left.priority - right.priority,
   );
 
-  const headlineField =
-    fields.find((field) => field.semantic === "name") ??
-    fields.find((field) => field.semantic === "strong_identifier") ??
-    fields[0] ??
-    null;
+  const nameField = fields.find((field) => field.semantic === "name");
+  const headline = nameField?.value ?? "-";
 
-  const headline = headlineField?.value ?? "-";
   const location = buildLocationMeta(fields);
+  const legalForm = fields.find((field) => field.semantic === "legal_form" && field.value !== headline);
   const identifiers = fields
     .filter((field) => field.semantic === "strong_identifier" && field.value !== headline)
     .sort((left, right) => compareIdentifierFields(left, right))
@@ -308,6 +349,7 @@ export function buildRecordIdentity(
   const person = fields.find((field) => field.semantic === "person" && field.value !== headline);
 
   const metaParts = [
+    legalForm ? legalForm.value : null,
     ...identifiers.map((field) => formatIdentityField(field)),
     person ? formatIdentityField(person) : null,
     location,
@@ -340,14 +382,12 @@ export function buildSideIdentity(summary: IdentitySummary, side: IdentitySide):
     })
     .filter((item): item is IdentityFieldValue => Boolean(item));
 
-  const headlineField =
-    fields.find((field) => field.semantic === "name") ??
-    fields.find((field) => field.semantic === "strong_identifier") ??
-    fields[0] ??
-    null;
+  // The headline is strictly the entity name for symmetric alignment.
+  const nameField = fields.find((field) => field.semantic === "name");
+  const headline = nameField?.value ?? (side === "input" ? "-" : "(Nama tidak terisi di acuan)");
 
-  const headline = headlineField?.value ?? "-";
   const location = buildLocationMeta(fields);
+  const legalForm = fields.find((field) => field.semantic === "legal_form" && field.value !== headline);
   const identifiers = fields
     .filter((field) => field.semantic === "strong_identifier" && field.value !== headline)
     .sort((left, right) => compareIdentifierFields(left, right))
@@ -358,6 +398,7 @@ export function buildSideIdentity(summary: IdentitySummary, side: IdentitySide):
   const person = fields.find((field) => field.semantic === "person" && field.value !== headline);
 
   const metaParts = [
+    legalForm ? legalForm.value : null,
     ...identifiers.map((field) => formatIdentityField(field)),
     person ? formatIdentityField(person) : null,
     location,
@@ -409,24 +450,95 @@ function extractCandidatePairs(candidate: ReviewCandidate | null): IdentityField
   );
 }
 
+function resolveRecordValueForPair(
+  record: RecordData | null,
+  column: string | null,
+  semantic: IdentitySemantic,
+): { value: string | null; column: string | null } {
+  if (!record) return { value: null, column: null };
+
+  // 1. Direct match with column
+  if (column && record[column] !== undefined && record[column] !== null && String(record[column]).trim() !== "") {
+    const rawVal = stringifyRecordValue(record[column]);
+    return {
+      value: semantic === "legal_form" ? formatLegalFormDisplay(rawVal) : rawVal,
+      column,
+    };
+  }
+
+  // 2. Adaptive fallback based on semantic
+  if (semantic === "name") {
+    for (const k of [
+      "nama_penyedia",
+      "nama_perusahaan",
+      "[Generated] Nama Inti",
+      "nama_inti",
+      "nama_usaha",
+      "nama_rekanan",
+      "nama_kontraktor",
+      "nama_vendor",
+      "nama",
+      "name",
+      "company_name",
+    ]) {
+      if (record[k] !== undefined && record[k] !== null && String(record[k]).trim() !== "") {
+        return { value: stringifyRecordValue(record[k]), column: k };
+      }
+    }
+  } else if (semantic === "legal_form") {
+    for (const k of ["[Generated] Badan Usaha", "bentuk_usaha", "badan_usaha", "legal_form"]) {
+      if (record[k] !== undefined && record[k] !== null && String(record[k]).trim() !== "") {
+        const rawVal = stringifyRecordValue(record[k]);
+        return { value: formatLegalFormDisplay(rawVal), column: k };
+      }
+    }
+  } else if (semantic === "address") {
+    for (const k of ["alamat", "alamat_perusahaan", "alamat_operasional", "alamat_penyedia", "address", "jalan"]) {
+      if (record[k] !== undefined && record[k] !== null && String(record[k]).trim() !== "") {
+        return { value: stringifyRecordValue(record[k]), column: k };
+      }
+    }
+  } else if (semantic === "strong_identifier") {
+    for (const k of ["nib", "nomor_izin_usaha", "no_nib", "npwp_penyedia", "npwp", "nik", "id_perusahaan"]) {
+      if (record[k] !== undefined && record[k] !== null && String(record[k]).trim() !== "") {
+        return { value: stringifyRecordValue(record[k]), column: k };
+      }
+    }
+  } else if (semantic === "city") {
+    for (const k of ["kd_kab", "kab", "nmkab", "nm_kab", "kabupaten", "kota"]) {
+      if (record[k] !== undefined && record[k] !== null && String(record[k]).trim() !== "") {
+        return { value: stringifyRecordValue(record[k]), column: k };
+      }
+    }
+  } else if (semantic === "province") {
+    for (const k of ["kdprov", "prov", "nmprov", "nm_prov", "provinsi"]) {
+      if (record[k] !== undefined && record[k] !== null && String(record[k]).trim() !== "") {
+        return { value: stringifyRecordValue(record[k]), column: k };
+      }
+    }
+  }
+
+  return { value: null, column };
+}
+
 function buildAlignedRow(
   pair: IdentityFieldPair,
   inputRecord: RecordData,
   referenceRecord: RecordData | null,
 ): IdentitySummaryRow | null {
-  const inputValue = pair.inputColumn ? stringifyRecordValue(inputRecord[pair.inputColumn]) : null;
-  const referenceValue =
-    pair.referenceColumn && referenceRecord
-      ? stringifyRecordValue(referenceRecord[pair.referenceColumn])
-      : null;
+  const inputRes = resolveRecordValueForPair(inputRecord, pair.inputColumn, pair.semantic);
+  const refRes = resolveRecordValueForPair(referenceRecord, pair.referenceColumn, pair.semantic);
+
+  const inputValue = inputRes.value;
+  const referenceValue = refRes.value;
 
   if (!inputValue && !referenceValue) return null;
 
   return {
     semantic: pair.semantic,
-    label: bestLabel(pair.inputColumn, pair.referenceColumn, pair.semantic),
-    inputColumn: pair.inputColumn,
-    referenceColumn: pair.referenceColumn,
+    label: bestLabel(inputRes.column ?? pair.inputColumn, refRes.column ?? pair.referenceColumn, pair.semantic),
+    inputColumn: inputRes.column ?? pair.inputColumn,
+    referenceColumn: refRes.column ?? pair.referenceColumn,
     inputValue,
     referenceValue,
     changed: normalizeValue(inputValue) !== normalizeValue(referenceValue),
@@ -444,7 +556,18 @@ function buildFallbackRows(
   const referenceFields = referenceRecord ? rankRecordFields(referenceRecord) : [];
   const rows: IdentitySummaryRow[] = [];
 
-  for (const semantic of ["name", "strong_identifier", "address", "province", "city", "email", "phone", "person", "other"] as const) {
+  for (const semantic of [
+    "name",
+    "legal_form",
+    "address",
+    "strong_identifier",
+    "city",
+    "province",
+    "email",
+    "phone",
+    "person",
+    "other",
+  ] as const) {
     if (seenSemantics.has(semantic)) continue;
 
     const inputField = inputFields.find((field) => field.semantic === semantic) ?? null;
@@ -490,7 +613,7 @@ function rankRecordFields(record: RecordData): IdentityFieldValue[] {
       semantic: item.semantic,
       label: humanizeColumn(item.column),
       column: item.column,
-      value: item.value as string,
+      value: item.semantic === "legal_form" ? formatLegalFormDisplay(item.value) : (item.value as string),
       priority: semanticPriority(item.semantic),
       subPriority: item.semantic === "name" ? nameSubPriority(item.column) : 100,
     }))
@@ -547,9 +670,9 @@ function sameIdentityRow(row: IdentitySummaryRow, other: IdentitySummaryRow | nu
 function classifySemantic(columnName: string): IdentitySemantic {
   const normalized = normalizeColumnName(columnName);
 
-  if (isExcludedColumn(columnName)) return "other";
   if (isPersonOrContactColumn(columnName)) return "person";
   if (matchesAny(normalized, COMPANY_NAME_HINTS)) return "name";
+  if (matchesAny(normalized, LEGAL_FORM_HINTS)) return "legal_form";
   if (
     normalized === "nama" ||
     normalized === "name" ||
@@ -564,6 +687,7 @@ function classifySemantic(columnName: string): IdentitySemantic {
   if (matchesAny(normalized, CITY_HINTS)) return "city";
   if (matchesAny(normalized, EMAIL_HINTS)) return "email";
   if (matchesAny(normalized, PHONE_HINTS)) return "phone";
+  if (isExcludedColumn(columnName)) return "other";
 
   return "other";
 }
@@ -580,22 +704,24 @@ function semanticPriority(semantic: IdentitySemantic) {
   switch (semantic) {
     case "name":
       return 1;
-    case "strong_identifier":
+    case "legal_form":
       return 2;
     case "address":
       return 3;
-    case "province":
+    case "strong_identifier":
       return 4;
     case "city":
       return 5;
-    case "email":
+    case "province":
       return 6;
-    case "phone":
+    case "email":
       return 7;
-    case "person":
+    case "phone":
       return 8;
-    default:
+    case "person":
       return 9;
+    default:
+      return 10;
   }
 }
 
@@ -604,27 +730,54 @@ function bestLabel(
   referenceColumn: string | null,
   semantic: IdentitySemantic,
 ) {
-  return humanizeColumn(inputColumn ?? referenceColumn ?? semanticLabel(semantic));
+  switch (semantic) {
+    case "name":
+      return "Nama Entitas";
+    case "legal_form":
+      return "Bentuk Badan Usaha";
+    case "address":
+      return "Alamat";
+    case "city":
+      return "Kabupaten / Kota";
+    case "province":
+      return "Provinsi";
+    case "strong_identifier": {
+      const combined = `${inputColumn ?? ""} ${referenceColumn ?? ""}`.toLowerCase();
+      if (combined.includes("nib") || combined.includes("izin")) return "NIB";
+      if (combined.includes("npwp")) return "NPWP";
+      return "Nomor Identitas";
+    }
+    case "email":
+      return "Email";
+    case "phone":
+      return "Telepon";
+    case "person":
+      return "Penanggung Jawab / CP";
+    default:
+      return humanizeColumn(inputColumn ?? referenceColumn ?? semanticLabel(semantic));
+  }
 }
 
 function semanticLabel(semantic: IdentitySemantic) {
   switch (semantic) {
     case "name":
-      return "Company Name";
+      return "Nama Entitas";
+    case "legal_form":
+      return "Bentuk Badan Usaha";
     case "strong_identifier":
-      return "Identifier";
+      return "NIB / Identitas";
     case "address":
-      return "Address";
+      return "Alamat";
     case "province":
-      return "Province";
+      return "Provinsi";
     case "city":
-      return "Kabupaten/Kota";
+      return "Kabupaten / Kota";
     case "email":
       return "Email";
     case "phone":
-      return "Phone";
+      return "Telepon";
     case "person":
-      return "Contact Person / PIC";
+      return "Penanggung Jawab / CP";
     default:
       return "Field";
   }
@@ -659,12 +812,17 @@ function humanizeColumn(value: string) {
   if (norm === "cp") return "CP";
   if (norm === "nama pic" || norm === "namapic") return "Nama PIC";
   if (norm === "pic") return "PIC";
-  if (norm === "npwp") return "NPWP";
-  if (norm === "nib") return "NIB";
+  if (norm === "npwp" || norm === "npwp penyedia") return "NPWP";
+  if (norm === "nib" || norm === "nomor izin usaha" || norm === "no izin usaha") return "NIB";
   if (norm === "nama perusahaan") return "Nama Perusahaan";
   if (norm === "nama penyedia") return "Nama Penyedia";
   if (norm === "nama usaha") return "Nama Usaha";
   if (norm === "nama pengusaha") return "Nama Pengusaha";
+  if (norm === "bentuk usaha" || norm === "badan usaha" || norm === "generated badan usaha") return "Bentuk Badan Usaha";
+  if (norm === "generated nama inti" || norm === "nama inti") return "Nama Inti";
+  if (norm === "kd kab" || norm === "kdkab" || norm === "kab" || norm === "nmkab" || norm === "nm kab") return "Kabupaten / Kota";
+  if (norm === "kd prov" || norm === "kdprov" || norm === "prov" || norm === "nmprov" || norm === "nm prov") return "Provinsi";
+  if (norm === "alamat" || norm === "alamat perusahaan" || norm === "alamat operasional") return "Alamat";
 
   const normalized = value
     .replace(/[_\-]+/g, " ")
@@ -684,7 +842,7 @@ function compareIdentifierFields(left: IdentityFieldValue, right: IdentityFieldV
 
 function identifierPriority(label: string, column: string | null) {
   const normalized = normalizeColumnName(`${label}${column ?? ""}`);
-  if (normalized.includes("nib")) return 1;
+  if (normalized.includes("nib") || normalized.includes("izin")) return 1;
   if (normalized.includes("npwp") || normalized.includes("taxid")) return 2;
   if (normalized.includes("id")) return 3;
   return 4;
@@ -703,6 +861,16 @@ function matchesAny(value: string, patterns: string[]) {
 
 function isExcludedColumn(columnName: string) {
   const normalized = normalizeColumnName(columnName);
+  if (
+    matchesAny(normalized, COMPANY_NAME_HINTS) ||
+    matchesAny(normalized, LEGAL_FORM_HINTS) ||
+    matchesAny(normalized, STRONG_IDENTIFIER_HINTS) ||
+    matchesAny(normalized, ADDRESS_HINTS) ||
+    matchesAny(normalized, CITY_HINTS) ||
+    matchesAny(normalized, PROVINCE_HINTS)
+  ) {
+    return false;
+  }
   return EXCLUDED_HINTS.some((hint) => normalized.includes(hint));
 }
 

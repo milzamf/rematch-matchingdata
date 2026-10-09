@@ -19,7 +19,7 @@ class ReviewResultsController extends Controller
         try {
             return response()->json([
                 'success' => true,
-                'data' => $this->reviewResults->list($request->user(), $job),
+                'data' => $this->reviewResults->list($request->user(), $job, $request->query()),
             ]);
         } catch (ModelNotFoundException) {
             return response()->json([

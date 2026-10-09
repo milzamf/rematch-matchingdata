@@ -33,14 +33,17 @@ class MatchingConfigResolver
             ],
             'candidateGeneration' => [
                 'topN' => max(1, min(25, (int) ($candidateGeneration['topN'] ?? 3))),
-                'searchLimit' => max(30, (int) ($candidateGeneration['searchLimit'] ?? 30)),
+                'searchLimit' => isset($candidateGeneration['searchLimit'])
+                    ? max(max(1, min(25, (int) ($candidateGeneration['topN'] ?? 3))), min(50, (int) $candidateGeneration['searchLimit']))
+                    : max(max(1, min(25, (int) ($candidateGeneration['topN'] ?? 3))) * 2, 8),
             ],
-            'searchOptimization' => $configuration['searchOptimization'] ?? [
+            'searchOptimization' => array_merge([
                 'enabled' => true,
                 'mode' => 'auto',
                 'fields' => [],
                 'recommendedFields' => [],
-            ],
+                'candidatePruning' => true,
+            ], is_array($configuration['searchOptimization'] ?? null) ? $configuration['searchOptimization'] : []),
             'normalization' => $configuration['normalization'] ?? [
                 'mode' => 'auto',
                 'preset' => 'Entity Name',

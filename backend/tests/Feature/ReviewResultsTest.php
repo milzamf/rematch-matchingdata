@@ -211,6 +211,97 @@ class ReviewResultsTest extends TestCase
         ]);
     }
 
+    public function test_case_group_filtering_and_robust_identifier_matching(): void
+    {
+        $reference = $this->dataset('reference');
+        $input = $this->dataset('input');
+        $job = MatchingJob::create([
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'Robust Review Test',
+            'status' => 'completed',
+            'processed_count' => 3,
+            'total_count' => 3,
+        ]);
+
+        // Item 1: Auto-matched with pending review_status (should NOT pollute case groups)
+        $job->results()->create([
+            'input_record_key' => 'auto-1',
+            'reference_record_key' => 'ref-1',
+            'result_type' => 'matched',
+            'review_status' => 'pending',
+            'overall_score' => 100,
+            'candidate_rank' => 1,
+            'candidate_metadata' => [
+                'input_record' => ['name' => 'PT Mandiri Jaya', 'idsbr' => '12345'],
+                'reference_record' => ['name' => 'PT Mandiri Jaya', 'idsbr' => '99999'],
+            ],
+        ]);
+
+        // Item 2: Has idsbr & kode_kab but NO nib/npwp conflict. Should NOT be Preset 1.
+        $job->results()->create([
+            'input_record_key' => 'rev-1',
+            'reference_record_key' => 'ref-2',
+            'result_type' => 'possible_match',
+            'review_status' => 'pending',
+            'overall_score' => 84,
+            'candidate_rank' => 1,
+            'field_scores' => [[
+                'reference_column' => 'nama',
+                'input_column' => 'nama',
+                'score' => 84,
+                'comparison' => 'similar',
+            ]],
+            'candidate_metadata' => [
+                'input_record' => ['nama' => 'PT Maju Bersama', 'idsbr' => '98765', 'kode_kab' => '3201'],
+                'reference_record' => ['nama' => 'PT Maju Bersama Abadi', 'idsbr' => '54321', 'kode_kab' => '3201'],
+            ],
+            'decision_reason' => 'Fuzzy score in review range',
+        ]);
+
+        // Item 3: Has real NIB conflict. SHOULD be Preset 1.
+        $job->results()->create([
+            'input_record_key' => 'rev-2',
+            'reference_record_key' => 'ref-3',
+            'result_type' => 'possible_match',
+            'review_status' => 'pending',
+            'overall_score' => 88,
+            'candidate_rank' => 1,
+            'field_scores' => [[
+                'reference_column' => 'nama',
+                'input_column' => 'nama',
+                'score' => 88,
+                'comparison' => 'similar',
+            ]],
+            'candidate_metadata' => [
+                'input_record' => ['nama' => 'CV Sumber Makmur', 'nib' => '0123456789012'],
+                'reference_record' => ['nama' => 'CV Sumber Makmur', 'nib' => '9876543210987'],
+            ],
+            'decision_reason' => 'Identifier conflict on NIB',
+        ]);
+
+        $response = $this->getJson("/api/matching-jobs/{$job->id}/review-results")->assertOk();
+
+        // Ensure auto-matched item is not included in review items or case group keys
+        $items = collect($response->json('data.items'))->keyBy('input_record_key');
+        $presets = collect($response->json('data.system_presets'))->keyBy('id');
+
+        $nibPreset = $presets->get('system_preset_1_nib_conflict');
+        $this->assertNotNull($nibPreset);
+        // Only rev-2 has real NIB conflict; rev-1 must NOT be in Preset 1 because idsbr is not NIB/NPWP!
+        $this->assertContains('rev-2', $nibPreset['item_keys']);
+        $this->assertNotContains('rev-1', $nibPreset['item_keys']);
+        $this->assertNotContains('auto-1', $nibPreset['item_keys']);
+
+        // Now test server-side pagination with case_group_id filter
+        $filterResponse = $this->getJson("/api/matching-jobs/{$job->id}/review-results?case_group_id=system_preset_1_nib_conflict")
+            ->assertOk();
+
+        $filteredItems = $filterResponse->json('data.items');
+        $this->assertCount(1, $filteredItems);
+        $this->assertSame('rev-2', $filteredItems[0]['input_record_key']);
+    }
+
     private function dataset(string $role): Dataset
     {
         return Dataset::create([

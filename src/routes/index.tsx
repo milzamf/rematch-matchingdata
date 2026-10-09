@@ -142,7 +142,7 @@ function DashboardPage() {
             title={t("dashboard.real.loadingTitle")}
             description={t("dashboard.real.loadingDesc")}
           />
-        ) : workspaces.length === 0 ? (
+        ) : error ? null : workspaces.length === 0 ? (
           <Card className="p-8">
             <EmptyState
               icon={Inbox}
@@ -195,6 +195,53 @@ function DashboardPage() {
 
 function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
   const { t } = usePreferences();
+  const isProcessing =
+    workspace.status === "processing" ||
+    workspace.status === "matching" ||
+    workspace.matching_job?.status === "processing";
+  const processed = workspace.matching_job?.processed_count ?? 0;
+  const total = workspace.matching_job?.total_count ?? workspace.record_count ?? 0;
+  const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+  const currentStage = (workspace.matching_job?.record_counts as Record<string, unknown> | undefined)?.current_stage as string | undefined;
+
+  if (isProcessing) {
+    return (
+      <Card className="p-4 sm:p-6 min-w-0 border-brand/40 bg-brand/5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold">
+                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                {t("workspace.status.matching") || "Sedang Matching"} ({percent}%)
+              </span>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {processed.toLocaleString()} / {total.toLocaleString()} baris
+              </span>
+            </div>
+            <h2 className="mt-2 text-lg sm:text-xl font-bold tracking-tight text-foreground break-words">{workspace.name}</h2>
+            <div className="w-full max-w-xl bg-secondary rounded-full h-2 mt-3 overflow-hidden">
+              <div
+                className="bg-brand h-2 rounded-full transition-all duration-500"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground truncate">
+              {currentStage || "Proses matching sedang berlangsung di latar belakang..."}
+            </p>
+          </div>
+          <Link
+            to="/matching"
+            search={buildMatchingSearch(workspace.id, 2)}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground hover:opacity-90 w-full sm:w-auto min-h-[44px] shadow-sm transition-all active:scale-98"
+          >
+            <Loader2 className="size-4 animate-spin shrink-0" />
+            <span>Kembali ke Proses Matching</span>
+            <ArrowRight className="size-4 shrink-0" />
+          </Link>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className="p-4 sm:p-6 min-w-0">
@@ -476,8 +523,9 @@ type DashboardSummary = {
 };
 
 function buildDashboardSummary(workspaces: WorkspaceSummary[]): DashboardSummary {
-  const activeStatuses = new Set(["draft", "configuring", "matching", "reviewing", "ready_to_sync"]);
-  const latestActive = workspaces.find((workspace) => activeStatuses.has(workspace.status)) ?? null;
+  const activeStatuses = new Set(["draft", "configuring", "matching", "processing", "reviewing", "ready_to_sync"]);
+  const activeProcessing = workspaces.find((w) => w.status === "processing" || w.status === "matching" || w.matching_job?.status === "processing");
+  const latestActive = activeProcessing ?? workspaces.find((workspace) => activeStatuses.has(workspace.status)) ?? workspaces[0] ?? null;
   const reviewItems = workspaces.filter((workspace) => needReviewCount(workspace) > 0);
   const actionItems = workspaces.flatMap((workspace) => {
     const items: DashboardActionItem[] = [];
@@ -520,17 +568,16 @@ function needReviewCount(workspace: WorkspaceSummary) {
 }
 
 function stepLabel(step: number, t: ReturnType<typeof usePreferences>["t"]) {
-  const key = ["upload", "profiling", "mapping", "configure", "run", "review", "sync", "export"][
-    Math.max(0, Math.min(7, step - 1))
-  ];
-
-  return t(`step.${key}` as Parameters<typeof t>[0]);
+  const normalized = step === 4 || step === 5 ? 2 : step >= 6 ? 3 : Math.max(1, Math.min(3, step));
+  if (normalized === 1) return t("step.upload") || "Upload & Mapping";
+  if (normalized === 2) return t("step.configure") || "Konfigurasi & Matching";
+  return t("step.results") || "Review & Hasil";
 }
 
 function statusLabel(status: WorkspaceSummary["status"], t: ReturnType<typeof usePreferences>["t"]) {
   if (status === "draft") return t("workspace.status.draft");
   if (status === "configuring") return t("workspace.status.configuring");
-  if (status === "matching") return t("workspace.status.matching");
+  if (status === "matching" || status === "processing") return t("workspace.status.matching") || "Sedang Matching";
   if (status === "reviewing") return t("workspace.status.reviewing");
   if (status === "ready_to_sync") return t("workspace.status.ready_to_sync");
   if (status === "completed") return t("workspace.status.completed");

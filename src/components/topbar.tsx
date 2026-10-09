@@ -13,7 +13,7 @@ import { nav, secondaryNav } from "@/components/app-sidebar";
 import { useSidebarContext } from "@/lib/sidebar-context";
 
 export function Topbar() {
-  const { t, theme, setTheme, language, setLanguage } = usePreferences();
+  const { t, theme, setTheme, resolvedTheme, language, setLanguage } = usePreferences();
   const { can, currentUser, logout } = useAuth();
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
@@ -107,6 +107,21 @@ export function Topbar() {
               <span className="sm:hidden font-semibold">Baru</span>
             </Link>
           )}
+
+          {/* Quick theme toggle */}
+          <button
+            type="button"
+            onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+            className="group inline-flex items-center justify-center h-9 w-9 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-secondary active:scale-95 transition-all cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring shrink-0 shadow-xs"
+            title={resolvedTheme === "dark" ? "Ganti ke mode terang (Light mode)" : "Ganti ke mode gelap (Dark mode)"}
+            aria-label="Toggle tema terang/gelap"
+          >
+            {resolvedTheme === "dark" ? (
+              <Sun className="size-4 text-amber-500 transition-transform group-hover:rotate-45" />
+            ) : (
+              <Moon className="size-4 text-slate-700 transition-transform group-hover:-rotate-12" />
+            )}
+          </button>
 
           <button
             type="button"

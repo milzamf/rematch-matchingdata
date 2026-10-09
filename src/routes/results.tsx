@@ -165,7 +165,15 @@ function ResultsPage() {
   }, [navigate, requestedWorkspaceId, workspace?.id]);
 
   // 3. Review Results Query (cached per matching job ID)
-  const jobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
+  const defaultJobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
+  const [selectedJobIdOverride, setSelectedJobIdOverride] = useState<string | null>(null);
+
+  // Reset job override when workspace changes
+  useEffect(() => {
+    setSelectedJobIdOverride(null);
+  }, [selectedWorkspaceId]);
+
+  const jobId = selectedJobIdOverride ?? defaultJobId;
   const reviewQuery = useQuery({
     queryKey: ["review-results", jobId],
     queryFn: () => fetchReviewResults(jobId!),
@@ -183,7 +191,7 @@ function ResultsPage() {
   const [localExportHistory, setLocalExportHistory] = useState<StoredExportHistoryEntry[]>([]);
   const exportHistory = useMemo(() => {
     const fromWorkspace = normalizeStoredExportHistory(workspace?.export_history).filter((item) => {
-      const jId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
+      const jId = jobId ?? workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
       return !jId || !item.sourceJobId || item.sourceJobId === jId;
     });
     const combined = [...localExportHistory, ...fromWorkspace];
@@ -193,7 +201,7 @@ function ResultsPage() {
       seen.add(item.id);
       return true;
     });
-  }, [workspace, localExportHistory]);
+  }, [workspace, localExportHistory, jobId]);
   const syncSummary = useMemo(() => normalizeSyncSummary(workspace?.sync_state), [workspace?.sync_state]);
   const inputRecordCount =
     workspace?.input_dataset?.dataset.row_count ??
@@ -211,12 +219,42 @@ function ResultsPage() {
     () => extractIdentityMappings(workspace?.workflow_state),
     [workspace?.workflow_state],
   );
-  const hasResults = Boolean(workspace && (workspace.matching_job_id ?? workspace.matching_job?.id) && items.length > 0);
+  const hasResults = Boolean(workspace && jobId && items.length > 0);
   const activeStatuses = useMemo(() => countFinalStatuses(items), [items]);
-  const rawInputTotal = reviewQuery.data?.summary?.total_raw_input ?? inputRecordCount;
-  const uniqueInputTotal = reviewQuery.data?.summary?.total_unique_input ?? activeStatuses.total;
-  const duplicateTotal = reviewQuery.data?.summary?.total_duplicates ?? Math.max(0, rawInputTotal - uniqueInputTotal);
-  const duplicateDetails = reviewQuery.data?.summary?.duplicate_details ?? [];
+
+  const summary = reviewQuery.data?.summary;
+  const isJobCompleted = reviewQuery.data?.job?.status === "completed" || Boolean(summary?.is_completed);
+  const rawInputTotal = summary?.total_raw_input ?? inputRecordCount;
+  const uniqueInputTotal = summary?.total_unique_input ?? rawInputTotal;
+  const duplicateTotal = summary?.total_duplicates ?? Math.max(0, rawInputTotal - uniqueInputTotal);
+  const duplicateDetails = summary?.duplicate_details ?? [];
+
+  // Full-dataset job summary metrics (avoids calculating only from the current 25-record page)
+  const totalMatched = summary ? summary.matched : activeStatuses.matched;
+  const totalReview = summary ? summary.possible_match : activeStatuses.review;
+  const totalUnmatched = summary ? summary.unmatched : activeStatuses.unmatched;
+  const autoMatchedCount = summary?.auto_matched ?? (summary ? summary.matched : activeStatuses.autoMatched);
+  const manualAcceptedCount = summary?.manual_accepted ?? activeStatuses.manualAccepted;
+  const processedTotal = summary?.processed_count ?? (totalMatched + totalReview + totalUnmatched);
+  const isInterruptedJob = !isJobCompleted && processedTotal < uniqueInputTotal;
+  const unprocessedTotal = summary?.unprocessed_count ?? Math.max(0, uniqueInputTotal - processedTotal);
+
+  const jobSummaryStatuses = useMemo<FinalStatusCounts>(() => {
+    return {
+      total: processedTotal,
+      autoMatched: autoMatchedCount,
+      manualAccepted: manualAcceptedCount,
+      exactMatched: activeStatuses.exactMatched,
+      fuzzyMatched: activeStatuses.fuzzyMatched,
+      review: totalReview,
+      unmatched: totalUnmatched,
+      downgraded: activeStatuses.downgraded,
+      excluded: 0,
+      updatedReference: 0,
+      matched: totalMatched,
+    };
+  }, [processedTotal, autoMatchedCount, manualAcceptedCount, activeStatuses.exactMatched, activeStatuses.fuzzyMatched, totalReview, totalUnmatched, activeStatuses.downgraded, totalMatched]);
+
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const nextAction = useMemo(
     () =>
@@ -369,7 +407,25 @@ function ResultsPage() {
           </Card>
         ) : (
           <>
-            <ResultsContextHeader workspace={workspace} />
+            <ResultsContextHeader
+              workspace={workspace}
+              activeJobId={jobId}
+              onSelectJob={(newJobId) => setSelectedJobIdOverride(newJobId)}
+            />
+
+            {isInterruptedJob && (
+              <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-900 dark:text-amber-200">
+                <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-amber-900 dark:text-amber-100">
+                    Proses Matching Terhenti di Tengah Jalan ({formatNumber(processedTotal)} dari {formatNumber(uniqueInputTotal)} baris)
+                  </p>
+                  <p className="text-amber-800/90 dark:text-amber-300/90 leading-relaxed">
+                    Pekerjaan pencocokan ini dihentikan sebelum selesai. Angka <span className="font-semibold text-success">Match ({formatNumber(totalMatched)})</span>, <span className="font-semibold text-warning">Perlu Review ({formatNumber(totalReview)})</span>, dan <span className="font-semibold text-muted-foreground">Tidak Match ({formatNumber(totalUnmatched)})</span> di bawah mencerminkan total <strong>{formatNumber(processedTotal)} baris</strong> yang berhasil diproses sebelum proses dihentikan. Sebanyak <strong>{formatNumber(unprocessedTotal)} baris</strong> belum sempat dievaluasi.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="mb-6 grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
@@ -378,22 +434,24 @@ function ResultsPage() {
                 sublabel={
                   duplicateTotal > 0
                     ? `${formatNumber(rawInputTotal)} total · ${formatNumber(duplicateTotal)} duplikat diabaikan`
-                    : undefined
+                    : isInterruptedJob
+                      ? `${formatNumber(processedTotal)} dari ${formatNumber(uniqueInputTotal)} baris selesai diproses`
+                      : undefined
                 }
               />
               <StatCard
                 label={t("results.metric.match")}
-                value={formatNumber(activeStatuses.matched)}
+                value={formatNumber(totalMatched)}
                 tone="success"
               />
               <StatCard
                 label={t("results.metric.review")}
-                value={formatNumber(activeStatuses.review)}
+                value={formatNumber(totalReview)}
                 tone="warning"
               />
               <StatCard
                 label={t("results.metric.unmatched")}
-                value={formatNumber(activeStatuses.unmatched)}
+                value={formatNumber(totalUnmatched)}
                 tone="destructive"
               />
             </div>
@@ -423,19 +481,19 @@ function ResultsPage() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <ContextMetric
                     label={t("results.summary.autoMatched")}
-                    value={formatNumber(activeStatuses.autoMatched)}
+                    value={formatNumber(autoMatchedCount)}
                   />
                   <ContextMetric
                     label={t("results.summary.manualAccepted")}
-                    value={formatNumber(activeStatuses.manualAccepted)}
+                    value={formatNumber(manualAcceptedCount)}
                   />
                   <ContextMetric
                     label={t("results.summary.needReview")}
-                    value={formatNumber(activeStatuses.review)}
+                    value={formatNumber(totalReview)}
                   />
                   <ContextMetric
                     label={t("results.summary.finalUnmatched")}
-                    value={formatNumber(activeStatuses.unmatched)}
+                    value={formatNumber(totalUnmatched)}
                   />
                 </div>
               </div>
@@ -463,7 +521,7 @@ function ResultsPage() {
               <div className={tab === "overview" ? "block" : "hidden"}>
                 <OverviewTab
                   workspace={workspace}
-                  activeStatuses={activeStatuses}
+                  activeStatuses={jobSummaryStatuses}
                   inputRecordCount={inputRecordCount}
                   totalRaw={rawInputTotal}
                   totalUnique={uniqueInputTotal}
@@ -599,9 +657,18 @@ function ResultsPage() {
   );
 }
 
-function ResultsContextHeader({ workspace }: { workspace: WorkspaceSummary }) {
+function ResultsContextHeader({
+  workspace,
+  activeJobId,
+  onSelectJob,
+}: {
+  workspace: WorkspaceSummary;
+  activeJobId?: string | null;
+  onSelectJob?: (jobId: string) => void;
+}) {
   const { t } = usePreferences();
-  const jobId = workspace.matching_job_id ?? workspace.matching_job?.id ?? null;
+  const currentJobId = activeJobId ?? workspace.matching_job_id ?? workspace.matching_job?.id ?? null;
+  const jobsList = workspace.matching_jobs ?? (workspace.matching_job ? [workspace.matching_job] : []);
 
   return (
     <Card className="mb-6 p-5">
@@ -619,10 +686,28 @@ function ResultsContextHeader({ workspace }: { workspace: WorkspaceSummary }) {
           label={t("results.context.status")}
           value={workspaceStatusLabel(workspace.status, t)}
         />
-        <ContextMetric
-          label={t("results.context.job")}
-          value={jobId ?? t("common.notAvailable")}
-        />
+        <div>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("results.context.job")}
+          </span>
+          {jobsList.length > 1 ? (
+            <select
+              value={currentJobId ?? ""}
+              onChange={(e) => onSelectJob?.(e.target.value)}
+              className="mt-1 w-full rounded border border-border bg-background px-2 py-1 text-xs font-mono font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-brand"
+            >
+              {jobsList.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.id.slice(0, 8)}... ({j.status === "completed" ? "Selesai 100%" : j.status === "cancelled" ? `Berhenti (${(j.processed_count ?? 0).toLocaleString("id-ID")} baris)` : j.status})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="mt-1 text-sm font-semibold font-mono text-foreground truncate">
+              {currentJobId ?? t("common.notAvailable")}
+            </p>
+          )}
+        </div>
       </div>
     </Card>
   );
@@ -1741,9 +1826,11 @@ function ReviewHistoryTab({
                   {paginatedCaseGroups.map((group) => {
                     const latest = latestDecision(group.decision_history ?? []);
                     const exceptions = groupExceptions(group);
-                    const representativeCandidate = selectDisplayCandidate(group.representative);
+                    const rep = group.representative;
+                    if (!rep) return null;
+                    const representativeCandidate = selectDisplayCandidate(rep);
                     const identity = buildIdentitySummary(
-                      group.representative,
+                      rep,
                       representativeCandidate,
                       identityMappings,
                     );

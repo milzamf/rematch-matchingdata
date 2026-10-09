@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { parseEntityName, standardizeColumnValue } from "@/lib/data-normalizer";
 import { usePreferences } from "@/lib/preferences";
-import { fetchDatasetRows, fetchWorkspaceStandardizedPreview, type PaginatedDatasetRowsResult } from "@/lib/api";
+import { fetchDatasetRows, fetchWorkspaceStandardizedPreview, fetchReviewResults, type PaginatedDatasetRowsResult } from "@/lib/api";
+import { buildIntentExportRows } from "@/lib/result-exports";
 
 function findCompanyValueInRow(row: Record<string, unknown>): string | null {
   const companyKeyRegex =
@@ -148,9 +149,12 @@ export interface DataPreviewColumn {
 }
 
 export interface DataPreviewTableProps {
+  jobId?: string;
   datasetId?: string;
   workspaceId?: string;
   role?: "input" | "reference";
+  exportPreset?: "master_update" | "full_audit" | "pending_review";
+  autoEnrich?: boolean;
   title: string;
   subtitle?: string;
   filename?: string;
@@ -167,9 +171,12 @@ export interface DataPreviewTableProps {
 }
 
 export function DataPreviewTable({
+  jobId,
   datasetId,
   workspaceId,
   role,
+  exportPreset,
+  autoEnrich,
   title,
   subtitle,
   filename,
@@ -201,9 +208,9 @@ export function DataPreviewTable({
   const effectivePlaceholder = searchPlaceholder ?? t("preview.searchPlaceholder");
   const effectiveEmptyMessage = emptyMessage ?? t("preview.emptyMessage");
 
-  // Fetch paginated rows from backend when datasetId or workspaceId is provided
+  // Fetch paginated rows from backend when datasetId, workspaceId, or jobId is provided
   useEffect(() => {
-    if (!isModalOpen || (!datasetId && !(workspaceId && role))) {
+    if (!isModalOpen || (!datasetId && !(workspaceId && role) && !jobId)) {
       setServerData(null);
       return;
     }
@@ -214,35 +221,54 @@ export function DataPreviewTable({
 
     const timer = setTimeout(async () => {
       try {
-        let res: PaginatedDatasetRowsResult;
         if (workspaceId && role) {
-          res = await fetchWorkspaceStandardizedPreview(workspaceId, {
+          const res = await fetchWorkspaceStandardizedPreview(workspaceId, {
             role,
             page: currentPage,
             per_page: pageSize,
             search: searchQuery.trim() || undefined,
           });
+          if (!isCancelled) {
+            setServerData({
+              data: res.data,
+              total: res.total,
+            });
+          }
         } else if (datasetId) {
-          res = await fetchDatasetRows(datasetId, {
+          const res = await fetchDatasetRows(datasetId, {
             page: currentPage,
             per_page: pageSize,
             search: searchQuery.trim() || undefined,
             standardized: Boolean(role || columns.some((c) => c.isStandardized || c.isVirtual)),
           });
-        } else {
-          return;
-        }
-
-        if (!isCancelled) {
-          setServerData({
-            data: res.data,
-            total: res.total,
+          if (!isCancelled) {
+            setServerData({
+              data: res.data,
+              total: res.total,
+            });
+          }
+        } else if (jobId) {
+          const reviewData = await fetchReviewResults(jobId, {
+            page: currentPage,
+            per_page: pageSize,
+            search: searchQuery.trim() || undefined,
+            status: exportPreset === "pending_review" ? "possible_match" : "all",
           });
+          const exportTable = buildIntentExportRows(reviewData.items, {
+            preset: exportPreset ?? "master_update",
+            autoEnrich: Boolean(autoEnrich),
+          });
+          if (!isCancelled) {
+            setServerData({
+              data: exportTable.rows,
+              total: reviewData.pagination?.total_items ?? reviewData.items.length,
+            });
+          }
         }
       } catch (err) {
         if (!isCancelled) {
-          console.error("fetch dataset preview rows error:", err);
-          setServerError(err instanceof Error ? err.message : "Gagal memuat baris dataset");
+          console.error("fetch preview rows error:", err);
+          setServerError(err instanceof Error ? err.message : "Gagal memuat baris data");
         }
       } finally {
         if (!isCancelled) {
@@ -255,7 +281,7 @@ export function DataPreviewTable({
       isCancelled = true;
       clearTimeout(timer);
     };
-  }, [isModalOpen, datasetId, workspaceId, role, currentPage, pageSize, searchQuery]);
+  }, [isModalOpen, datasetId, workspaceId, role, jobId, exportPreset, autoEnrich, currentPage, pageSize, searchQuery]);
 
   // Normalize and deduplicate column definitions
   const columns: DataPreviewColumn[] = useMemo(() => {
@@ -302,7 +328,7 @@ export function DataPreviewTable({
   // Dynamic row counts & pagination bounds
   const activeTotalRows = serverData !== null
     ? serverData.total
-    : (searchQuery.trim() ? filteredClientRows.length : (datasetId ? totalRows : filteredClientRows.length));
+    : (searchQuery.trim() ? filteredClientRows.length : (totalRows ?? filteredClientRows.length));
   const totalPages = Math.max(1, Math.ceil(activeTotalRows / pageSize));
 
   // Paginated rows for expanded modal

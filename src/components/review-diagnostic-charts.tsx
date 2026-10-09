@@ -20,7 +20,7 @@ import {
 } from "recharts";
 
 import { Card } from "@/components/app-layout";
-import type { ReviewItem } from "@/lib/api";
+import type { ReviewItem, ReviewCaseGroup } from "@/lib/api";
 import { usePreferences } from "@/lib/preferences";
 
 export interface ColumnMappingDraft {
@@ -34,7 +34,9 @@ export interface ColumnMappingDraft {
 
 export interface ReviewDiagnosticChartsProps {
   items: ReviewItem[];
+  caseGroups?: ReviewCaseGroup[];
   columnMappings?: ColumnMappingDraft[];
+  fieldQualitySummary?: Record<string, FieldQualityStat> | null;
   thresholds?: {
     autoMatch?: number;
     review?: number;
@@ -74,7 +76,9 @@ export interface ParetoStat {
 
 export function ReviewDiagnosticCharts({
   items,
+  caseGroups = [],
   columnMappings = [],
+  fieldQualitySummary,
   thresholds,
   autoMatchThreshold,
   reviewThreshold,
@@ -119,6 +123,10 @@ export function ReviewDiagnosticCharts({
 
   // 1. Compute Field Quality Summary Data across mapped comparison fields with dynamic thresholds
   const fieldQualityStats = useMemo<FieldQualityStat[]>(() => {
+    if (fieldQualitySummary && Object.keys(fieldQualitySummary).length > 0) {
+      return Object.values(fieldQualitySummary);
+    }
+
     if (!items || items.length === 0) return [];
 
     const statsMap = new Map<
@@ -218,9 +226,8 @@ export function ReviewDiagnosticCharts({
 
   // 2. Compute Pareto Root-Cause Distribution for Review/Unmatched records
   const paretoStats = useMemo<ParetoStat[]>(() => {
-    if (!items || items.length === 0) return [];
-
     const causeCounts: Record<string, number> = {
+      "review.rootCause.identifierConflict": 0,
       "review.rootCause.legalConflict": 0,
       "review.rootCause.numericMismatch": 0,
       "review.rootCause.fieldConflict": 0,
@@ -234,8 +241,43 @@ export function ReviewDiagnosticCharts({
 
     let totalReviewCases = 0;
 
-    for (const item of items) {
-      if (item.status === "matched") continue;
+    if (caseGroups && caseGroups.length > 0 && caseGroups.some((g) => (g.item_count ?? 0) > 0)) {
+      for (const group of caseGroups) {
+        const count = group.item_count ?? 0;
+        if (count <= 0) continue;
+        totalReviewCases += count;
+        const pattern = group.pattern ?? "";
+
+        if (pattern === "IDENTIFIER_CONFLICT") {
+          causeCounts["review.rootCause.identifierConflict"] += count;
+        } else if (pattern === "LEGAL_FORM_CONFLICT") {
+          causeCounts["review.rootCause.legalConflict"] += count;
+        } else if (pattern === "NUMERIC_MISMATCH") {
+          causeCounts["review.rootCause.numericMismatch"] += count;
+        } else if (
+          pattern === "FIELD_CONFLICT" ||
+          pattern === "MULTI_CANDIDATE_AMBIGUITY"
+        ) {
+          causeCounts["review.rootCause.fieldConflict"] += count;
+        } else if (
+          pattern === "GEO_LOCATION_CONFLICT" ||
+          pattern === "ADDRESS_CONFLICT" ||
+          pattern === "SAME_NAME_ADDRESS_DIFF_CITY"
+        ) {
+          causeCounts["review.rootCause.regionMismatch"] += count;
+        } else if (pattern === "SIMILAR_NAME_REVIEW") {
+          causeCounts["review.rootCause.similarName"] += count;
+        } else if (pattern === "LOW_CONFIDENCE_MATCH") {
+          causeCounts["review.rootCause.lowScore"] += count;
+        } else if (pattern === "NO_CANDIDATE") {
+          causeCounts["review.rootCause.noCandidate"] += count;
+        } else {
+          causeCounts["review.rootCause.other"] += count;
+        }
+      }
+    } else if (items && items.length > 0) {
+      for (const item of items) {
+        if (item.status === "matched") continue;
 
       totalReviewCases++;
       const topCandidate = item.candidates?.[0];
@@ -245,6 +287,18 @@ export function ReviewDiagnosticCharts({
       const decisionReason = (topCandidate?.decision_reason ?? "").toLowerCase();
 
       if (
+        pattern === "IDENTIFIER_CONFLICT" ||
+        downgradeReason.includes("nib") ||
+        downgradeReason.includes("npwp") ||
+        downgradeReason.includes("nik") ||
+        downgradeReason.includes("identifier") ||
+        decisionReason.includes("nib") ||
+        decisionReason.includes("npwp") ||
+        decisionReason.includes("nik") ||
+        decisionReason.includes("identifier")
+      ) {
+        causeCounts["review.rootCause.identifierConflict"]++;
+      } else if (
         pattern === "LEGAL_FORM_CONFLICT" ||
         downgradeReason.includes("legal") ||
         decisionReason.includes("legal") ||
@@ -261,16 +315,23 @@ export function ReviewDiagnosticCharts({
         causeCounts["review.rootCause.numericMismatch"]++;
       } else if (
         pattern === "FIELD_CONFLICT" ||
+        pattern === "MULTI_CANDIDATE_AMBIGUITY" ||
         downgradeReason.includes("field") ||
         decisionReason.includes("field") ||
-        downgradeReason.includes("atribut")
+        downgradeReason.includes("atribut") ||
+        downgradeReason.includes("ambigu")
       ) {
         causeCounts["review.rootCause.fieldConflict"]++;
       } else if (
+        pattern === "GEO_LOCATION_CONFLICT" ||
+        pattern === "ADDRESS_CONFLICT" ||
+        pattern === "SAME_NAME_ADDRESS_DIFF_CITY" ||
         downgradeReason.includes("region") ||
         downgradeReason.includes("wilayah") ||
         downgradeReason.includes("alamat") ||
-        decisionReason.includes("wilayah")
+        decisionReason.includes("wilayah") ||
+        decisionReason.includes("kota") ||
+        decisionReason.includes("kabupaten")
       ) {
         causeCounts["review.rootCause.regionMismatch"]++;
       } else if (
@@ -297,6 +358,7 @@ export function ReviewDiagnosticCharts({
         causeCounts["review.rootCause.other"]++;
       }
     }
+  }
 
     if (totalReviewCases === 0) return [];
 
@@ -321,7 +383,7 @@ export function ReviewDiagnosticCharts({
         isVitalFew,
       };
     });
-  }, [items, autoMatch]);
+  }, [items, caseGroups, autoMatch]);
 
   const paretoChartData = useMemo(() => {
     return paretoStats.map((stat) => ({
