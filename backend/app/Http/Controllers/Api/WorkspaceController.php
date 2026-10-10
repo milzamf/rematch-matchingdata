@@ -85,11 +85,30 @@ class WorkspaceController extends Controller
         $data = $request->validated();
         $this->assertLinkedResources($request, $data);
 
+        // Safety: If workspace already has a completed matching job, prevent stale client autosave from reverting matching_job_id or overwriting completed runResult
+        if ($model->matchingJob && $model->matchingJob->status === 'completed') {
+            if (isset($data['matching_job_id']) && $data['matching_job_id'] !== $model->matching_job_id) {
+                $requestedJob = MatchingJob::find($data['matching_job_id']);
+                if (! $requestedJob || $requestedJob->status !== 'completed') {
+                    $data['matching_job_id'] = $model->matching_job_id;
+                }
+            }
+            if (isset($data['workflow_state']['runResult'])) {
+                $incomingCounts = $data['workflow_state']['runResult']['summary'] ?? [];
+                $incomingTotal = ($incomingCounts['matched'] ?? 0) + ($incomingCounts['possible_match'] ?? 0) + ($incomingCounts['unmatched'] ?? 0);
+                if ($incomingTotal === 0 && ! empty($model->workflow_state['runResult'])) {
+                    $data['workflow_state']['runResult'] = $model->workflow_state['runResult'];
+                    $data['workflow_state']['runState'] = 'success';
+                    $data['workflow_state']['progress'] = 100;
+                }
+            }
+        }
+
         $model->update($data);
 
         return response()->json([
             'success' => true,
-            'data' => $this->payload($model->load(['user', 'referenceDataset.columns', 'inputDataset.columns', 'matchingJob'])),
+            'data' => $this->payload($model->load(['user', 'referenceDataset.columns', 'inputDataset.columns', 'matchingJob', 'matchingJobs'])),
         ]);
     }
 
@@ -110,6 +129,14 @@ class WorkspaceController extends Controller
      */
     private function payload(Workspace $workspace): array
     {
+        $activeJob = $workspace->matchingJob;
+        if ($workspace->relationLoaded('matchingJobs') && $workspace->matchingJobs->isNotEmpty()) {
+            $latestJob = $workspace->matchingJobs->sortByDesc('created_at')->first();
+            if (! $activeJob || ($latestJob && $latestJob->created_at > $activeJob->created_at)) {
+                $activeJob = $latestJob;
+            }
+        }
+
         return [
             'id' => $workspace->id,
             'name' => $workspace->name,
@@ -117,8 +144,8 @@ class WorkspaceController extends Controller
             'current_step' => $workspace->current_step,
             'reference_dataset_id' => $workspace->reference_dataset_id,
             'input_dataset_id' => $workspace->input_dataset_id,
-            'matching_job_id' => $workspace->matching_job_id,
-            'record_count' => $workspace->inputDataset?->row_count ?? $workspace->matchingJob?->total_count,
+            'matching_job_id' => $activeJob?->id ?? $workspace->matching_job_id,
+            'record_count' => $workspace->inputDataset?->row_count ?? $activeJob?->total_count,
             'owner' => $workspace->user ? [
                 'id' => $workspace->user->getKey(),
                 'name' => $workspace->user->name,
@@ -130,7 +157,7 @@ class WorkspaceController extends Controller
             'export_history' => $workspace->export_history,
             'reference_dataset' => $this->datasetPayload($workspace->referenceDataset),
             'input_dataset' => $this->datasetPayload($workspace->inputDataset),
-            'matching_job' => $this->jobPayload($workspace->matchingJob),
+            'matching_job' => $this->jobPayload($activeJob),
             'matching_jobs' => $workspace->relationLoaded('matchingJobs')
                 ? $workspace->matchingJobs->sortByDesc('created_at')->values()->map(fn ($j) => $this->jobPayload($j))->all()
                 : [],
@@ -147,6 +174,14 @@ class WorkspaceController extends Controller
      */
     private function summaryPayload(Workspace $workspace): array
     {
+        $activeJob = $workspace->matchingJob;
+        if ($workspace->relationLoaded('matchingJobs') && $workspace->matchingJobs->isNotEmpty()) {
+            $latestJob = $workspace->matchingJobs->sortByDesc('created_at')->first();
+            if (! $activeJob || ($latestJob && $latestJob->created_at > $activeJob->created_at)) {
+                $activeJob = $latestJob;
+            }
+        }
+
         return [
             'id' => $workspace->id,
             'name' => $workspace->name,
@@ -154,15 +189,15 @@ class WorkspaceController extends Controller
             'current_step' => $workspace->current_step,
             'reference_dataset_id' => $workspace->reference_dataset_id,
             'input_dataset_id' => $workspace->input_dataset_id,
-            'matching_job_id' => $workspace->matching_job_id,
-            'record_count' => $workspace->inputDataset?->row_count ?? $workspace->matchingJob?->total_count,
+            'matching_job_id' => $activeJob?->id ?? $workspace->matching_job_id,
+            'record_count' => $workspace->inputDataset?->row_count ?? $activeJob?->total_count,
             'owner' => $workspace->user ? [
                 'id' => $workspace->user->getKey(),
                 'name' => $workspace->user->name,
                 'email' => $workspace->user->email,
                 'role' => $workspace->user->roleEnum()->value,
             ] : null,
-            'matching_job' => $this->jobPayload($workspace->matchingJob),
+            'matching_job' => $this->jobPayload($activeJob),
             'reference_dataset' => $workspace->referenceDataset ? [
                 'dataset' => [
                     'id' => $workspace->referenceDataset->id,

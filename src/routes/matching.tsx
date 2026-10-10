@@ -683,11 +683,20 @@ function MatchingPage() {
           (snapshot?.columnMappings as ColumnMappingDraft[] | undefined) ?? [];
         const restoredConfiguration =
           (snapshot?.matchingConfiguration as MatchingConfiguration | null | undefined) ?? null;
-        const actualJobStatus = workspace.matching_job?.status ?? snapshot?.runResult?.job.status ?? null;
+        const latestJob = workspace.matching_job ?? workspace.matching_jobs?.[0] ?? null;
+        const actualJobStatus = latestJob?.status ?? snapshot?.runResult?.job.status ?? null;
         const isJobActive = actualJobStatus === "processing" || actualJobStatus === "queued";
-        const restoredRunResult = isJobActive
-          ? (jobToRunResult(workspace) ?? snapshot?.runResult ?? null)
-          : (snapshot?.runResult ?? jobToRunResult(workspace) ?? null);
+        const jobResult = jobToRunResult(workspace);
+        
+        let restoredRunResult: MatchingRunResult | null = null;
+        if (jobResult) {
+          restoredRunResult = {
+            ...jobResult,
+            top_results: (snapshot?.runResult?.top_results?.length ? snapshot.runResult.top_results : jobResult.top_results) ?? [],
+          };
+        } else {
+          restoredRunResult = snapshot?.runResult ?? null;
+        }
         
         let restoredRunState: RunState = "idle";
         if (actualJobStatus === "completed") {
@@ -1869,11 +1878,11 @@ function mergeUploadSnapshot(
 }
 
 function jobToRunResult(workspace: WorkspaceSummary): MatchingRunResult | null {
-  const job = workspace.matching_job;
+  const job = workspace.matching_job ?? workspace.matching_jobs?.[0];
 
   if (!job) return null;
 
-  const counts = job.record_counts ?? {};
+  const counts = (job.record_counts ?? {}) as Record<string, any>;
   const percentage =
     job.total_count > 0 ? Math.round((job.processed_count / job.total_count) * 10000) / 100 : 0;
 
@@ -1892,14 +1901,22 @@ function jobToRunResult(workspace: WorkspaceSummary): MatchingRunResult | null {
       status: job.status,
       processed: job.processed_count,
       total: job.total_count,
-      percentage,
-      stage: ((counts as Record<string, unknown>).current_stage as string | undefined) ?? null,
+      percentage: job.status === "completed" ? 100 : percentage,
+      stage: (counts.current_stage as string | undefined) ?? (job.status === "completed" ? "Matching selesai" : null),
+    },
+    checkpoint: {
+      is_resumed: Boolean(counts.is_resumed),
+      resumed_at_record: typeof counts.resumed_at_record === "number" ? counts.resumed_at_record : 0,
     },
     summary: {
-      matched: counts.matched ?? 0,
-      possible_match: counts.possible_match ?? 0,
-      unmatched: counts.unmatched ?? 0,
-      candidates_scored: counts.candidates_scored ?? 0,
+      matched: Number(counts.matched ?? 0),
+      possible_match: Number(counts.possible_match ?? 0),
+      unmatched: Number(counts.unmatched ?? 0),
+      candidates_scored: Number(counts.candidates_scored ?? 0),
+      total_raw_input: Number(counts.total_raw_input ?? job.total_count),
+      total_unique_input: Number(counts.total_unique_input ?? job.total_count),
+      total_duplicates: Number(counts.total_duplicates ?? 0),
+      duplicate_details: counts.duplicate_details ?? [],
     },
     top_results: [],
   };

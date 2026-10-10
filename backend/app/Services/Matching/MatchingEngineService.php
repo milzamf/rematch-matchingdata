@@ -353,10 +353,49 @@ class MatchingEngineService
             $targetWorkspace = $job->workspace ?? ($job->workspace_id ? Workspace::find($job->workspace_id) : Workspace::where('matching_job_id', $job->id)->first());
             if ($targetWorkspace !== null) {
                 if ($finalStatus === 'completed') {
+                    $workflowState = $targetWorkspace->workflow_state ?? [];
+                    $workflowState['runResult'] = [
+                        'job' => [
+                            'id' => $job->id,
+                            'name' => $job->name,
+                            'status' => 'completed',
+                            'reference_dataset_id' => $job->reference_dataset_id,
+                            'input_dataset_id' => $job->input_dataset_id,
+                            'started_at' => optional($job->started_at)->toISOString(),
+                            'finished_at' => optional($job->finished_at)->toISOString(),
+                            'error_message' => null,
+                        ],
+                        'progress' => [
+                            'status' => 'completed',
+                            'processed' => $job->processed_count,
+                            'total' => $job->total_count,
+                            'percentage' => 100,
+                            'stage' => 'Matching selesai',
+                        ],
+                        'checkpoint' => [
+                            'is_resumed' => (bool) ($finalRecordCounts['is_resumed'] ?? false),
+                            'resumed_at_record' => (int) ($finalRecordCounts['resumed_at_record'] ?? 0),
+                        ],
+                        'summary' => [
+                            'matched' => (int) ($finalRecordCounts['matched'] ?? 0),
+                            'possible_match' => (int) ($finalRecordCounts['possible_match'] ?? 0),
+                            'unmatched' => (int) ($finalRecordCounts['unmatched'] ?? 0),
+                            'candidates_scored' => (int) ($finalRecordCounts['candidates_scored'] ?? 0),
+                            'total_raw_input' => (int) ($finalRecordCounts['total_raw_input'] ?? $job->total_count),
+                            'total_unique_input' => (int) ($finalRecordCounts['total_unique_input'] ?? $job->total_count),
+                            'total_duplicates' => (int) ($finalRecordCounts['total_duplicates'] ?? 0),
+                            'duplicate_details' => $finalRecordCounts['duplicate_details'] ?? [],
+                        ],
+                        'top_results' => $workflowState['runResult']['top_results'] ?? [],
+                    ];
+                    $workflowState['runState'] = 'success';
+                    $workflowState['progress'] = 100;
+
                     $targetWorkspace->update([
                         'matching_job_id' => $job->id,
                         'status' => 'reviewing',
                         'current_step' => 3,
+                        'workflow_state' => $workflowState,
                     ]);
                 } elseif (in_array($finalStatus, ['cancelled', 'stopped'])) {
                     $targetWorkspace->update([
