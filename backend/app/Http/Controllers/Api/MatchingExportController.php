@@ -26,30 +26,43 @@ class MatchingExportController extends Controller
         $autoEnrich = filter_var($request->query('auto_enrich', true), FILTER_VALIDATE_BOOLEAN);
         $sheet = strtolower(trim((string) $request->query('sheet', '')));
 
-        // Prepare base query - only candidate_rank = 1 represents primary matching result
+        // Export the latest accepted candidate, including a manually selected
+        // rank 2/3 candidate, and use the same effective status as Review.
+        $effectiveType = \Illuminate\Support\Facades\DB::raw('COALESCE(active_decision.new_result_type, matching_results.result_type)');
         $query = MatchingResult::query()
-            ->where('matching_job_id', $matchingJob->id)
-            ->where('candidate_rank', 1)
-            ->orderBy('id');
+            ->leftJoin('review_decisions as active_decision', function ($join) {
+                $join->on('active_decision.matching_job_id', '=', 'matching_results.matching_job_id')
+                    ->on('active_decision.input_record_key', '=', 'matching_results.input_record_key')
+                    ->whereNull('active_decision.undone_at')
+                    ->whereRaw('active_decision.id = (SELECT rd.id FROM review_decisions rd WHERE rd.matching_job_id = matching_results.matching_job_id AND rd.input_record_key = matching_results.input_record_key AND rd.undone_at IS NULL ORDER BY rd.created_at DESC, rd.id DESC LIMIT 1)');
+            })
+            ->select('matching_results.*')
+            ->selectRaw('COALESCE(active_decision.new_result_type, matching_results.result_type) AS result_type')
+            ->where('matching_results.matching_job_id', $matchingJob->id)
+            ->where(function ($q) {
+                $q->whereColumn('matching_results.id', 'active_decision.matching_result_id')
+                    ->orWhere(fn ($base) => $base->whereNull('active_decision.matching_result_id')->where('candidate_rank', 1));
+            })
+            ->orderBy('matching_results.id');
 
         // Apply filters based on preset and optional sheet tab
         if ($preset === 'master_update') {
             if ($sheet === 'matched') {
-                $query->where('result_type', 'matched');
+                $query->where($effectiveType, 'matched');
             } elseif ($sheet === 'unmatched' || $sheet === 'new' || $sheet === 'new_entity') {
-                $query->where('result_type', 'unmatched');
+                $query->where($effectiveType, 'unmatched');
             } else {
-                $query->whereIn('result_type', ['matched', 'unmatched']);
+                $query->whereIn($effectiveType, ['matched', 'unmatched']);
             }
         } elseif ($preset === 'pending_review') {
-            $query->where('result_type', 'possible_match');
+            $query->where($effectiveType, 'possible_match');
         } elseif ($preset === 'full_audit') {
             if ($sheet === 'matched') {
-                $query->where('result_type', 'matched');
+                $query->where($effectiveType, 'matched');
             } elseif ($sheet === 'unmatched') {
-                $query->where('result_type', 'unmatched');
+                $query->where($effectiveType, 'unmatched');
             } elseif ($sheet === 'need_review' || $sheet === 'pending') {
-                $query->where('result_type', 'possible_match');
+                $query->where($effectiveType, 'possible_match');
             } elseif ($sheet === 'rejected') {
                 $query->where('review_status', 'reviewed')
                     ->where('review_decision', 'reject_match');
@@ -112,6 +125,8 @@ class MatchingExportController extends Controller
             $headers[] = 'review_reason';
         }
 
+        if ($autoEnrich) $headers[] = 'enrichment_changes';
+
         $baseName = Str::slug($matchingJob->name ?: 'matching-results');
         $presetSuffix = match ($preset) {
             'master_update' => 'master-update',
@@ -143,6 +158,10 @@ class MatchingExportController extends Controller
                 $ref = (array) ($meta['reference_record'] ?? []);
                 $status = $record->result_type;
                 $isMatched = $status === 'matched';
+                $enrichment = $autoEnrich && $isMatched
+                    ? app(\App\Services\Matching\AddressComparator::class)->enrich($ref, $inp, $record->field_scores ?? [])
+                    : ['values' => $ref, 'changes' => []];
+                $enrichedReference = $enrichment['values'];
 
                 if ($preset === 'master_update') {
                     $row = [
@@ -156,17 +175,13 @@ class MatchingExportController extends Controller
                     if ($autoEnrich) {
                         foreach ($refCols as $c) {
                             if ($isMatched) {
-                                $refVal = $ref[$c] ?? null;
-                                $inpVal = $inp[$c] ?? null;
-                                $val = ($refVal !== null && trim((string) $refVal) !== '')
-                                    ? $refVal
-                                    : (($inpVal !== null && trim((string) $inpVal) !== '') ? $inpVal : null);
-                                $row[] = $val;
+                                $row[] = $enrichedReference[$c] ?? null;
                             } else {
                                 $row[] = null;
                             }
                         }
                     }
+                    if ($autoEnrich) $row[] = json_encode($enrichment['changes'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
                     fputcsv($out, $row);
                 } else {
                     $matchStatus = match ($status) {
@@ -193,10 +208,7 @@ class MatchingExportController extends Controller
                         $row[] = $refVal;
                         if ($autoEnrich) {
                             if ($isMatched) {
-                                $val = ($refVal !== null && trim((string) $refVal) !== '')
-                                    ? $refVal
-                                    : (($inpVal !== null && trim((string) $inpVal) !== '') ? $inpVal : null);
-                                $row[] = $val;
+                                $row[] = $enrichedReference[$field] ?? $refVal;
                             } else {
                                 $row[] = null;
                             }
@@ -206,6 +218,7 @@ class MatchingExportController extends Controller
                     $row[] = $record->review_decision;
                     $row[] = $record->decision_reason;
 
+                    if ($autoEnrich) $row[] = json_encode($enrichment['changes'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
                     fputcsv($out, $row);
                 }
             }

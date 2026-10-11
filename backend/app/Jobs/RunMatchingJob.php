@@ -17,7 +17,9 @@ class RunMatchingJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 0;
+    public int $timeout = 21600;
+
+    public array $backoff = [30, 120, 300];
 
     public int $tries = 3;
 
@@ -28,7 +30,7 @@ class RunMatchingJob implements ShouldQueue
     public function handle(MatchingEngineService $engine): void
     {
         if (ini_get('memory_limit') !== '-1') {
-            @ini_set('memory_limit', '4096M');
+            @ini_set('memory_limit', '1024M');
         }
 
         $job = MatchingJob::with(['workspace', 'referenceDataset', 'inputDataset'])->find($this->matchingJobId);
@@ -50,15 +52,16 @@ class RunMatchingJob implements ShouldQueue
                 'trace' => $exception->getTraceAsString(),
             ]);
 
+            $willRetry = $this->job !== null && $this->attempts() < $this->tries;
             $job->update([
-                'status' => 'failed',
+                'status' => $willRetry ? 'queued' : 'failed',
                 'error_message' => substr($exception->getMessage(), 0, 1000),
-                'finished_at' => Carbon::now(),
+                'finished_at' => $willRetry ? null : Carbon::now(),
             ]);
 
             if ($job->workspace) {
                 $job->workspace->update([
-                    'status' => 'failed',
+                    'status' => $willRetry ? 'processing' : 'failed',
                 ]);
             }
 
@@ -70,7 +73,7 @@ class RunMatchingJob implements ShouldQueue
     {
         $rawMessage = $exception->getMessage();
         if (str_contains($rawMessage, 'attempted too many times') || str_contains($rawMessage, 'MaxAttemptsExceededException')) {
-            $errorMessage = 'Proses terputus karena antrean/container sempat di-restart saat matching berjalan. Silakan klik tombol "Coba lagi" untuk memulai ulang proses matching.';
+            $errorMessage = 'Batas percobaan antrean tercapai. Periksa log worker untuk penyebab awal (timeout, memori, atau layanan pencarian). Coba lagi untuk melanjutkan checkpoint yang tersedia.';
         } else {
             $errorMessage = substr($rawMessage, 0, 1000);
         }

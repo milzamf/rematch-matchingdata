@@ -1,4 +1,4 @@
-import type { ReviewItem } from "@/lib/api";
+import type { ReviewItem, ReviewCandidate } from "@/lib/api";
 import type { ExportTable } from "@/lib/export-files";
 
 export type ExportStatus = "matched" | "new" | "rejected" | "pending";
@@ -26,6 +26,33 @@ export type StoredExportHistoryEntry = {
   includeScore: boolean;
   sourceJobId: string | null;
 };
+
+function selectedExportCandidate(item: ReviewItem): ReviewCandidate | null {
+  const selectedKey = item.decision?.selected_reference_record_key;
+  return (selectedKey ? item.candidates.find((c) => c.reference_record_key === selectedKey) : null)
+    ?? item.candidates[0] ?? null;
+}
+
+function enrichAddress(item: ReviewItem, candidate: ReviewCandidate | null) {
+  const reference = candidate?.reference_record ?? {};
+  const values = { ...reference };
+  const changes: Array<{ field: string; original: unknown; proposed: unknown; source: string; source_field: string }> = [];
+  const scores = candidate?.field_scores ?? [];
+  if (scores.some((field) => field.identity_conflict || field.numeric_mismatch ||
+    (/kabupaten|kota|provinsi|nm_?kab|nm_?prov|kd_?kab|kd_?prov|regency|province/i.test(`${field.reference_column} ${field.input_column}`) && field.score < 100))) {
+    return { values, changes };
+  }
+  for (const field of scores) {
+    const evidence = field.address_evidence;
+    const proposed = item.input_record[field.input_column];
+    if (evidence?.compatible && !evidence.conflict && evidence.richer_side === "input" && proposed != null) {
+      values[field.reference_column] = proposed;
+      changes.push({ field: field.reference_column, original: reference[field.reference_column] ?? null,
+        proposed, source: "input", source_field: field.input_column });
+    }
+  }
+  return { values, changes };
+}
 
 export function buildIntentExportRows(
   items: ReviewItem[],
@@ -62,10 +89,11 @@ export function buildIntentExportRows(
 
   if (preset === "master_update") {
     const rows = filteredItems.map((item) => {
-      const candidate = item.candidates[0] ?? null;
+      const candidate = selectedExportCandidate(item);
       const refRecord = candidate?.reference_record ?? {};
       const status = exportStatus(item);
       const isMatched = status === "matched";
+      const enrichment = enrichAddress(item, candidate);
 
       const row: Record<string, string | number | boolean | null> = {
         input_record_key: item.input_record_key,
@@ -79,7 +107,7 @@ export function buildIntentExportRows(
 
       if (autoEnrich && isMatched) {
         refCols.forEach((col) => {
-          const refVal = refRecord[col];
+          const refVal = enrichment.values[col];
           const inpVal = item.input_record[col];
           const enrichedVal =
             refVal !== undefined && refVal !== null && String(refVal).trim() !== ""
@@ -91,6 +119,7 @@ export function buildIntentExportRows(
         });
       }
 
+      if (autoEnrich) row.enrichment_changes = JSON.stringify(isMatched ? enrichment.changes : []);
       return row;
     });
 
@@ -99,7 +128,7 @@ export function buildIntentExportRows(
       "match_status",
       "reference_record_key",
       ...inputCols.map((c) => `input.${c}`),
-      ...(autoEnrich ? refCols.map((c) => `enriched.${c}`) : []),
+      ...(autoEnrich ? [...refCols.map((c) => `enriched.${c}`), "enrichment_changes"] : []),
     ];
 
     return {
@@ -113,9 +142,10 @@ export function buildIntentExportRows(
   const pairedFields = Array.from(new Set([...inputCols, ...refCols]));
 
   const rows = filteredItems.map((item) => {
-    const candidate = item.candidates[0] ?? null;
+    const candidate = selectedExportCandidate(item);
     const refRecord = candidate?.reference_record ?? {};
     const status = exportStatus(item);
+    const enrichment = enrichAddress(item, candidate);
 
     const row: Record<string, string | number | boolean | null> = {
       input_record_key: item.input_record_key,
@@ -139,9 +169,10 @@ export function buildIntentExportRows(
       row[`ref.${field}`] = (refVal as string | number | boolean | null) ?? null;
 
       if (autoEnrich && status === "matched") {
+        const refEnriched = enrichment.values[field] ?? refVal;
         const enriched =
-          refVal !== undefined && refVal !== null && String(refVal).trim() !== ""
-            ? refVal
+          refEnriched !== undefined && refEnriched !== null && String(refEnriched).trim() !== ""
+            ? refEnriched
             : inpVal !== undefined && inpVal !== null && String(inpVal).trim() !== ""
               ? inpVal
               : null;
@@ -155,6 +186,7 @@ export function buildIntentExportRows(
       row.review_reviewer = item.decision.reviewer ?? null;
     }
 
+    if (autoEnrich) row.enrichment_changes = JSON.stringify(status === "matched" ? enrichment.changes : []);
     return row;
   });
 
@@ -173,6 +205,7 @@ export function buildIntentExportRows(
     "matching_score",
     "reference_record_key",
     ...dynamicColumns,
+    ...(autoEnrich ? ["enrichment_changes"] : []),
     "review_decision",
     "review_reason",
   ];
@@ -295,7 +328,7 @@ export function buildExportRows(
   const rows = items
     .filter((item) => options.statuses.includes(exportStatus(item)))
     .map((item) => {
-      const candidate = item.candidates[0] ?? null;
+      const candidate = selectedExportCandidate(item);
       const row: Record<string, string | number | boolean | null> = {
         input_record_key: item.input_record_key,
         final_status: exportStatus(item),

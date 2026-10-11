@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { Dispatch, SetStateAction } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
@@ -28,13 +28,18 @@ import {
   VerificationEvidenceBadge,
   VerificationEvidenceBreakdown,
 } from "@/components/verification-evidence";
-import { ReviewDiagnosticCharts } from "@/components/review-diagnostic-charts";
+const ReviewDiagnosticCharts = lazy(() =>
+  import("@/components/review-diagnostic-charts").then((module) => ({
+    default: module.ReviewDiagnosticCharts,
+  })),
+);
 import {
   DuplicateSummaryBanner,
   DuplicateRecordsDialog,
 } from "@/components/duplicate-records-dialog";
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { DataPreviewTable } from "@/components/data-preview-table";
+import { RefreshIndicator, TableLoadingSkeleton } from "@/components/table-loading";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { standardizeColumnValue, parseEntityName } from "@/lib/data-normalizer";
@@ -301,6 +306,8 @@ function MatchingPage() {
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [reference, setReference] = useState<UploadedFile | null>(null);
   const [input, setInput] = useState<UploadedFile | null>(null);
+  const [pendingUploads, setPendingUploads] = useState<Partial<Record<DatasetRole, { name: string; size: number }>>>({});
+  const isInspectingUpload = Boolean(pendingUploads.reference || pendingUploads.input);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [runState, setRunState] = useState<RunState>("idle");
   const [progress, setProgress] = useState(0);
@@ -616,6 +623,7 @@ function MatchingPage() {
                   total,
                   percentage: pct,
                   stage: data.stage ?? prev?.progress?.stage,
+                  stage_progress: data.stage_progress ?? prev?.progress?.stage_progress,
                 },
                 checkpoint: data.checkpoint ?? prev?.checkpoint ?? null,
                 summary: {
@@ -916,7 +924,8 @@ function MatchingPage() {
       !canUpdateWorkspace ||
       runState === "running" ||
       reference?.status === "loading" ||
-      input?.status === "loading"
+      input?.status === "loading" ||
+      isInspectingUpload
     ) {
       return;
     }
@@ -977,6 +986,7 @@ function MatchingPage() {
     workspaceStatus,
     canUpdateWorkspace,
     isHydratingWorkspace,
+    isInspectingUpload,
   ]);
 
   const ensureWorkspace = (role: DatasetRole, result: DatasetInspectResult) => {
@@ -1023,6 +1033,8 @@ function MatchingPage() {
         });
 
         workspaceIdRef.current = workspace.id;
+        // The newly created workspace already has its inspected data in local state.
+        hydratedWorkspaceRouteRef.current = workspace.id;
         setWorkspaceId(workspace.id);
         setWorkspaceName(workspace.name);
         setWorkspaceSaveState("saved");
@@ -1218,27 +1230,12 @@ function MatchingPage() {
 
     if (err) {
       setUploadError(err);
-      const errorState: UploadedFile = { name: file.name, size: file.size, status: "error", error: err };
-      if (role === "reference") {
-        referenceRef.current = errorState;
-        setReference(errorState);
-      } else {
-        inputRef.current = errorState;
-        setInput(errorState);
-      }
       toast.error(t("feedback.toast.invalidFile"));
       return;
     }
 
     setUploadError(null);
-    const loadingState: UploadedFile = { name: file.name, size: file.size, status: "loading" };
-    if (role === "reference") {
-      referenceRef.current = loadingState;
-      setReference(loadingState);
-    } else {
-      inputRef.current = loadingState;
-      setInput(loadingState);
-    }
+    setPendingUploads((current) => ({ ...current, [role]: { name: file.name, size: file.size } }));
 
     try {
       const result = await inspectDataset({ file, datasetRole: role });
@@ -1264,16 +1261,14 @@ function MatchingPage() {
           : null;
       const message =
         fieldError || (error instanceof ApiError ? error.message : t("matching.upload.inspectFailed"));
-      const failState: UploadedFile = { name: file.name, size: file.size, status: "error", error: message };
-      if (role === "reference") {
-        referenceRef.current = failState;
-        setReference(failState);
-      } else {
-        inputRef.current = failState;
-        setInput(failState);
-      }
       setUploadError(message);
       toast.error(message || t("feedback.toast.invalidFile"));
+    } finally {
+      setPendingUploads((current) => {
+        const next = { ...current };
+        delete next[role];
+        return next;
+      });
     }
   };
 
@@ -1363,6 +1358,7 @@ function MatchingPage() {
   };
 
   const handleNextStep = async () => {
+    if (isInspectingUpload) return;
     if (activeStep === 1) {
       if (validMappings.length === 0) {
         toast.error(t("feedback.error.validationTitle"), {
@@ -1450,6 +1446,7 @@ function MatchingPage() {
   };
 
   const selectStep = (nextStep: number) => {
+    if (isInspectingUpload) return;
     if (nextStep === activeStep) return;
 
     if (nextStep === 2) {
@@ -1595,6 +1592,7 @@ function MatchingPage() {
                   <StepUpload
                     reference={reference}
                     input={input}
+                    pendingUploads={pendingUploads}
                     onInspectFile={handleInspectFile}
                     onClearReference={() => {
                       if (referenceRef.current)
@@ -1610,10 +1608,10 @@ function MatchingPage() {
                     error={uploadError}
                   />
 
-                  {(reference?.result || input?.result) && (
+                  {(reference?.result || input?.result || isInspectingUpload) && (
                     <>
                       <div className="border-t border-border pt-4 sm:pt-6">
-                        <StepDataPreview reference={reference?.result} input={input?.result} />
+                        <StepDataPreview reference={reference?.result} input={input?.result} pendingUploads={pendingUploads} />
                       </div>
 
                       <div className="border-t border-border pt-4 sm:pt-6">
@@ -1623,14 +1621,14 @@ function MatchingPage() {
                   )}
 
                   {referenceColumns.length > 0 && inputColumns.length > 0 && (
-                    <div className="border-t border-border pt-4 sm:pt-6">
+                    <fieldset disabled={isInspectingUpload} className="border-t border-border pt-4 sm:pt-6 disabled:opacity-60">
                       <StepColumnMapping
                         referenceColumns={referenceColumns}
                         inputColumns={inputColumns}
                         mappings={columnMappings}
                         setMappings={setColumnMappings}
                       />
-                    </div>
+                    </fieldset>
                   )}
                 </div>
               )}
@@ -1723,7 +1721,7 @@ function MatchingPage() {
                 ) : (
                   <button
                     type="button"
-                    disabled={isNavigatingStep || workspaceSaveState === "saving"}
+                    disabled={isNavigatingStep || workspaceSaveState === "saving" || isInspectingUpload}
                     onClick={handleNextStep}
                     className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium bg-brand text-brand-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity cursor-pointer"
                   >
@@ -1996,6 +1994,7 @@ function workspaceSaveStateLabel(
 function StepUpload({
   reference,
   input,
+  pendingUploads,
   onInspectFile,
   onClearReference,
   onClearInput,
@@ -2003,6 +2002,7 @@ function StepUpload({
 }: {
   reference: UploadedFile | null;
   input: UploadedFile | null;
+  pendingUploads: Partial<Record<DatasetRole, { name: string; size: number }>>;
   onInspectFile: (role: DatasetRole, file: File) => void;
   onClearReference: () => void;
   onClearInput: () => void;
@@ -2018,6 +2018,7 @@ function StepUpload({
           hint={t("matching.upload.referenceHint")}
           icon={Database}
           file={reference}
+          pendingFile={pendingUploads.reference}
           onFile={(file) => onInspectFile("reference", file)}
           onClear={onClearReference}
         />
@@ -2026,6 +2027,7 @@ function StepUpload({
           hint={t("matching.upload.inputHint")}
           icon={FileSpreadsheet}
           file={input}
+          pendingFile={pendingUploads.input}
           onFile={(file) => onInspectFile("input", file)}
           onClear={onClearInput}
         />
@@ -2049,6 +2051,7 @@ function FileSlot({
   hint,
   icon: Icon,
   file,
+  pendingFile,
   onFile,
   onClear,
 }: {
@@ -2056,12 +2059,13 @@ function FileSlot({
   hint: string;
   icon: typeof Database;
   file: UploadedFile | null;
+  pendingFile?: { name: string; size: number };
   onFile: (f: File) => void;
   onClear: () => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const { t } = usePreferences();
-  const isLoading = file?.status === "loading";
+  const isLoading = Boolean(pendingFile) || file?.status === "loading";
   const isSuccess = file?.status === "success";
   const isError = file?.status === "error";
 
@@ -2088,15 +2092,15 @@ function FileSlot({
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-xs sm:text-sm font-semibold text-foreground">{label}</p>
-          {file ? (
+          {file || pendingFile ? (
             <div className="mt-0.5 space-y-0.5 sm:space-y-1">
               <p className="text-[11px] sm:text-xs text-muted-foreground truncate">
-                {file.name} · {(file.size / 1024 / 1024).toFixed(2)} MB
+                {(file ?? pendingFile)!.name} · {((file ?? pendingFile)!.size / 1024 / 1024).toFixed(2)} MB
               </p>
               {isLoading && (
-                <p className="text-[11px] sm:text-xs text-accent">{t("matching.upload.inspecting")}</p>
+                <p className="text-[11px] sm:text-xs text-accent">{t("matching.upload.inspecting")}{pendingFile && file ? ` · ${pendingFile.name}` : ""}</p>
               )}
-              {isSuccess && file.result && (
+              {isSuccess && file?.result && (
                 <p className="text-[11px] sm:text-xs text-muted-foreground">
                   {t("matching.upload.inspected", {
                     rows: file.result.dataset.row_count,
@@ -2104,7 +2108,7 @@ function FileSlot({
                   })}
                 </p>
               )}
-              {isError && file.error && <p className="text-[11px] sm:text-xs text-destructive">{file.error}</p>}
+              {isError && file?.error && <p className="text-[11px] sm:text-xs text-destructive">{file.error}</p>}
             </div>
           ) : (
             <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 leading-snug">{hint}</p>
@@ -2227,13 +2231,15 @@ function DatasetProfileCard({
 function StepDataPreview({
   reference,
   input,
+  pendingUploads = {},
 }: {
   reference?: DatasetInspectResult;
   input?: DatasetInspectResult;
+  pendingUploads?: Partial<Record<DatasetRole, { name: string; size: number }>>;
 }) {
   const { t } = usePreferences();
 
-  if (!reference && !input) return null;
+  if (!reference && !input && !pendingUploads.reference && !pendingUploads.input) return null;
 
   return (
     <div className="space-y-4">
@@ -2243,6 +2249,7 @@ function StepDataPreview({
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {!reference && pendingUploads.reference && <TableLoadingSkeleton label={t("matching.upload.inspecting")} />}
         {reference && (
           <DataPreviewTable
             datasetId={reference.dataset.id}
@@ -2257,6 +2264,7 @@ function StepDataPreview({
           />
         )}
 
+        {!input && pendingUploads.input && <TableLoadingSkeleton label={t("matching.upload.inspecting")} />}
         {input && (
           <DataPreviewTable
             datasetId={input.dataset.id}
@@ -4881,6 +4889,9 @@ function StepRunCard({
   const [isStalled, setIsStalled] = useState(false);
   const runStartedAtRef = useRef<number | null>(null);
   const lastProcessedRef = useRef<number>(0);
+  const lastStageProcessedRef = useRef<number>(0);
+  const lastStagePhaseRef = useRef<string | null>(null);
+  const lastStageHeartbeatRef = useRef<string | null>(null);
   const lastProgressUpdateRef = useRef<number>(Date.now());
 
   const hasResumableCheckpoint = Boolean(
@@ -4906,6 +4917,20 @@ function StepRunCard({
       }
       lastProgressUpdateRef.current = Date.now();
       lastProcessedRef.current = result?.progress?.processed ?? 0;
+      lastStageProcessedRef.current = result?.progress?.stage_progress?.processed ?? 0;
+      lastStagePhaseRef.current = result?.progress?.stage_progress?.phase ?? null;
+      lastStageHeartbeatRef.current = result?.progress?.stage_progress?.heartbeat_at ?? null;
+    }
+
+    const observedStageProgress = result?.progress?.stage_progress;
+    const heartbeatChanged = Boolean(observedStageProgress?.heartbeat_at && observedStageProgress.heartbeat_at !== lastStageHeartbeatRef.current);
+    const observedPhaseChanged = (observedStageProgress?.phase ?? null) !== lastStagePhaseRef.current;
+    if (heartbeatChanged || observedPhaseChanged) {
+      lastStageHeartbeatRef.current = observedStageProgress?.heartbeat_at ?? null;
+      lastStagePhaseRef.current = observedStageProgress?.phase ?? null;
+      lastStageProcessedRef.current = observedStageProgress?.processed ?? 0;
+      lastProgressUpdateRef.current = Date.now();
+      setIsStalled(false);
     }
 
     const interval = setInterval(() => {
@@ -4915,8 +4940,14 @@ function StepRunCard({
       }
 
       const currentProcessed = result?.progress?.processed ?? 0;
-      if (currentProcessed > lastProcessedRef.current) {
+      const stageProgress = result?.progress?.stage_progress;
+      const currentStageProcessed = stageProgress?.processed ?? 0;
+      const phaseChanged = (stageProgress?.phase ?? null) !== lastStagePhaseRef.current;
+      if (currentProcessed > lastProcessedRef.current || phaseChanged || currentStageProcessed > lastStageProcessedRef.current) {
         lastProcessedRef.current = currentProcessed;
+        lastStageProcessedRef.current = currentStageProcessed;
+        lastStagePhaseRef.current = stageProgress?.phase ?? null;
+        lastStageHeartbeatRef.current = stageProgress?.heartbeat_at ?? lastStageHeartbeatRef.current;
         lastProgressUpdateRef.current = now;
         setIsStalled(false);
       } else if (now - lastProgressUpdateRef.current > 10000) {
@@ -4925,7 +4956,7 @@ function StepRunCard({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [state, result?.progress?.processed, result?.job?.started_at]);
+  }, [state, result?.progress?.processed, result?.progress?.stage_progress?.processed, result?.progress?.stage_progress?.phase, result?.progress?.stage_progress?.heartbeat_at, result?.job?.started_at]);
 
   const formatDurationClock = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -4999,7 +5030,7 @@ function StepRunCard({
       return {
         label: stage,
         sublabel: isStalled
-          ? "Sedang memproses komputasi batch besar (mesin tetap aktif)..."
+          ? "Belum ada progres baru lebih dari 10 detik. Worker mungkin tertahan saat membaca data atau menulis cache."
           : "Algoritma pencocokan multi-kandidat sedang memproses data",
         icon: isStalled ? Hourglass : Activity,
         isCheckpoint: isResumed,
@@ -5240,6 +5271,13 @@ function StepRunCard({
               <span>Progres Keseluruhan</span>
               <span className="font-semibold tabular-nums text-foreground">{Math.round(progress)}%</span>
             </div>
+            {result?.progress?.stage_progress && result.progress.stage_progress.phase !== "matching_input" && (
+              <p className="text-[10px] text-muted-foreground">
+                Persiapan: {result.progress.stage_progress.label} — {result.progress.stage_progress.processed.toLocaleString("id-ID")}
+                {result.progress.stage_progress.total > 0 ? ` / ${result.progress.stage_progress.total.toLocaleString("id-ID")}` : ""}
+                {result.progress.stage_progress.total > 0 ? ` (${result.progress.stage_progress.percentage}%)` : ""}
+              </p>
+            )}
           </div>
 
           {/* Metric Stat Cards (Waktu Berjalan, Estimasi Sisa, Progres Data) */}
@@ -5615,7 +5653,22 @@ function StepReview({
 }) {
   const { t } = usePreferences();
   const [review, setReview] = useState<ReviewResults | null>(null);
+  const [recordUpdates, setRecordUpdates] = useState<ReviewResults | null>(null);
+  const [caseGroupData, setCaseGroupData] = useState<ReviewResults | null>(null);
+  const [qualityData, setQualityData] = useState<ReviewResults["field_quality_summary"]>();
+  useEffect(() => {
+    setQualityData(undefined);
+    if (!jobId) return;
+    const controller = new AbortController();
+    fetchReviewResults(jobId, { include_groups: false, include_quality: true, per_page: 10 }, controller.signal)
+      .then((data) => { if (!controller.signal.aborted) setQualityData(data.field_quality_summary ?? {}); })
+      .catch(() => { if (!controller.signal.aborted) setQualityData({}); });
+    return () => controller.abort();
+  }, [jobId]);
+  const [caseGroupLoadedKey, setCaseGroupLoadedKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [caseGroupsLoading, setCaseGroupsLoading] = useState(false);
+  const [caseGroupsError, setCaseGroupsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"case_groups" | "all_records">("case_groups");
   const [caseGroupFilter, setCaseGroupFilter] = useState<CaseGroupFilter>("open");
@@ -5654,6 +5707,17 @@ function StepReview({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [debouncedQuery, setDebouncedQuery] = useState(query);
+  const [loadedRequestKey, setLoadedRequestKey] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [exitingRecordKeys, setExitingRecordKeys] = useState<string[]>([]);
+  const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const requestKey = JSON.stringify([jobId, page, pageSize, filter, debouncedQuery]);
+  const isCurrentPage = loadedRequestKey === requestKey;
+  const caseGroupRequestKey = JSON.stringify([jobId]);
+  const reviewContextRef = useRef({ jobId, requestKey, filter });
+  reviewContextRef.current = { jobId, requestKey, filter };
+  useEffect(() => () => exitTimers.current.forEach(clearTimeout), []);
+
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -5671,10 +5735,17 @@ function StepReview({
   useEffect(() => {
     if (!jobId) {
       setReview(null);
+      setLoading(false);
+      setError(null);
+      setLoadedRequestKey(null);
+      setCaseGroupData(null);
+      setCaseGroupLoadedKey(null);
       return;
     }
 
     let cancelled = false;
+    const controller = new AbortController();
+    const isRefresh = loadedRequestKey === requestKey;
     setLoading(true);
     setError(null);
     fetchReviewResults(jobId, {
@@ -5682,9 +5753,21 @@ function StepReview({
       per_page: pageSize,
       status: filter,
       search: debouncedQuery,
-    })
+      include_groups: false,
+    }, controller.signal)
       .then((data) => {
-        if (!cancelled) setReview(data);
+        if (!cancelled) {
+          setReview(data);
+          setLoadedRequestKey(requestKey);
+          if (!isRefresh) {
+            setSelectedAllRecordKeys([]);
+            setSelected(null);
+            setExitingRecordKeys([]);
+          }
+          if (data.pagination && page > data.pagination.total_pages && page > 1) {
+            setPage(Math.max(1, data.pagination.total_pages));
+          }
+        }
       })
       .catch((err) => {
         if (!cancelled) {
@@ -5697,14 +5780,63 @@ function StepReview({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [jobId, page, pageSize, filter, debouncedQuery, t]);
+  }, [jobId, page, pageSize, filter, debouncedQuery, t, requestKey, refreshVersion]);
 
-  const items = review?.items ?? [];
-  const caseGroups = review?.case_groups ?? [];
-  const systemPresets = review?.system_presets ?? [];
-  const customRules = review?.custom_rules ?? [];
-  const dynamicPatterns = review?.dynamic_patterns ?? [];
+  useEffect(() => {
+    if (viewMode !== "case_groups") return;
+    if (!jobId) {
+      setCaseGroupData(null);
+      setCaseGroupLoadedKey(null);
+      setCaseGroupsLoading(false);
+      setCaseGroupsError(null);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    setCaseGroupsLoading(true);
+    setCaseGroupsError(null);
+
+    fetchReviewResults(jobId, {
+      page: 1,
+      per_page: 10,
+      status: "all",
+      include_groups: true,
+      include_quality: false,
+    }, controller.signal)
+      .then((data) => {
+        if (!cancelled) {
+          setCaseGroupData(data);
+          setCaseGroupLoadedKey(caseGroupRequestKey);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setCaseGroupsError(err instanceof ApiError ? err.message : t("matching.review.loadFailed"));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCaseGroupsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [jobId, refreshVersion, caseGroupRequestKey, viewMode, t]);
+
+  const currentReview = isCurrentPage ? review : null;
+  const hasCurrentCaseGroups = caseGroupLoadedKey === caseGroupRequestKey;
+  const groupsAreLoading = Boolean(jobId) && !caseGroupsError && (caseGroupsLoading || !hasCurrentCaseGroups);
+  const items = (currentReview?.items ?? []).filter((item) =>
+    filter === "all" || item.status === filter || exitingRecordKeys.includes(item.input_record_key),
+  );
+  const caseGroups = hasCurrentCaseGroups ? caseGroupData?.case_groups ?? [] : [];
+  const systemPresets = hasCurrentCaseGroups ? caseGroupData?.system_presets ?? [] : [];
+  const customRules = hasCurrentCaseGroups ? caseGroupData?.custom_rules ?? [] : [];
+  const dynamicPatterns = hasCurrentCaseGroups ? caseGroupData?.dynamic_patterns ?? [] : [];
 
   const visibleCaseGroups = caseGroups?.filter((group) => {
     if (caseGroupFilter !== "all" && (group.status ?? "open") !== caseGroupFilter) return false;
@@ -5766,12 +5898,10 @@ function StepReview({
 
   const handleRuleSaved = useCallback(
     (newRule: any) => {
+      setRefreshVersion((value) => value + 1);
       toast.success(`Aturan review "${newRule.name}" berhasil disimpan.`);
-      if (jobId) {
-        fetchReviewResults(jobId).then((data) => setReview(data));
-      }
     },
-    [jobId],
+    [],
   );
 
   const caseGroupCounts = {
@@ -5887,6 +6017,36 @@ function StepReview({
     }
   }, [paged, selectedAllRecordKeys]);
 
+  const applyReviewSnapshot = (next: ReviewResults, keys: string[], groupId?: string | null) => {
+    // A mutation may finish after navigation; never apply its records to a different job/page.
+    if (reviewContextRef.current.jobId !== jobId) return;
+    setRecordUpdates(next);
+    if (reviewContextRef.current.requestKey === requestKey) {
+      const leaving = next.items.filter((item) =>
+        keys.includes(item.input_record_key) && filter !== "all" && item.status !== filter,
+      ).map((item) => item.input_record_key);
+      setExitingRecordKeys((current) => Array.from(new Set([...current, ...leaving])));
+      setReview((current) => mergeReviewSnapshot(current, next, keys, groupId));
+      setSelectedAllRecordKeys((current) => current.filter((key) => !keys.includes(key)));
+      if (leaving.length) {
+        const timer = setTimeout(() => {
+          setExitingRecordKeys((current) => current.filter((key) => !leaving.includes(key)));
+          exitTimers.current = exitTimers.current.filter((entry) => entry !== timer);
+        }, 160);
+        exitTimers.current.push(timer);
+      }
+    }
+    if (next.case_groups?.length) {
+      setCaseGroupData((current) => current ? {
+        ...current,
+        summary: next.summary,
+        case_groups: current.case_groups.map((group) => next.case_groups.find((entry) => entry.id === group.id) ?? group),
+      } : current);
+    }
+    setLoading(true);
+    setRefreshVersion((value) => value + 1);
+  };
+
   const decideBulkAllRecords = async (decision: "accept_match" | "mark_unmatched") => {
     if (!jobId || selectedAllRecordKeys.length === 0) return;
     setIsBulkDecidingAllRecords(decision);
@@ -5897,9 +6057,7 @@ function StepReview({
         decision,
         scope: "selected",
       });
-      setReview((current) =>
-        mergeReviewSnapshot(current, next.review, selectedAllRecordKeys, null),
-      );
+      applyReviewSnapshot(next.review, selectedAllRecordKeys);
       setSelectedAllRecordKeys([]);
       toast.success(
         decision === "accept_match"
@@ -5926,15 +6084,7 @@ function StepReview({
         matchingResultId: candidate?.id,
         decision,
       });
-      setReview((current) =>
-        mergeReviewSnapshot(
-          current,
-          next.review,
-          [item.input_record_key],
-          ((next.decision as unknown as Record<string, unknown>).caseGroupId as string | null) ??
-            null,
-        ),
-      );
+      applyReviewSnapshot(next.review, [item.input_record_key]);
       const updated = next.review.items?.find(
         (nextItem) => nextItem.input_record_key === item.input_record_key,
       );
@@ -5994,7 +6144,7 @@ function StepReview({
         scope,
         caseGroupId: group.id,
       });
-      setReview((current) => mergeReviewSnapshot(current, next.review, keys, group.id));
+      applyReviewSnapshot(next.review, keys, group.id);
       setSelectedGroupKeys((current) => ({ ...current, [group.id]: [] }));
       setSelected((current) => {
         if (!current || !keys.includes(current.input_record_key)) return current;
@@ -6033,14 +6183,7 @@ function StepReview({
     setPendingUndos((current) => ({ ...current, [decisionId]: true }));
     try {
       const next = await undoReviewDecision(jobId, decisionId);
-      setReview((current) =>
-        mergeReviewSnapshot(
-          current,
-          next,
-          selectedInputKey ? [selectedInputKey] : [],
-          findDecisionGroupId(current, decisionId),
-        ),
-      );
+      applyReviewSnapshot(next, next.items.map((item) => item.input_record_key), findDecisionGroupId(review, decisionId));
       if (selectedInputKey) {
         const updated = next.items?.find(
           (nextItem) => nextItem.input_record_key === selectedInputKey,
@@ -6075,31 +6218,12 @@ function StepReview({
     );
   }
 
-  if (loading && !review) {
+  if (!review || review.job.id !== jobId) {
     return (
       <>
         <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
-        <div className="rounded-lg border border-border bg-secondary/20 p-6">
-          <div className="flex items-center gap-3">
-            <Loader2 className="size-5 animate-spin text-accent" />
-            <div>
-              <p className="text-sm font-semibold">{t("common.loading")}</p>
-              <p className="text-xs text-muted-foreground">{t("matching.review.loading")}</p>
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  if (error) {
-    return (
-      <>
-        <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-5">
-          <p className="text-sm font-semibold">{t("feedback.error.title")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{error}</p>
-        </div>
+        {error ? <p role="alert" className="rounded-lg border border-destructive/30 p-6 text-sm text-destructive">{error}</p>
+          : <TableLoadingSkeleton label={t("matching.review.loading")} />}
       </>
     );
   }
@@ -6113,6 +6237,8 @@ function StepReview({
   return (
     <>
       <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
+
+      {error && <p role="alert" className="mb-3 text-sm text-destructive">{error}</p>}
 
       {/* Deduplication Summary Banner */}
       {totalDuplicates > 0 && (
@@ -6129,13 +6255,15 @@ function StepReview({
 
       {/* Review Diagnostic Charts (Field Quality Summary & Pareto Breakdown) */}
       <div className="mb-6">
-        <ReviewDiagnosticCharts
-          items={items}
-          caseGroups={caseGroups}
-          columnMappings={columnMappings}
-          fieldQualitySummary={review?.field_quality_summary}
-          thresholds={review?.job?.thresholds ?? review?.job?.configuration?.thresholds}
-        />
+        <Suspense fallback={<div className="h-32 animate-pulse rounded-lg border border-border bg-muted/30" />}>
+          <ReviewDiagnosticCharts
+            items={items}
+            caseGroups={caseGroups}
+            columnMappings={columnMappings}
+            fieldQualitySummary={qualityData}
+            thresholds={review?.job?.thresholds ?? review?.job?.configuration?.thresholds}
+          />
+        </Suspense>
       </div>
 
       <div className="mb-4 grid gap-3 lg:grid-cols-[auto_1fr_auto] lg:items-center">
@@ -6184,6 +6312,7 @@ function StepReview({
         (selectedCaseGroup ? (
           <GroupReviewSubview
             jobId={jobId}
+            latestSnapshot={recordUpdates?.job.id === jobId ? recordUpdates : null}
             group={selectedCaseGroup}
             identityMappings={identityMappings}
             canDecide={canDecide}
@@ -6218,6 +6347,8 @@ function StepReview({
             customRules={customRules}
             dynamicPatterns={dynamicPatterns}
             ruleCounts={ruleCounts}
+            groupsLoading={groupsAreLoading}
+            groupsError={caseGroupsError}
             onOpenAddRuleModal={handleOpenAddRuleModal}
             onPromoteRule={handlePromoteRule}
           />
@@ -6259,7 +6390,12 @@ function StepReview({
             </div>
           </div>
 
-          {items.length === 0 && !loading ? (
+          <div className="mb-2 flex h-5 justify-end">
+            {loading && isCurrentPage && <RefreshIndicator label={t("common.updating")} />}
+          </div>
+          {!isCurrentPage ? (
+            <TableLoadingSkeleton label={t("matching.review.loading")} columns={7} />
+          ) : items.length === 0 && !loading ? (
             <div className="rounded-lg border border-border">
               <EmptyState
                 icon={Inbox}
@@ -6328,7 +6464,7 @@ function StepReview({
               )}
 
               <div className="border border-border rounded-lg overflow-hidden">
-                <div className="max-h-[520px] overflow-auto">
+                <div className="h-[520px] overflow-auto" aria-busy={loading}>
                   <table className="w-full min-w-[1120px] text-sm" style={{ tableLayout: "fixed" }}>
                     <colgroup>
                       <col style={{ width: "44px" }} />
@@ -6387,7 +6523,7 @@ function StepReview({
                           <tr
                             key={item.input_record_key}
                             onClick={() => openRecord(item, candidate?.id ?? null)}
-                            className="cursor-pointer hover:bg-secondary/40"
+                            className={`cursor-pointer hover:bg-secondary/40 transition-opacity duration-150 motion-reduce:transition-none ${exitingRecordKeys.includes(item.input_record_key) ? "opacity-0 pointer-events-none" : "opacity-100"}`}
                           >
                             <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                               <input
@@ -6556,6 +6692,8 @@ function CaseGroupsReview({
   customRules = [],
   dynamicPatterns = [],
   ruleCounts,
+  groupsLoading,
+  groupsError,
   onOpenAddRuleModal,
   onPromoteRule,
 }: {
@@ -6582,10 +6720,13 @@ function CaseGroupsReview({
   customRules?: ReviewCaseGroup[];
   dynamicPatterns?: ReviewCaseGroup[];
   ruleCounts?: { all: number; system: number; custom: number; dynamic: number };
+  groupsLoading: boolean;
+  groupsError: string | null;
   onOpenAddRuleModal?: () => void;
   onPromoteRule?: (group: ReviewCaseGroup) => void;
 }) {
   const { t } = usePreferences();
+  const countLabel = (value: number) => groupsLoading ? "…" : value;
 
   return (
     <div className="space-y-3.5">
@@ -6632,7 +6773,7 @@ function CaseGroupsReview({
           >
             Semua Kasus
             <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
-              {ruleCounts?.all ?? 0}
+              {countLabel(ruleCounts?.all ?? 0)}
             </span>
           </button>
 
@@ -6648,7 +6789,7 @@ function CaseGroupsReview({
           >
             Aturan Bawaan (1–6)
             <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
-              {ruleCounts?.system ?? 0}
+              {countLabel(ruleCounts?.system ?? 0)}
             </span>
           </button>
 
@@ -6667,7 +6808,7 @@ function CaseGroupsReview({
           >
             Aturan Kustom
             <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
-              {ruleCounts?.custom ?? 0}
+              {countLabel(ruleCounts?.custom ?? 0)}
             </span>
           </button>
 
@@ -6686,7 +6827,7 @@ function CaseGroupsReview({
           >
             Pola Dinamis (Sisa)
             <span className="ml-1.5 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-mono">
-              {ruleCounts?.dynamic ?? 0}
+              {countLabel(ruleCounts?.dynamic ?? 0)}
             </span>
           </button>
         </div>
@@ -6733,6 +6874,9 @@ function CaseGroupsReview({
       </div>
 
       {/* Case Group Status Filter (Open / Resolved / All) */}
+      <div className="flex h-5 justify-end">
+        {groupsLoading && groups.length > 0 && <RefreshIndicator label={t("common.updating")} />}
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex flex-wrap gap-2">
           {(["open", "resolved", "all"] as CaseGroupFilter[]).map((item) => (
@@ -6748,7 +6892,7 @@ function CaseGroupsReview({
               ].join(" ")}
             >
               {caseGroupFilterLabel(item, t)}
-              <span className="ml-2 tabular-nums text-muted-foreground">{counts[item]}</span>
+              <span className="ml-2 tabular-nums text-muted-foreground">{countLabel(counts[item])}</span>
             </button>
           ))}
         </div>
@@ -6756,11 +6900,20 @@ function CaseGroupsReview({
 
       {groups.length === 0 ? (
         <div className="rounded-lg border border-border">
-          <EmptyState
-            icon={Inbox}
-            title={t("matching.review.noCaseGroups")}
-            description={t("matching.review.noCaseGroupsDesc")}
-          />
+          {groupsLoading ? (
+            <div role="status" className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              {t("matching.review.loading")}
+            </div>
+          ) : groupsError ? (
+            <div role="alert" className="p-6 text-center text-sm text-destructive">{groupsError}</div>
+          ) : (
+            <EmptyState
+              icon={Inbox}
+              title={t("matching.review.noCaseGroups")}
+              description={t("matching.review.noCaseGroupsDesc")}
+            />
+          )}
         </div>
       ) : (
         groups?.map((group) => {
@@ -6942,6 +7095,7 @@ function CaseGroupsReview({
 
 function GroupReviewSubview({
   jobId,
+  latestSnapshot,
   group,
   identityMappings,
   canDecide,
@@ -6956,6 +7110,7 @@ function GroupReviewSubview({
   onDecideGroup,
 }: {
   jobId?: string | null;
+  latestSnapshot: ReviewResults | null;
   group: ReviewCaseGroup;
   identityMappings: IdentityFieldPair[];
   canDecide: boolean;
@@ -6984,26 +7139,40 @@ function GroupReviewSubview({
   const [totalItems, setTotalItems] = useState<number>(group.item_count ?? 0);
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [groupLoadedKey, setGroupLoadedKey] = useState<string | null>(null);
+  const groupRequestKey = JSON.stringify([jobId, group.id, page, pageSize]);
+  const isCurrentGroupPage = groupLoadedKey === groupRequestKey;
+  const displayedGroupItems = isCurrentGroupPage ? groupItems : [];
+
+  useEffect(() => {
+    if (!latestSnapshot) return;
+    setGroupItems((current) => current.map((item) =>
+      latestSnapshot.items.find((updated) => updated.input_record_key === item.input_record_key) ?? item,
+    ));
+  }, [latestSnapshot]);
 
   useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     fetchReviewResults(jobId, {
       page,
       per_page: pageSize,
       case_group_id: group.id,
-    })
+      include_groups: false,
+    }, controller.signal)
       .then((data) => {
         if (!cancelled && data) {
           setGroupItems(data.items ?? []);
+          setGroupLoadedKey(groupRequestKey);
           if (data.pagination?.total_items !== undefined) {
             setTotalItems(data.pagination.total_items);
           }
         }
       })
       .catch((err) => {
-        console.error("Failed to load group items", err);
+        if (!cancelled) console.error("Failed to load group items", err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -7011,12 +7180,13 @@ function GroupReviewSubview({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [jobId, group.id, page, pageSize, reloadKey]);
+  }, [jobId, group.id, page, pageSize, reloadKey, groupRequestKey]);
 
   const currentPageKeys = useMemo(
-    () => groupItems.map((item) => item.input_record_key),
-    [groupItems],
+    () => displayedGroupItems.map((item) => item.input_record_key),
+    [groupItems, isCurrentGroupPage],
   );
   const selectedSet = new Set(selectedKeys);
   const allSelected =
@@ -7224,21 +7394,21 @@ function GroupReviewSubview({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {loading && groupItems.length === 0 ? (
+              {loading && isCurrentGroupPage && <tr><td colSpan={7} className="px-3 py-1 text-right"><RefreshIndicator label={t("common.updating")} /></td></tr>}
+              {!isCurrentGroupPage ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-xs text-muted-foreground">
-                    <Loader2 className="inline-block size-4 animate-spin mr-2" />
-                    {t("common.loading")}
+                  <td colSpan={7}>
+                    <TableLoadingSkeleton label={t("common.loading")} columns={7} />
                   </td>
                 </tr>
-              ) : groupItems.length === 0 ? (
+              ) : displayedGroupItems.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center text-xs text-muted-foreground">
                     {t("feedback.empty.desc")}
                   </td>
                 </tr>
               ) : (
-                groupItems.map((item) => {
+                displayedGroupItems.map((item) => {
                   const candidate = item.candidates[0] ?? null;
                   const summary = buildIdentitySummary(item, candidate, identityMappings);
                   const inputIdentity = candidate

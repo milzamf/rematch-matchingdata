@@ -197,7 +197,10 @@ class WorkspaceController extends Controller
                 'email' => $workspace->user->email,
                 'role' => $workspace->user->roleEnum()->value,
             ] : null,
-            'matching_job' => $this->jobPayload($activeJob),
+            'matching_job' => $activeJob ? [
+                ...$this->jobPayload($activeJob),
+                'record_counts' => array_diff_key($activeJob->record_counts ?? [], ['duplicate_details' => true]),
+            ] : null,
             'reference_dataset' => $workspace->referenceDataset ? [
                 'dataset' => [
                     'id' => $workspace->referenceDataset->id,

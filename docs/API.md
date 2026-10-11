@@ -132,11 +132,20 @@ Note: implemented workflow endpoints are now behind Laravel Sanctum session auth
 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
+| `/api/matching-jobs/{jobId}/review-results` | `GET` | Paginate persisted matching outcomes and load case groups, including already-committed rows while a job is still processing. | `status`, `search`, `page`, `per_page`, `case_group_id`, `include_groups`, `include_quality` | `job`, `summary`, `pagination`, `items`, `case_groups`, `field_quality_summary`, `is_processing` |
 | `/api/workspaces/{workspaceId}/matching-jobs/{jobId}/reviews` | `GET` | List records requiring review. | `status`, `search`, `sort`, `page`, `per_page` | `review_items`, `pagination` |
 | `/api/workspaces/{workspaceId}/matching-jobs/{jobId}/reviews` | `POST` | Save reviewer decision. | `matching_result_id`, `decision`, `notes` | `review_decision`, `updated_result` |
 | `/api/workspaces/{workspaceId}/matching-jobs/{jobId}/reviews/bulk` | `POST` | Save bulk review decisions. | `decisions[]` with `matching_result_id`, `decision`, `notes` | `accepted_count`, `rejected_count`, `skipped_count`, `errors` |
 
 ## 11. Sync / Merge Strategy
+
+Review performance contract (2026-10-11):
+
+- `include_quality=true` returns exact cumulative `field_quality_summary` for all rank-1 candidates in the job, independent of status filtering and pagination. It defaults to the value of `include_groups`. Each field has actual `totalEvaluated`, `totalRecords`, `unscoredCount`, average score, and counts/percentages for >=90, 80–89, and <80. Missing/null scores are excluded, not extrapolated or treated as zero.
+- `POST /api/matching-jobs/{jobId}/review-decisions` returns `decision` and a lightweight `review` snapshot containing affected/requested records (including skipped bulk targets), with a full-job summary. Individual actions do not rebuild case groups. Group actions also return current cached group overlays.
+- `POST /api/matching-jobs/{jobId}/review-decisions/{decisionId}/undo` returns `undone_decision_id`, `affected_records`, and an affected-record review snapshot. The write transaction completes before generating the response.
+- Input record keys must remain strings, including numeric-looking keys. This preserves exact key semantics and indexed MySQL lookups.
+- Docker Composer dependencies use shared volume `rematch_backend_vendor`. When `composer.lock` changes, synchronize it with `docker compose exec backend composer install` before restarting the idle worker. Source code remains bind-mounted.
 
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |

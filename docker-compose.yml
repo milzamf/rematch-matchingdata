@@ -56,7 +56,11 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/var/www/html
+      # Composer dependencies live on Docker's native filesystem, avoiding
+      # thousands of Windows bind-mount file checks per Laravel request.
+      - backend_vendor:/var/www/html/vendor
       - ./backend/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
+      - matching_cache:/var/lib/rematch/cache
     environment:
       PHP_CLI_SERVER_WORKERS: 16
       APP_NAME: RE-MATCH
@@ -75,7 +79,9 @@ services:
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_KEY: rematch_meili_master_key
       QUEUE_CONNECTION: database
-      DB_QUEUE_RETRY_AFTER: 86400
+      DB_QUEUE_RETRY_AFTER: 21900
+      MATCHING_CACHE_PATH: /var/lib/rematch/cache
+      MATCHING_MEILI_INDEX_BATCH_SIZE: ${MATCHING_MEILI_INDEX_BATCH_SIZE:-5000}
       CACHE_STORE: database
       SESSION_DRIVER: database
       SESSION_SECURE_COOKIE: "false"
@@ -100,10 +106,12 @@ services:
     container_name: rematch-queue-worker
     restart: unless-stopped
     shm_size: 512m
-    command: php -d memory_limit=-1 artisan queue:work --tries=3 --timeout=0
+    command: php -d memory_limit=1024M artisan queue:work --tries=3 --timeout=21600 --memory=768 --sleep=2
     volumes:
       - ./backend:/var/www/html
+      - backend_vendor:/var/www/html/vendor
       - ./backend/php/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
+      - matching_cache:/var/lib/rematch/cache
     environment:
       APP_NAME: RE-MATCH
       APP_ENV: local
@@ -121,7 +129,9 @@ services:
       MEILISEARCH_HOST: http://meilisearch:7700
       MEILISEARCH_KEY: rematch_meili_master_key
       QUEUE_CONNECTION: database
-      DB_QUEUE_RETRY_AFTER: 86400
+      DB_QUEUE_RETRY_AFTER: 21900
+      MATCHING_CACHE_PATH: /var/lib/rematch/cache
+      MATCHING_MEILI_INDEX_BATCH_SIZE: ${MATCHING_MEILI_INDEX_BATCH_SIZE:-5000}
       CACHE_STORE: database
       SESSION_DRIVER: database
     depends_on:
@@ -164,9 +174,15 @@ networks:
     driver: bridge
 
 volumes:
+  backend_vendor:
+    name: rematch_backend_vendor
+    driver: local
   db_data:
     name: rematch_db_data
     driver: local
   meili_data:
     name: rematch_meili_data
+    driver: local
+  matching_cache:
+    name: rematch_matching_cache
     driver: local

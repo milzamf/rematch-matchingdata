@@ -53,6 +53,7 @@ class MatchingProgressStreamController extends Controller
             $lastPercentage = -1;
             $lastStatus = '';
             $lastStage = '';
+            $lastStageHeartbeat = '';
             $heartbeatCount = 0;
 
             while (true) {
@@ -78,11 +79,13 @@ class MatchingProgressStreamController extends Controller
                 $percent = $total > 0 ? round(($processed / $total) * 100, 2) : 0;
                 $status = $job->status;
                 $stage = (string) data_get($job->record_counts, 'current_stage', '');
+                $stageHeartbeat = (string) data_get($job->record_counts, 'stage_progress.heartbeat_at', '');
 
                 $shouldSend = ($processed !== $lastProcessed)
                     || ($percent !== $lastPercentage)
                     || ($status !== $lastStatus)
                     || ($stage !== $lastStage)
+                    || ($stageHeartbeat !== $lastStageHeartbeat)
                     || ($heartbeatCount % 8 === 0);
 
                 if ($shouldSend) {
@@ -93,6 +96,7 @@ class MatchingProgressStreamController extends Controller
                         'percentage' => $percent,
                         'status' => $status,
                         'stage' => $stage,
+                        'stage_progress' => data_get($counts, 'stage_progress'),
                         'summary' => [
                             'matched' => (int) ($counts['matched'] ?? 0),
                             'possible_match' => (int) ($counts['possible_match'] ?? 0),
@@ -128,6 +132,7 @@ class MatchingProgressStreamController extends Controller
                     $lastPercentage = $percent;
                     $lastStatus = $status;
                     $lastStage = $stage;
+                    $lastStageHeartbeat = $stageHeartbeat;
                 } else {
                     // Send lightweight SSE comment ping to actively detect disconnected/aborted clients
                     echo ": ping\n\n";

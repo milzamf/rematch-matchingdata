@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Stable loading (2026-10-12)
+
+- Keep review tables/case groups mounted during background refresh; update affected records and gently remove rows that leave the selected status filter.
+- Use table skeletons for first loads and different filters/pages, with a small updating indicator for existing data.
+- Preserve active datasets, previews, and mappings during replacement inspection; retain them on failure and avoid rehydrating a freshly created workspace after upload.
+- Keep server preview rows visible during refresh and preserve open record dialogs on same-page review updates.
+
+### Review performance (2026-10-11)
+
+- Count column quality across all primary candidates, without sampling or extrapolation; show records without score separately.
+- Preserve text bindings for numeric-looking input keys, keeping MySQL review queries indexed.
+- Read only targeted records for decisions/undo, commit before constructing the response, and retain bulk safety exclusions.
+- Cache immutable case membership and overlay decisions instead of rebuilding groups after each action.
+- Separate column diagnostics from table requests; preload navigation and show immediate pending feedback.
+- Store Composer dependencies in a shared native Docker volume to avoid Windows filesystem overhead.
+
 ### Added
 
 - Results page integration with real workspace context, matching job outputs, review decisions, sync summary, and export history

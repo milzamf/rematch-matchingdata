@@ -8,7 +8,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   FileSpreadsheet,
-  Loader2,
 } from "lucide-react";
 import {
   Dialog,
@@ -21,6 +20,7 @@ import { parseEntityName, standardizeColumnValue } from "@/lib/data-normalizer";
 import { usePreferences } from "@/lib/preferences";
 import { fetchDatasetRows, fetchWorkspaceStandardizedPreview, fetchReviewResults, type PaginatedDatasetRowsResult } from "@/lib/api";
 import { buildIntentExportRows } from "@/lib/result-exports";
+import { RefreshIndicator, TableLoadingSkeleton } from "@/components/table-loading";
 
 function findCompanyValueInRow(row: Record<string, unknown>): string | null {
   const companyKeyRegex =
@@ -200,6 +200,12 @@ export function DataPreviewTable({
   const [serverData, setServerData] = useState<{ data: Record<string, unknown>[]; total: number } | null>(null);
   const [isLoadingServer, setIsLoadingServer] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setServerData(null);
+    setCurrentPage(1);
+    setSearchQuery("");
+  }, [datasetId, workspaceId, role, jobId, exportPreset, autoEnrich]);
 
   useEffect(() => {
     setPageInput(String(currentPage));
@@ -606,17 +612,13 @@ export function DataPreviewTable({
             </div>
           )}
 
-          <div className="relative flex-1 overflow-auto rounded-md border border-border">
-            {isLoadingServer && (
-              <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-xs font-semibold shadow-md">
-                  <Loader2 className="size-4 animate-spin text-brand" />
-                  <span>Memuat baris...</span>
-                </div>
-              </div>
-            )}
-
-            {paginatedRows.length === 0 && !isLoadingServer ? (
+          <div className="flex h-5 shrink-0 justify-end">
+            {isLoadingServer && serverData !== null && <RefreshIndicator label={t("common.updating")} />}
+          </div>
+          <div className="relative flex-1 overflow-auto rounded-md border border-border" aria-busy={isLoadingServer}>
+            {isLoadingServer && serverData === null ? (
+              <TableLoadingSkeleton label={t("common.loading")} columns={Math.min(columns.length + 1, 7)} />
+            ) : paginatedRows.length === 0 ? (
               <div className="py-16 text-center text-xs text-muted-foreground">
                 <Search className="mx-auto size-8 text-muted-foreground/40 mb-2" />
                 {t("preview.noMatchQuery", { query: searchQuery })}

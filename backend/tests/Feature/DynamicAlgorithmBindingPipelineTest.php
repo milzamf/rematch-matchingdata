@@ -108,10 +108,14 @@ class DynamicAlgorithmBindingPipelineTest extends TestCase
 
         $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
 
-        // Name is 100%, Token Set with containment on Address is 100%
-        // Weighted score is (100 * 0.5) + (100 * 0.5) = 100.0%
+        // Name is 100%, and address containment can score 100%. The richer
+        // reference address is evidence for review, not proof for auto-match.
         $this->assertEquals(100.0, (float) $result->overall_score);
-        $this->assertSame('matched', $result->result_type);
+        $this->assertSame('possible_match', $result->result_type);
+        $addressEvidence = collect($result->field_scores)
+            ->firstWhere('reference_column', 'address')['address_evidence'];
+        $this->assertSame('reference', $addressEvidence['richer_side']);
+        $this->assertSame('Partial address agreement needs review before enrichment', $result->decision_reason);
     }
 
     public function test_disabled_verification_rule_does_not_downgrade_auto_matches(): void

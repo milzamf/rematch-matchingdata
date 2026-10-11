@@ -11,6 +11,32 @@ class MatchingEnginePipelineTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_candidate_generation_uses_distinct_mapped_name_fields_as_bounded_fallbacks(): void
+    {
+        $engine = app(\App\Services\Matching\MatchingEngineService::class);
+        $queries = $engine->buildCandidateBlockingQueries([
+            'normalized' => [
+                '[Generated] Nama Inti' => 'Sinar Abadi Konstruksi',
+                'nama_perusahaan' => 'PT Sinar Abadi Konstruksi',
+                'nama_alias' => 'Sinar Abadi Group',
+                'alamat_perusahaan' => 'Jalan Mawar Nomor 10',
+            ],
+        ], [
+            ['input_column_name' => '[Generated] Nama Inti', 'transform' => 'EXTRACT_CORE_NAME'],
+            ['input_column_name' => 'nama_perusahaan'],
+            ['input_column_name' => 'nama_alias'],
+            ['input_column_name' => 'alamat_perusahaan'],
+        ]);
+
+        $this->assertSame([
+            'Sinar Abadi Konstruksi',
+            'PT Sinar Abadi Konstruksi',
+            'Sinar Abadi Group',
+        ], $queries);
+        $this->assertCount(3, $queries);
+        $this->assertStringNotContainsString('Mawar', implode(' ', $queries));
+    }
+
     public function test_phase1_automatic_normalization_normalizes_identifiers_and_text(): void
     {
         $reference = Dataset::create([

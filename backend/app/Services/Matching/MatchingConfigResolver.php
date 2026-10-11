@@ -56,7 +56,7 @@ class MatchingConfigResolver
             ],
             'runOptions' => [
                 'chunkSize' => max(10, min(1000, (int) data_get($configuration, 'runOptions.chunkSize', 250))),
-                'workerCount' => max(1, min(8, (int) data_get($configuration, 'runOptions.workerCount', 4))),
+                'workerCount' => max(1, min(2, (int) data_get($configuration, 'runOptions.workerCount', 1))),
             ],
         ];
     }

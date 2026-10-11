@@ -18,7 +18,22 @@ class MatchingCheckpointManager
 
     public function __construct(?string $dbPath = null)
     {
-        $this->dbPath = $dbPath ?? storage_path('app/matching_checkpoints.sqlite');
+        if ($dbPath !== null) {
+            $this->dbPath = $dbPath;
+            return;
+        }
+
+        $cacheDir = (string) (env('MATCHING_CACHE_PATH') ?: storage_path('app'));
+        $this->dbPath = rtrim($cacheDir, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'matching_checkpoints.sqlite';
+
+        // Preserve checkpoints created by older versions before the cache volume
+        // was introduced, then use the Docker volume for subsequent writes.
+        $legacyPath = storage_path('app/matching_checkpoints.sqlite');
+        if (!is_file($this->dbPath) && is_file($legacyPath) && $legacyPath !== $this->dbPath) {
+            $dir = dirname($this->dbPath);
+            if (!is_dir($dir)) @mkdir($dir, 0775, true);
+            @copy($legacyPath, $this->dbPath);
+        }
     }
 
     /**
@@ -100,6 +115,7 @@ class MatchingCheckpointManager
                 'ref' => (string) ($m['reference_column_name'] ?? $m['referenceColumnName'] ?? ''),
                 'inp' => (string) ($m['input_column_name'] ?? $m['inputColumnName'] ?? ''),
                 'algo' => (string) ($m['algorithm'] ?? ''),
+                'weight' => (float) ($m['weight'] ?? 0),
                 'req' => (bool) ($m['required_match'] ?? false),
                 'pref' => (string) ($m['parent_reference_column'] ?? $m['parentReferenceColumn'] ?? data_get($m, 'metadata.parent_reference_column') ?? data_get($m, 'metadata.parentReferenceColumn') ?? ''),
                 'pinp' => (string) ($m['parent_input_column'] ?? $m['parentInputColumn'] ?? data_get($m, 'metadata.parent_input_column') ?? data_get($m, 'metadata.parentInputColumn') ?? ''),
@@ -115,10 +131,14 @@ class MatchingCheckpointManager
             'thresholds' => $configuration['thresholds'] ?? [],
             'rules' => $configuration['rules'] ?? [],
             'normalization' => $configuration['normalization'] ?? [],
+            'weighting' => $configuration['weighting'] ?? [],
+            'fields' => $configuration['fields'] ?? [],
+            'chunkSize' => max(10, min(250, (int) data_get($configuration, 'runOptions.chunkSize', 250))),
             'candidateGeneration' => $configuration['candidateGeneration'] ?? [],
         ];
 
         return hash('sha256', json_encode([
+            'engine_version' => 'streaming-mfd-address-v2',
             'ref' => $referenceDatasetId,
             'inp' => $inputDatasetId,
             'map' => $normalizedMappings,
@@ -234,7 +254,7 @@ class MatchingCheckpointManager
 
             $now = Carbon::now()->toIso8601String();
             $summaryJson = json_encode($summary, JSON_THROW_ON_ERROR);
-            $resultsJson = $totalCount > 3000 ? '[]' : json_encode($batchResults, JSON_THROW_ON_ERROR);
+            $resultsJson = json_encode($batchResults, JSON_THROW_ON_ERROR);
 
             // Upsert header checkpoint
             $stmtHeader = $pdo->prepare('
@@ -321,17 +341,17 @@ class MatchingCheckpointManager
                 ORDER BY chunk_index ASC
             ');
             $stmt->execute([':key' => $checkpointKey]);
-            $chunks = $stmt->fetchAll();
+
 
             $existingCountInDb = MatchingResult::where('matching_job_id', $targetJobId)->count();
             $totalInserted = 0;
 
             // If target job in MySQL doesn't have the results yet (e.g. new job created upon restart/rerun),
             // insert the cached results from SQLite in batches.
-            if ($existingCountInDb === 0 && count($chunks) > 0) {
+            if ($existingCountInDb === 0) {
                 $nowFormatted = Carbon::now()->toDateTimeString();
                 $rowsToInsert = [];
-                foreach ($chunks as $chunkRow) {
+                while ($chunkRow = $stmt->fetch(PDO::FETCH_ASSOC)) {
                     $results = json_decode($chunkRow['results_json'], true);
                     if (! is_array($results)) {
                         continue;
@@ -360,6 +380,10 @@ class MatchingCheckpointManager
                 $totalInserted = $existingCountInDb;
             }
 
+            $primaryCount = MatchingResult::where('matching_job_id', $targetJobId)->where('candidate_rank', 1)->count();
+            if ($primaryCount < $checkpoint['processed_count']) {
+                throw new \RuntimeException('Checkpoint result rows are incomplete.');
+            }
             return [
                 'restored' => true,
                 'processed_count' => $checkpoint['processed_count'],

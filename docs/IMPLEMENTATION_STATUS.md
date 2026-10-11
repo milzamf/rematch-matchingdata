@@ -1,9 +1,13 @@
 # RE-MATCH - Implementation Status
 
-Last Updated: 2026-08-13
+Last Updated: 2026-10-12
 Version: MVP v0.1.0
 
+Review stabilization: exact cumulative column diagnostics, indexed status counts, targeted decision/undo snapshots, cached case membership, and native Docker Composer volume implemented. On the active 133,524-record job, warmed review HTTP requests measured 216–408 ms and a rollback-only decision measured 174 ms. Review regressions: 7 tests, 65 assertions; frontend build/TypeScript passed.
+
 ## Overall Progress
+
+Stable loading UX implemented: review updates retain the table and open dialogs; changed filters/pages use skeletons; dataset replacements preserve existing previews/mappings until inspection succeeds. Offline browser fixtures verified review row changes, filter skeletons, and initial/replacement upload success/failure without changing persisted data.
 
 | Area                 | Progress | Status                                                     |
 | -------------------- | -------: | ---------------------------------------------------------- |

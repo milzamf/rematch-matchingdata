@@ -58,49 +58,26 @@ class WilayahDictionaryService
 
         self::$nameToIdKab = [];
         foreach (self::$regencies as $idKab => $data) {
-            $nmKab = mb_strtolower(trim((string) ($data['nm_kab'] ?? '')));
-            if ($nmKab !== '') {
-                // Key by exact clean name e.g. 'sidoarjo'
-                if (!isset(self::$nameToIdKab[$nmKab])) {
-                    self::$nameToIdKab[$nmKab] = (string) $idKab;
-                }
-                // Key by with kab/kota prefix e.g. 'kabupaten sidoarjo', 'kab sidoarjo', 'kota surabaya'
-                self::$nameToIdKab['kabupaten ' . $nmKab] = (string) $idKab;
-                self::$nameToIdKab['kab. ' . $nmKab] = (string) $idKab;
-                self::$nameToIdKab['kab ' . $nmKab] = (string) $idKab;
-                self::$nameToIdKab['kota ' . $nmKab] = (string) $idKab;
-
-                // Spaceless indexing e.g. 'gunungkidul' -> matches 'gunung kidul'
-                $spaceless = str_replace([' ', '-', '.'], '', $nmKab);
-                if (!isset(self::$nameToIdKab[$spaceless])) {
-                    self::$nameToIdKab[$spaceless] = (string) $idKab;
-                }
+            $name = $this->regencyNameKey((string) ($data['nm_kab'] ?? ''));
+            if ($name !== '') {
+                self::$nameToIdKab[$name][] = (string) $idKab;
             }
         }
-
-        // Known historical name changes & administrative aliases (BPS codes)
-        $knownAliases = [
-            'toba samosir' => '1206',
-            'tobasamosir' => '1206',
-            'kabupaten toba samosir' => '1206',
-            'kab toba samosir' => '1206',
-            '1212' => '1206', // Kemendagri code crosswalk to BPS
-            'mamuju utara' => '7605',
-            'mamujuutara' => '7605',
-            'kabupaten mamuju utara' => '7605',
-            'kab mamuju utara' => '7605',
-            '7601' => '7605', // Kemendagri code crosswalk to BPS
-            'adm kepulauan seribu' => '3101',
-            'administrasi kepulauan seribu' => '3101',
-            'kepulauan seribu' => '3101',
-            'kep seribu' => '3101',
-            'pohuwato' => '7504',
-            'bone bolango' => '7503',
-        ];
-        foreach ($knownAliases as $alias => $idKab) {
-            self::$nameToIdKab[$alias] = $idKab;
-            self::$nameToIdKab[str_replace(' ', '', $alias)] = $idKab;
+        // Name aliases only. Numeric codes belong to the loaded MFD scheme;
+        // guessing a crosswalk can silently map a valid BPS code to another regency.
+        foreach (['toba samosir' => '1206', 'mamuju utara' => '7605',
+            'kep seribu' => '3101'] as $alias => $idKab) {
+            if (isset(self::$regencies[$idKab])) {
+                self::$nameToIdKab[$this->regencyNameKey($alias)] = [$idKab];
+            }
         }
+    }
+
+    private function regencyNameKey(string $name): string
+    {
+        $name = mb_strtolower(trim($name));
+        $name = preg_replace('/^(?:(?:kabupaten|kab|kota|administrasi|adm)\.?\s+)+/u', '', $name) ?? $name;
+        return preg_replace('/[^\pL\pN]+/u', '', $name) ?? $name;
     }
 
     /**
@@ -219,54 +196,18 @@ class WilayahDictionaryService
     public function findRegencyByName(string $name, ?string $provCode = null): ?array
     {
         $this->ensureLoaded();
-        $norm = mb_strtolower(trim($name));
-        $norm = preg_replace('/[^\pL\pN\s]+/u', ' ', $norm) ?? $norm;
-        $norm = trim(preg_replace('/\s+/', ' ', $norm) ?? $norm);
-
-        if ($norm === '') {
-            return null;
+        $key = $this->regencyNameKey($name);
+        $type = preg_match('/^kota\b/i', trim($name)) ? 'KOTA'
+            : (preg_match('/^(kabupaten|kab)\b/i', trim($name)) ? 'KABUPATEN' : null);
+        $matches = [];
+        foreach (self::$nameToIdKab[$key] ?? [] as $idKab) {
+            $record = self::$regencies[$idKab];
+            if ($provCode !== null && (string) $record['kd_prov'] !== $provCode) continue;
+            if ($type !== null && strtoupper((string) ($record['tipe'] ?? '')) !== $type) continue;
+            $matches[] = $record;
         }
-
-        // 1. Direct lookup from normalized map
-        if (isset(self::$nameToIdKab[$norm])) {
-            $idKab = self::$nameToIdKab[$norm];
-            if ($provCode === null || str_starts_with($idKab, str_pad($provCode, 2, '0', STR_PAD_LEFT))) {
-                return self::$regencies[$idKab] ?? null;
-            }
-        }
-
-        // 2. Strip "kabupaten", "kab", "kota", "adm" prefixes
-        $stripped = preg_replace('/^(kabupaten|kab|kota|adm\.?|administrasi)\s+/i', '', $norm) ?? $norm;
-        $stripped = trim($stripped);
-        if (isset(self::$nameToIdKab[$stripped])) {
-            $idKab = self::$nameToIdKab[$stripped];
-            if ($provCode === null || str_starts_with($idKab, str_pad($provCode, 2, '0', STR_PAD_LEFT))) {
-                return self::$regencies[$idKab] ?? null;
-            }
-        }
-
-        // 3. Spaceless lookup e.g. "gunung kidul" -> "gunungkidul", "pangkal pinang" -> "pangkalpinang"
-        $spaceless = str_replace(' ', '', $stripped);
-        if (isset(self::$nameToIdKab[$spaceless])) {
-            $idKab = self::$nameToIdKab[$spaceless];
-            if ($provCode === null || str_starts_with($idKab, str_pad($provCode, 2, '0', STR_PAD_LEFT))) {
-                return self::$regencies[$idKab] ?? null;
-            }
-        }
-
-        // 4. Token containment match (e.g. "toba samosir" contains "toba")
-        $tokens = explode(' ', $stripped);
-        foreach ($tokens as $token) {
-            $tokenClean = trim($token);
-            if (mb_strlen($tokenClean) >= 4 && isset(self::$nameToIdKab[$tokenClean])) {
-                $idKab = self::$nameToIdKab[$tokenClean];
-                if ($provCode === null || str_starts_with($idKab, str_pad($provCode, 2, '0', STR_PAD_LEFT))) {
-                    return self::$regencies[$idKab] ?? null;
-                }
-            }
-        }
-
-        return null;
+        // A bare ambiguous name (e.g. Bogor) cannot identify kabupaten vs kota.
+        return count($matches) === 1 ? $matches[0] : null;
     }
 
     /**
@@ -289,6 +230,11 @@ class WilayahDictionaryService
 
         // Extract province code if available in context row
         $provCode = $this->extractProvCodeFromRow($contextRow);
+
+        // Resolve dotted full codes before the bracket parser consumes their prefix.
+        if (preg_match('/^\d{2}\.\d{2}$/', $str)) {
+            return $this->resolveRegencyCode($str, $provCode);
+        }
 
         // 1. Bracket composite format e.g. "[3515] SIDOARJO", "[15] SIDOARJO", "[1101] BAKONGAN"
         if (preg_match('/^\[?(\d{2,4})\]?[\s\-:]*(.*)$/', $str, $matches)) {
@@ -358,7 +304,7 @@ class WilayahDictionaryService
     public function detectWilayahColumnRole(string $columnName): ?string
     {
         $c = mb_strtolower(trim($columnName));
-        $c = str_replace(['_', '-', '.'], '', $c);
+        $c = str_replace(['_', '-', '.', ' ', '/'], '', $c);
 
         if (in_array($c, ['idkab', 'idkabupaten', 'kodekabbps', 'kdkabbps', 'idregency'], true)) {
             return 'KAB_CODE_FULL'; // 4 digits e.g. 3515
@@ -368,7 +314,7 @@ class WilayahDictionaryService
             return 'KAB_CODE_RAW'; // 2 digits e.g. 15
         }
 
-        if (in_array($c, ['nmkab', 'namakab', 'namakabupaten', 'kabupaten', 'nmkota', 'namakota', 'kota', 'kab', 'regency', 'city'], true)) {
+        if (in_array($c, ['nmkab', 'namakab', 'namakabupaten', 'kabupaten', 'kabupatenkota', 'kabkot', 'nmkabkot', 'nmkota', 'namakota', 'kota', 'kab', 'regency', 'city'], true)) {
             return 'KAB_NAME'; // e.g. Sidoarjo
         }
 

@@ -30,8 +30,13 @@ class ReviewResultService
     {
         $job = $this->ownership->findMatchingJob($user, $jobId);
 
-        // Guard: If job is still processing/queued, return early without heavy unindexed queries
-        if (in_array($job->status, ['processing', 'queued', 'pending'], true)) {
+        // A matching chunk commits its results and progress atomically. Expose those
+        // committed rows while the worker is finalizing later chunks; only short
+        // circuit while there is genuinely nothing reviewable to read yet.
+        $isProcessing = in_array($job->status, ['processing', 'queued', 'pending'], true);
+        $hasPersistedResults = ! $isProcessing
+            || MatchingResult::where('matching_job_id', $job->id)->exists();
+        if ($isProcessing && ! $hasPersistedResults) {
             $recordCounts = $job->record_counts ?? [];
             $totalRawInput = (int) ($recordCounts['total_raw_input'] ?? $job->inputDataset?->row_count ?? $job->total_count ?? 0);
             $totalUniqueInput = (int) ($recordCounts['total_unique_input'] ?? $totalRawInput);
@@ -108,22 +113,49 @@ class ReviewResultService
         $totalDuplicates = (int) ($recordCounts['total_duplicates'] ?? max(0, $totalRawInput - $totalUniqueInput));
         $duplicateDetails = $recordCounts['duplicate_details'] ?? [];
 
-        if (empty($recordCounts) || (!isset($recordCounts['matched']) && !isset($recordCounts['possible_match']) && !isset($recordCounts['unmatched']))) {
-            $matchedCount = (int) MatchingResult::where('matching_job_id', $job->id)->where('result_type', 'matched')->count();
-            $possibleMatchCount = (int) MatchingResult::where('matching_job_id', $job->id)->where('result_type', 'possible_match')->count();
-            $unmatchedCount = (int) MatchingResult::where('matching_job_id', $job->id)->where('result_type', 'unmatched')->count();
-        } else {
-            $matchedCount = (int) ($recordCounts['matched'] ?? 0);
-            $possibleMatchCount = (int) ($recordCounts['possible_match'] ?? 0);
-            $unmatchedCount = (int) ($recordCounts['unmatched'] ?? 0);
+        // Count one outcome per input. Active review decisions override the
+        // primary candidate even when the reviewer chose candidate rank 2/3.
+        // PHP turns numeric string array keys into integers. Binding those as
+        // numbers against VARCHAR input keys makes MySQL coerce every row and
+        // defeats the job/input index (and can conflate "001" with "1").
+        $decidedKeys = $latestDecisions->keys()->map(fn ($key) => (string) $key)->all();
+        $baseCounts = MatchingResult::where('matching_job_id', $job->id)
+            ->where('candidate_rank', 1)
+            ->selectRaw('result_type, COUNT(*) AS total')->groupBy('result_type')->pluck('total', 'result_type');
+        // Keep the full-job count covered by the job/rank/type index. Excluding
+        // keys here forces MySQL to fetch every large JSON result row just to
+        // inspect input_record_key. Subtract only the targeted primary outcomes.
+        if ($decidedKeys !== []) {
+            $decidedPrimaryCounts = MatchingResult::where('matching_job_id', $job->id)
+                ->where('candidate_rank', 1)->whereIn('input_record_key', $decidedKeys)
+                ->pluck('result_type')->countBy();
+            foreach ($decidedPrimaryCounts as $type => $count) {
+                $baseCounts[$type] = (int) ($baseCounts[$type] ?? 0) - (int) $count;
+            }
         }
+        $matchedCount = (int) ($baseCounts['matched'] ?? 0) + $latestDecisions->where('new_result_type', 'matched')->count();
+        $possibleMatchCount = (int) ($baseCounts['possible_match'] ?? 0) + $latestDecisions->where('new_result_type', 'possible_match')->count();
+        $unmatchedCount = (int) ($baseCounts['unmatched'] ?? 0) + $latestDecisions->where('new_result_type', 'unmatched')->count();
 
         $reviewedCount = $job->reviewDecisions()->whereNull('undone_at')->distinct('input_record_key')->count('input_record_key');
 
         // Aggregate review groups across all reviewable database records (with caching)
-        $reviewGroups = $this->aggregateJobReviewGroups($job, $latestDecisions, $decisionHistory, $customRules, $reviewedCount);
+        $includeGroups = filter_var($params['include_groups'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        $reviewGroups = $includeGroups
+            ? $this->aggregateJobReviewGroups($job, $latestDecisions, $decisionHistory, $customRules, $reviewedCount)
+            : ['system_presets' => [], 'custom_rules' => [], 'dynamic_patterns' => [], 'case_groups' => []];
 
-        if ($caseGroupId !== '') {
+        if (isset($params['input_keys'])) {
+            // Internal mutation snapshots contain only affected records, not a full
+            // paginated review or expensive case-group diagnostic rebuild.
+            $targetKeys = array_values(array_unique(array_map('strval', $params['input_keys'])));
+            $results = MatchingResult::where('matching_job_id', $job->id)
+                ->whereIn('input_record_key', $targetKeys)
+                ->orderBy('candidate_rank')->get();
+            $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
+            $totalFiltered = count($targetKeys);
+            $totalPages = 1;
+        } elseif ($caseGroupId !== '') {
             $allGroups = array_merge(
                 $reviewGroups['system_presets'] ?? [],
                 $reviewGroups['custom_rules'] ?? [],
@@ -155,7 +187,11 @@ class ReviewResultService
                 ->where('candidate_rank', 1);
 
             if ($status !== 'all' && in_array($status, ['possible_match', 'matched', 'unmatched'], true)) {
-                $keysQuery->where('result_type', $status);
+                $statusKeys = $latestDecisions->where('new_result_type', $status)->keys()->map(fn ($key) => (string) $key)->all();
+                $keysQuery->where(function ($query) use ($status, $decidedKeys, $statusKeys) {
+                    $query->where(fn ($q) => $q->where('result_type', $status)->whereNotIn('input_record_key', $decidedKeys));
+                    if ($statusKeys !== []) $query->orWhereIn('input_record_key', $statusKeys);
+                });
             }
 
             if ($search !== '') {
@@ -172,7 +208,7 @@ class ReviewResultService
                     'possible_match' => $possibleMatchCount,
                     'matched' => $matchedCount,
                     'unmatched' => $unmatchedCount,
-                    default => (int) ($job->total_count ?? $totalRawInput),
+                    default => $matchedCount + $possibleMatchCount + $unmatchedCount,
                 };
                 if ($totalFiltered === 0) {
                     $totalFiltered = (clone $keysQuery)->count();
@@ -194,12 +230,12 @@ class ReviewResultService
             $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
         }
 
-        $manualAccepted = $latestDecisions->filter(fn ($d) => in_array($d->decision, ['accept_match', 'accepted', 'accept'], true))->count();
+        $manualAccepted = $latestDecisions->filter(fn ($d) => in_array($d->decision, ['accept_match', 'select_candidate', 'accepted', 'accept'], true))->count();
         $manualRejected = $latestDecisions->filter(fn ($d) => in_array($d->decision, ['reject_match', 'rejected', 'reject'], true))->count();
 
-        $effectiveMatched = $matchedCount + $manualAccepted;
-        $effectiveReview = max(0, $possibleMatchCount - $manualAccepted - $manualRejected);
-        $effectiveUnmatched = $unmatchedCount + $manualRejected;
+        $effectiveMatched = $matchedCount;
+        $effectiveReview = $possibleMatchCount;
+        $effectiveUnmatched = $unmatchedCount;
         $processedCount = (int) ($job->processed_count ?? ($matchedCount + $possibleMatchCount + $unmatchedCount));
         $isCompleted = ($job->status === 'completed');
         $unprocessedCount = max(0, $totalUniqueInput - $processedCount);
@@ -219,7 +255,7 @@ class ReviewResultService
                 'matched' => $effectiveMatched,
                 'possible_match' => $effectiveReview,
                 'unmatched' => $effectiveUnmatched,
-                'auto_matched' => $matchedCount,
+                'auto_matched' => (int) ($baseCounts['matched'] ?? 0),
                 'manual_accepted' => $manualAccepted,
                 'manual_rejected' => $manualRejected,
                 'reviewed' => $reviewedCount,
@@ -248,7 +284,9 @@ class ReviewResultService
             'custom_rules' => $reviewGroups['custom_rules'],
             'dynamic_patterns' => $reviewGroups['dynamic_patterns'],
             'case_groups' => $reviewGroups['case_groups'],
-            'field_quality_summary' => $this->aggregateFieldQuality($job, $totalUniqueInput),
+            'field_quality_summary' => filter_var($params['include_quality'] ?? $includeGroups, FILTER_VALIDATE_BOOLEAN)
+                ? $this->aggregateFieldQuality($job, $totalUniqueInput) : [],
+            'is_processing' => $isProcessing,
         ];
     }
 
@@ -257,88 +295,73 @@ class ReviewResultService
      */
     private function aggregateFieldQuality(MatchingJob $job, int $totalEvaluated): array
     {
-        $cacheKey = "matching_job_field_quality_{$job->id}";
+        // Scores are immutable matching evidence. Include progress in the key so
+        // incremental results cannot leave a partial aggregate cached as final.
+        $cacheKey = "matching_job_field_quality_v3_{$job->id}_{$job->processed_count}_{$job->status}";
         return cache()->remember($cacheKey, 3600, function () use ($job, $totalEvaluated) {
-            if (!empty($job->record_counts['field_quality_summary'])) {
-                return $job->record_counts['field_quality_summary'];
-            }
-
-            $samples = MatchingResult::where('matching_job_id', $job->id)
-                ->where('candidate_rank', 1)
-                ->whereNotNull('field_scores')
-                ->limit(2000)
-                ->pluck('field_scores');
-
-            if ($samples->isEmpty()) {
-                return [];
-            }
-
-            $stats = [];
-            foreach ($samples as $scores) {
-                if (!is_array($scores)) {
-                    continue;
-                }
-                foreach ($scores as $scoreItem) {
-                    $refCol = (string) ($scoreItem['reference_column'] ?? '');
-                    $inpCol = (string) ($scoreItem['input_column'] ?? '');
-                    if ($refCol === '' && $inpCol === '') {
-                        continue;
-                    }
-                    $key = "{$refCol}:::{$inpCol}";
-                    if (!isset($stats[$key])) {
-                        $stats[$key] = [
-                            'fieldKey' => $key,
-                            'referenceColumn' => $refCol,
-                            'inputColumn' => $inpCol,
-                            'totalSample' => 0,
-                            'scoreSum' => 0.0,
-                            'highCount' => 0,
-                            'medCount' => 0,
-                            'lowCount' => 0,
-                        ];
-                    }
-                    $s = (float) ($scoreItem['score'] ?? 0);
-                    $stats[$key]['totalSample']++;
-                    $stats[$key]['scoreSum'] += $s;
-                    if ($s >= 90) {
-                        $stats[$key]['highCount']++;
-                    } elseif ($s >= 80) {
-                        $stats[$key]['medCount']++;
-                    } else {
-                        $stats[$key]['lowCount']++;
+            if (DB::connection()->getDriverName() === 'mysql') {
+                // Expand JSON in MySQL, returning only one aggregate per column.
+                // No PHP hydration of hundreds of thousands of result payloads.
+                $rows = DB::select(<<<'SQL'
+                    SELECT f.reference_column, f.input_column,
+                           COUNT(*) AS evaluated, SUM(f.score) AS score_sum,
+                           SUM(f.score >= 90) AS high_count,
+                           SUM(f.score >= 80 AND f.score < 90) AS med_count,
+                           SUM(f.score < 80) AS low_count
+                    FROM matching_results AS r
+                    JOIN JSON_TABLE(COALESCE(r.field_scores, JSON_ARRAY()), '$[*]'
+                        COLUMNS (
+                            reference_column VARCHAR(255) PATH '$.reference_column',
+                            input_column VARCHAR(255) PATH '$.input_column',
+                            score DOUBLE PATH '$.score' NULL ON EMPTY NULL ON ERROR
+                        )
+                    ) AS f ON TRUE
+                    WHERE r.matching_job_id = ? AND r.candidate_rank = 1
+                        AND f.score IS NOT NULL
+                    GROUP BY f.reference_column, f.input_column
+                    SQL, [$job->id]);
+            } else {
+                // SQLite test/local fallback streams all evidence, never a sample.
+                $stats = [];
+                foreach (MatchingResult::where('matching_job_id', $job->id)
+                    ->where('candidate_rank', 1)->select('id', 'field_scores')->lazyById(500) as $record) {
+                    foreach ($record->field_scores ?? [] as $field) {
+                        if (!isset($field['score']) || !is_numeric($field['score'])) continue;
+                        $ref = (string) ($field['reference_column'] ?? '');
+                        $inp = (string) ($field['input_column'] ?? '');
+                        $key = $ref.':::'.$inp;
+                        $stats[$key] ??= ['reference_column' => $ref, 'input_column' => $inp,
+                            'evaluated' => 0, 'score_sum' => 0, 'high_count' => 0, 'med_count' => 0, 'low_count' => 0];
+                        $score = (float) $field['score'];
+                        $stats[$key]['evaluated']++;
+                        $stats[$key]['score_sum'] += $score;
+                        $stats[$key][$score >= 90 ? 'high_count' : ($score >= 80 ? 'med_count' : 'low_count')]++;
                     }
                 }
+                $rows = array_map(fn ($row) => (object) $row, array_values($stats));
             }
 
-            $effectiveTotal = max(1, $totalEvaluated);
             $result = [];
-            foreach ($stats as $key => $st) {
-                if ($st['totalSample'] === 0) {
-                    continue;
-                }
-                $highRatio = $st['highCount'] / $st['totalSample'];
-                $medRatio = $st['medCount'] / $st['totalSample'];
-                $lowRatio = $st['lowCount'] / $st['totalSample'];
-
-                $scaledHigh = (int) round($highRatio * $effectiveTotal);
-                $scaledMed = (int) round($medRatio * $effectiveTotal);
-                $scaledLow = max(0, $effectiveTotal - $scaledHigh - $scaledMed);
-
+            foreach ($rows as $row) {
+                $key = $row->reference_column.':::'.$row->input_column;
+                $count = (int) $row->evaluated;
+                if ($count === 0) continue;
                 $result[$key] = [
                     'fieldKey' => $key,
-                    'referenceColumn' => $st['referenceColumn'],
-                    'inputColumn' => $st['inputColumn'],
-                    'totalEvaluated' => $effectiveTotal,
-                    'avgScore' => (int) round($st['scoreSum'] / $st['totalSample']),
-                    'highCount' => $scaledHigh,
-                    'medCount' => $scaledMed,
-                    'lowCount' => $scaledLow,
-                    'highPct' => (int) round($highRatio * 100),
-                    'medPct' => (int) round($medRatio * 100),
-                    'lowPct' => (int) round($lowRatio * 100),
+                    'referenceColumn' => $row->reference_column,
+                    'inputColumn' => $row->input_column,
+                    'totalEvaluated' => $count,
+                    'totalRecords' => $totalEvaluated,
+                    'unscoredCount' => max(0, $totalEvaluated - $count),
+                    'avgScore' => (int) round($row->score_sum / $count),
+                    'highCount' => (int) $row->high_count,
+                    'medCount' => (int) $row->med_count,
+                    'lowCount' => (int) $row->low_count,
+                    'highPct' => round($row->high_count / $count * 100, 1),
+                    'medPct' => round($row->med_count / $count * 100, 1),
+                    'lowPct' => round($row->low_count / $count * 100, 1),
                 ];
             }
-
             return $result;
         });
     }
@@ -352,32 +375,68 @@ class ReviewResultService
     private function aggregateJobReviewGroups(MatchingJob $job, $latestDecisions, $decisionHistory, array $customRules, int $reviewedCount): array
     {
         $rulesHash = md5(json_encode($customRules));
-        $cacheKey = "matching_job_case_groups_{$job->id}_{$reviewedCount}_{$rulesHash}";
-
-        if (cache()->has($cacheKey)) {
-            $cached = cache()->get($cacheKey);
-            if (is_array($cached) && (!empty($cached['case_groups']) || !empty($cached['system_presets']))) {
-                return $cached;
-            }
+        $cacheKey = "matching_job_case_membership_v3_{$job->id}_{$rulesHash}_{$job->processed_count}_{$job->status}";
+        $groups = cache()->get($cacheKey);
+        $knownKeys = is_array($groups)
+            ? collect($groups['case_groups'])->flatMap(fn ($group) => $group['item_keys'])->all() : [];
+        // A decision on a previously unreviewable record can introduce a new case.
+        if (!is_array($groups) || array_diff($latestDecisions->keys()->all(), $knownKeys) !== []) {
+            // Discover keys with narrow indexed predicates before loading JSON payloads.
+            $keys = MatchingResult::where('matching_job_id', $job->id)->where('candidate_rank', 1)
+                ->where('result_type', 'possible_match')->pluck('input_record_key');
+            $reviewedKeys = MatchingResult::where('matching_job_id', $job->id)->where('candidate_rank', 1)
+                ->where('review_status', 'reviewed')->pluck('input_record_key');
+            $keys = $keys->merge($reviewedKeys)->merge($latestDecisions->keys())
+                ->map(fn ($key) => (string) $key)->unique()->values();
+            $results = MatchingResult::where('matching_job_id', $job->id)
+                ->whereIn('input_record_key', $keys)->whereIn('candidate_rank', [1, 2])
+                ->orderBy('input_record_key')->orderBy('candidate_rank')->get();
+            // Cache immutable classification and membership; decisions/undo are
+            // overlaid below without re-reading thousands of result payloads.
+            $items = $this->transformResultsToItems($results, collect(), collect(), $customRules)
+                ->map(fn ($item) => [...$item, 'status' => 'possible_match', 'display_status' => 'need_review']);
+            $groups = $this->buildReviewGroups($items, $customRules);
+            cache()->put($cacheKey, $groups, 3600);
         }
 
-        $results = MatchingResult::where('matching_job_id', $job->id)
-            ->where(function ($q) {
-                $q->where('result_type', 'possible_match')
-                  ->orWhere('review_status', 'reviewed')
-                  ->orWhereNotNull('review_decision');
-            })
-            ->whereIn('candidate_rank', [1, 2])
-            ->orderBy('input_record_key')
-            ->orderBy('candidate_rank')
-            ->limit(1000)
-            ->get();
-
-        $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
-        $groups = $this->buildReviewGroups($items, $customRules);
-
-        cache()->put($cacheKey, $groups, 1800);
-
+        $decorateItem = function (?array $item) use ($latestDecisions, $decisionHistory): ?array {
+            if ($item === null) return null;
+            $key = $item['input_record_key'];
+            $decision = $latestDecisions->get($key);
+            $item['decision'] = $decision ? $this->decisionPayload($decision) : null;
+            $item['decision_history'] = $decisionHistory->get($key, collect())
+                ->map(fn ($audit) => $this->decisionPayload($audit))->values()->all();
+            $item['status'] = $decision?->new_result_type ?? 'possible_match';
+            $item['display_status'] = $this->displayStatus($decision, 'possible_match');
+            $item['status_code'] = $this->statusCode($decision, 'possible_match');
+            $item['review_status'] = $decision ? 'reviewed' : 'pending';
+            return $item;
+        };
+        foreach (['system_presets', 'custom_rules', 'dynamic_patterns'] as $section) {
+            foreach ($groups[$section] as &$group) {
+                $groupDecisions = $latestDecisions->toBase()->only($group['item_keys']);
+                $accepted = $groupDecisions->whereIn('decision', ['accept_match', 'select_candidate'])->count();
+                $rejected = $groupDecisions->where('decision', 'reject_match')->count();
+                $unmatched = $groupDecisions->where('decision', 'mark_unmatched')->count();
+                $pending = $group['item_count'] - $groupDecisions->count();
+                $group['decision_summary'] = ['accepted' => $accepted, 'rejected' => $rejected,
+                    'unmatched' => $unmatched, 'pending' => $pending,
+                    'mixed' => collect([$accepted, $rejected, $unmatched])->filter(fn ($n) => $n > 0)->count() > 1];
+                $group['reviewed_count'] = $groupDecisions->count();
+                $group['status'] = $pending > 0 || $group['item_count'] === 0 ? 'open' : 'resolved';
+                $group['eligible_for_bulk'] = $group['item_count'] > 0 && $group['confidence'] === 'High' && $pending > 0;
+                $group['decision_history'] = $decisionHistory->toBase()->only($group['item_keys'])
+                    ->flatten(1)->map(fn ($audit) => $this->decisionPayload($audit))->values()->all();
+                $group['knowledge_level'] = $this->knowledgeLevelFromHistory(collect([
+                    ['decision_history' => $group['decision_history']],
+                ]));
+                $group['representative'] = $decorateItem($group['representative']);
+                $group['representative_samples'] = array_map($decorateItem, $group['representative_samples']);
+            }
+            unset($group);
+        }
+        $groups['case_groups'] = collect(array_merge($groups['system_presets'], $groups['custom_rules'], $groups['dynamic_patterns']))
+            ->filter(fn ($group) => $group['item_count'] > 0)->values()->all();
         return $groups;
     }
 
@@ -422,45 +481,37 @@ class ReviewResultService
      */
     public function decide(User $user, string $jobId, array $payload): array
     {
-        return DB::transaction(function () use ($user, $jobId, $payload) {
+        $response = DB::transaction(function () use ($user, $jobId, $payload) {
             $job = $this->ownership->findMatchingJob($user, $jobId);
             $decision = (string) $payload['decision'];
             $scope = (string) ($payload['scope'] ?? 'one');
-            $reviewSnapshot = $this->list($user, $job->id);
-            $itemsByKey = collect($reviewSnapshot['items'])->keyBy('input_record_key');
-            $caseGroupsById = collect($reviewSnapshot['case_groups'])->keyBy('id');
-            if (empty($caseGroupsById[$payload['case_group_id'] ?? ''])) {
-                $allReviewGroups = collect(array_merge(
-                    $reviewSnapshot['system_presets'] ?? [],
-                    $reviewSnapshot['custom_rules'] ?? [],
-                    $reviewSnapshot['dynamic_patterns'] ?? [],
-                    $reviewSnapshot['case_groups'] ?? []
-                ))->keyBy('id');
-                $caseGroupsById = $allReviewGroups;
+            $customRules = data_get($job->configuration?->advanced_settings, 'custom_review_rules', []);
+            if (empty($customRules) && $job->workspace) {
+                $customRules = data_get($job->workspace->workflow_state, 'custom_review_rules', []);
             }
-            $inputKeys = $this->targetInputKeys($payload, $scope, $caseGroupsById);
 
-            // Fetch any target records not present in current page snapshot
-            $missingKeys = array_diff($inputKeys, $itemsByKey->keys()->all());
-            if (! empty($missingKeys)) {
-                $customRules = data_get($job->configuration?->advanced_settings, 'custom_review_rules', []);
-                if (empty($customRules) && $job->workspace) {
-                    $customRules = data_get($job->workspace->workflow_state, 'custom_review_rules', []);
-                }
+            $caseGroupsById = collect();
+            if ($scope === 'group' || ($scope === 'selected' && !empty($payload['case_group_id']))) {
                 $allDecisions = $job->reviewDecisions()->latest()->get();
                 $latestDecisions = $allDecisions->whereNull('undone_at')->unique('input_record_key')->keyBy('input_record_key');
-                $decisionHistory = $allDecisions->groupBy('input_record_key');
-
-                $missingResults = MatchingResult::where('matching_job_id', $job->id)
-                    ->whereIn('input_record_key', $missingKeys)
-                    ->orderBy('input_record_key')
-                    ->orderBy('candidate_rank')
-                    ->get();
-                $missingItems = $this->transformResultsToItems($missingResults, $latestDecisions, $decisionHistory, $customRules);
-                $itemsByKey = $itemsByKey->union($missingItems->keyBy('input_record_key'));
+                $groups = $this->aggregateJobReviewGroups($job, $latestDecisions,
+                    $allDecisions->groupBy('input_record_key'), $customRules, $latestDecisions->count());
+                $caseGroupsById = collect(array_merge($groups['system_presets'], $groups['custom_rules'],
+                    $groups['dynamic_patterns'], $groups['case_groups']))->keyBy('id');
             }
 
+            $inputKeys = array_values(array_unique($this->targetInputKeys($payload, $scope, $caseGroupsById)));
+            // Only read/lock targeted rows. Preserve bulk guardrails and auditing.
+            $targetResults = MatchingResult::where('matching_job_id', $job->id)
+                ->whereIn('input_record_key', $inputKeys)
+                ->orderBy('input_record_key')->orderBy('candidate_rank')->lockForUpdate()->get();
+            $targetDecisions = $job->reviewDecisions()->whereIn('input_record_key', $inputKeys)->latest()->get();
+            $itemsByKey = $this->transformResultsToItems($targetResults,
+                $targetDecisions->whereNull('undone_at')->unique('input_record_key')->keyBy('input_record_key'),
+                $targetDecisions->groupBy('input_record_key'), $customRules)->keyBy('input_record_key');
+
             $inputKeys = $this->openInputKeys($itemsByKey, $inputKeys, $scope);
+            $snapshotKeys = $inputKeys;
             $safetyFailures = $this->bulkSafetyFailures($itemsByKey, $inputKeys, $decision, $scope, $payload);
             $inputKeys = array_values(array_filter(
                 $inputKeys,
@@ -554,9 +605,15 @@ class ReviewResultService
                     'skipped_records' => array_values($safetyFailures),
                     'skipped_count' => count($safetyFailures),
                 ],
-                'review' => $this->list($user, $job->id),
+                'affected_keys' => $snapshotKeys,
             ];
         });
+        $response['review'] = $this->list($user, $jobId, [
+            'include_groups' => !empty($payload['case_group_id']), 'include_quality' => false,
+            'input_keys' => $response['affected_keys'],
+        ]);
+        unset($response['affected_keys']);
+        return $response;
     }
 
     /**
@@ -564,7 +621,7 @@ class ReviewResultService
      */
     public function undo(User $user, string $jobId, string $decisionId): array
     {
-        return DB::transaction(function () use ($user, $jobId, $decisionId) {
+        $response = DB::transaction(function () use ($user, $jobId, $decisionId) {
             $this->ownership->findMatchingJob($user, $jobId);
             $decision = ReviewDecision::where('matching_job_id', $jobId)
                 ->whereNull('undone_at')
@@ -603,9 +660,16 @@ class ReviewResultService
             return [
                 'undone_decision_id' => $decision->id,
                 'affected_records' => $decisions->count(),
-                'review' => $this->list($user, $jobId),
+                'affected_keys' => $decisions->pluck('input_record_key')->all(),
+                'include_groups' => (bool) data_get($decision->metadata, 'case_group_id'),
             ];
         });
+        $response['review'] = $this->list($user, $jobId, [
+            'include_groups' => $response['include_groups'], 'include_quality' => false,
+            'input_keys' => $response['affected_keys'],
+        ]);
+        unset($response['affected_keys'], $response['include_groups']);
+        return $response;
     }
 
     /**
@@ -874,6 +938,7 @@ class ReviewResultService
         return match ($baseStatus) {
             'matched' => 'AUTO_MATCHED',
             'possible_match' => 'NEED_REVIEW',
+            'unmatched' => 'CONFIRMED_UNMATCHED',
             default => 'NEED_REVIEW',
         };
     }

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -38,32 +39,21 @@ function DashboardPage() {
   const { t } = usePreferences();
   const { can, role } = useAuth();
   const navigate = Route.useNavigate();
-  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const canViewDashboard = can(PERMISSIONS.DASHBOARD_VIEW);
 
-  const loadDashboard = useCallback((mode: "initial" | "refresh" = "initial") => {
-    if (!canViewDashboard) return;
-    if (mode === "initial") setLoading(true);
-    if (mode === "refresh") setRefreshing(true);
-    setError(null);
-
-    listWorkspaces()
-      .then(setWorkspaces)
-      .catch((err) => {
-        setError(err instanceof ApiError ? err.message : t("dashboard.real.loadFailed"));
-      })
-      .finally(() => {
-        setLoading(false);
-        setRefreshing(false);
-      });
-  }, [canViewDashboard, t]);
-
-  useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
+  const workspacesQuery = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => listWorkspaces(),
+    enabled: canViewDashboard,
+    staleTime: 30_000,
+  });
+  const workspaces = workspacesQuery.data ?? [];
+  const loading = workspacesQuery.isPending;
+  const refreshing = workspacesQuery.isFetching && !loading;
+  const error = workspacesQuery.error
+    ? (workspacesQuery.error instanceof ApiError ? workspacesQuery.error.message : t("dashboard.real.loadFailed"))
+    : null;
+  const loadDashboard = (_mode?: "initial" | "refresh") => { void workspacesQuery.refetch(); };
 
   const summary = useMemo(() => buildDashboardSummary(workspaces), [workspaces]);
   const latestWorkspace = summary.latestActive ?? workspaces[0] ?? null;

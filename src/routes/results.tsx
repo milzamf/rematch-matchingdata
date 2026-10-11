@@ -110,9 +110,6 @@ function ResultsPage() {
   const [tab, setTab] = useState<TabKey>("overview");
   const [selectedRuleFilter, setSelectedRuleFilter] = useState<string | null>(null);
   const [historyView, setHistoryView] = useState<ReviewHistoryView>("groups");
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
-    requestedWorkspaceId,
-  );
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const canViewResults = can(PERMISSIONS.EXPORT_VIEW);
@@ -130,22 +127,11 @@ function ResultsPage() {
 
   const workspaces = workspacesQuery.data ?? [];
 
-  // Initialize selectedWorkspaceId when workspaces load
-  useEffect(() => {
-    if (requestedWorkspaceId) {
-      setSelectedWorkspaceId(requestedWorkspaceId);
-      return;
-    }
-    if (!selectedWorkspaceId && workspaces.length > 0) {
-      const withResults = workspaces.filter(
-        (item) => Boolean(item.matching_job_id ?? item.matching_job?.id),
-      );
-      const fallbackId = withResults[0]?.id ?? workspaces[0]?.id ?? null;
-      if (fallbackId) {
-        setSelectedWorkspaceId(fallbackId);
-      }
-    }
-  }, [requestedWorkspaceId, selectedWorkspaceId, workspaces]);
+  // The URL owns workspace selection; a fetched response must never navigate back.
+  const selectedWorkspaceId = requestedWorkspaceId
+    ?? workspaces.find((item) => Boolean(item.matching_job_id ?? item.matching_job?.id))?.id
+    ?? workspaces[0]?.id
+    ?? null;
 
   // 2. Active Workspace Query (cached per workspace ID)
   const workspaceQuery = useQuery({
@@ -157,26 +143,15 @@ function ResultsPage() {
 
   const workspace = workspaceQuery.data ?? null;
 
-  // Keep URL query param synced with selected workspace
-  useEffect(() => {
-    if (workspace?.id && workspace.id !== requestedWorkspaceId) {
-      void navigate({ to: "/results", search: { workspace: workspace.id }, replace: true });
-    }
-  }, [navigate, requestedWorkspaceId, workspace?.id]);
-
-  // 3. Review Results Query (cached per matching job ID)
   const defaultJobId = workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
-  const [selectedJobIdOverride, setSelectedJobIdOverride] = useState<string | null>(null);
-
-  // Reset job override when workspace changes
-  useEffect(() => {
-    setSelectedJobIdOverride(null);
-  }, [selectedWorkspaceId]);
-
-  const jobId = selectedJobIdOverride ?? defaultJobId;
+  const [jobSelection, setJobSelection] = useState<{ workspaceId: string | null; jobId: string } | null>(null);
+  const jobId = jobSelection?.workspaceId === selectedWorkspaceId
+    ? jobSelection.jobId
+    : defaultJobId;
+  const includeGroups = ["cases", "exploratory", "statistics", "reviewHistory"].includes(tab);
   const reviewQuery = useQuery({
-    queryKey: ["review-results", jobId],
-    queryFn: () => fetchReviewResults(jobId!),
+    queryKey: ["review-results", jobId, includeGroups],
+    queryFn: ({ signal }) => fetchReviewResults(jobId!, { include_groups: includeGroups }, signal),
     enabled: Boolean(canViewResults && jobId),
     staleTime: 5 * 60 * 1000,
   });
@@ -194,7 +169,7 @@ function ResultsPage() {
       const jId = jobId ?? workspace?.matching_job_id ?? workspace?.matching_job?.id ?? null;
       return !jId || !item.sourceJobId || item.sourceJobId === jId;
     });
-    const combined = [...localExportHistory, ...fromWorkspace];
+    const combined = [...localExportHistory.filter((entry) => entry.sourceJobId === jobId), ...fromWorkspace];
     const seen = new Set<string>();
     return combined.filter((item) => {
       if (seen.has(item.id)) return false;
@@ -328,7 +303,6 @@ function ResultsPage() {
                     value={selectedWorkspaceId ?? ""}
                     onChange={(event) => {
                       const nextId = event.target.value || null;
-                      setSelectedWorkspaceId(nextId);
                       if (nextId) {
                         void navigate({ to: "/results", search: { workspace: nextId }, replace: true });
                       }
@@ -410,7 +384,7 @@ function ResultsPage() {
             <ResultsContextHeader
               workspace={workspace}
               activeJobId={jobId}
-              onSelectJob={(newJobId) => setSelectedJobIdOverride(newJobId)}
+              onSelectJob={(newJobId) => setJobSelection({ workspaceId: selectedWorkspaceId, jobId: newJobId })}
             />
 
             {isInterruptedJob && (

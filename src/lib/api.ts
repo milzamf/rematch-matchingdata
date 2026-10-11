@@ -249,6 +249,14 @@ export type MatchingRunResult = {
     total: number;
     percentage: number;
     stage?: string | null;
+    stage_progress?: {
+      phase: string;
+      label: string;
+      processed: number;
+      total: number;
+      percentage: number;
+      heartbeat_at?: string;
+    } | null;
   };
   checkpoint?: {
     is_resumed: boolean;
@@ -276,6 +284,12 @@ export type MatchingRunResult = {
 };
 
 export type ReviewFieldScore = {
+  numeric_mismatch?: boolean;
+  address_evidence?: {
+    compatible: boolean;
+    conflict: boolean;
+    richer_side: "input" | "reference" | null;
+  } | null;
   reference_column: string;
   input_column: string;
   score: number;
@@ -522,6 +536,8 @@ export type ReviewResults = {
     referenceColumn: string;
     inputColumn: string;
     totalEvaluated: number;
+    totalRecords?: number;
+    unscoredCount?: number;
     avgScore: number;
     highCount: number;
     medCount: number;
@@ -999,7 +1015,10 @@ export async function fetchReviewResults(
     search?: string;
     query?: string;
     case_group_id?: string;
+    include_groups?: boolean;
+    include_quality?: boolean;
   },
+  signal?: AbortSignal,
 ): Promise<ReviewResults> {
   const searchParams = new URLSearchParams();
   if (params) {
@@ -1009,6 +1028,8 @@ export async function fetchReviewResults(
     if (statusVal) searchParams.set("status", statusVal);
     const searchVal = params.search || params.query;
     if (searchVal) searchParams.set("search", searchVal);
+    if (params.include_groups !== undefined) searchParams.set("include_groups", String(params.include_groups));
+    if (params.include_quality !== undefined) searchParams.set("include_quality", String(params.include_quality));
     if (params.case_group_id) searchParams.set("case_group_id", params.case_group_id);
   }
   const queryString = searchParams.toString();
@@ -1018,6 +1039,7 @@ export async function fetchReviewResults(
 
   const response = await apiFetch(endpoint, {
     headers: { Accept: "application/json" },
+    signal,
   });
   const payload = (await response.json().catch(() => null)) as
     ApiSuccess<ReviewResults> | ApiFailure | null;

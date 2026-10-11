@@ -859,6 +859,14 @@ export function RecordComparisonModal({
                                         {resolved.refColLabel}
                                       </span>
                                     </div>
+                                    {f.address_evidence?.compatible && f.address_evidence.richer_side && (
+                                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                                        {f.address_evidence.richer_side === "input" ? "Alamat input lebih lengkap" : "Alamat acuan lebih lengkap"} · usulan pengayaan
+                                      </span>
+                                    )}
+                                    {f.address_evidence?.conflict && (
+                                      <span className="text-xs font-medium text-destructive">Konflik detail alamat · periksa nomor/lokasi</span>
+                                    )}
                                     {resolved.isGenerated && (
                                       <span className="inline-flex items-center gap-1 w-fit rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
                                         <Split className="size-2.5 shrink-0" />

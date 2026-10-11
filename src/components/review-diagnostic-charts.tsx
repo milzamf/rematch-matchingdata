@@ -55,6 +55,8 @@ export interface FieldQualityStat {
   referenceColumn: string;
   inputColumn: string;
   totalEvaluated: number;
+  totalRecords?: number;
+  unscoredCount?: number;
   avgScore: number;
   highCount: number;
   medCount: number;
@@ -121,108 +123,14 @@ export function ReviewDiagnosticCharts({
     ),
   );
 
-  // 1. Compute Field Quality Summary Data across mapped comparison fields with dynamic thresholds
-  const fieldQualityStats = useMemo<FieldQualityStat[]>(() => {
-    if (fieldQualitySummary && Object.keys(fieldQualitySummary).length > 0) {
-      return Object.values(fieldQualitySummary);
-    }
-
-    if (!items || items.length === 0) return [];
-
-    const statsMap = new Map<
-      string,
-      {
-        referenceColumn: string;
-        inputColumn: string;
-        scores: number[];
-      }
-    >();
-
-    for (const item of items) {
-      const topCandidate = item.candidates?.[0];
-      if (!topCandidate || !topCandidate.field_scores) continue;
-
-      for (const field of topCandidate.field_scores) {
-        const key = `${field.reference_column}:::${field.input_column}`;
-        if (!statsMap.has(key)) {
-          statsMap.set(key, {
-            referenceColumn: field.reference_column,
-            inputColumn: field.input_column,
-            scores: [],
-          });
-        }
-        const score = typeof field.score === "number" ? Math.max(0, Math.min(100, field.score)) : 0;
-        statsMap.get(key)!.scores.push(score);
-      }
-    }
-
-    // Fallback: If items don't have candidate field_scores populated, use columnMappings
-    if (statsMap.size === 0 && columnMappings.length > 0) {
-      for (const mapping of columnMappings) {
-        if (!mapping.referenceColumnId || !mapping.inputColumnId) continue;
-        const key = `${mapping.referenceColumnId}:::${mapping.inputColumnId}`;
-        statsMap.set(key, {
-          referenceColumn: mapping.referenceColumnId,
-          inputColumn: mapping.inputColumnId,
-          scores: [],
-        });
-      }
-    }
-
-    const result: FieldQualityStat[] = [];
-    for (const [key, val] of statsMap.entries()) {
-      const total = val.scores.length;
-      if (total === 0) {
-        result.push({
-          fieldKey: key,
-          referenceColumn: val.referenceColumn,
-          inputColumn: val.inputColumn,
-          totalEvaluated: 0,
-          avgScore: 0,
-          highCount: 0,
-          medCount: 0,
-          lowCount: 0,
-          highPct: 0,
-          medPct: 0,
-          lowPct: 0,
-        });
-        continue;
-      }
-
-      let highCount = 0;
-      let medCount = 0;
-      let lowCount = 0;
-      let sumScore = 0;
-
-      for (const score of val.scores) {
-        sumScore += score;
-        if (score >= autoMatch) {
-          highCount++;
-        } else if (score >= reviewMin) {
-          medCount++;
-        } else {
-          lowCount++;
-        }
-      }
-
-      const avgScore = Math.round(sumScore / total);
-      result.push({
-        fieldKey: key,
-        referenceColumn: val.referenceColumn,
-        inputColumn: val.inputColumn,
-        totalEvaluated: total,
-        avgScore,
-        highCount,
-        medCount,
-        lowCount,
-        highPct: Math.round((highCount / total) * 100),
-        medPct: Math.round((medCount / total) * 100),
-        lowPct: Math.round((lowCount / total) * 100),
-      });
-    }
-
-    return result.sort((a, b) => b.totalEvaluated - a.totalEvaluated);
-  }, [items, columnMappings, autoMatch, reviewMin]);
+  // Column diagnosis always uses the full-job server aggregate. Never substitute
+  // the currently displayed page while the aggregate is loading.
+  const fieldQualityStats = useMemo<FieldQualityStat[]>(
+    () => Object.values(fieldQualitySummary ?? {}),
+    [fieldQualitySummary],
+  );
+  const qualityHigh = 90;
+  const qualityMedium = 80;
 
   // 2. Compute Pareto Root-Cause Distribution for Review/Unmatched records
   const paretoStats = useMemo<ParetoStat[]>(() => {
@@ -497,35 +405,35 @@ export function ReviewDiagnosticCharts({
                 <div className="flex items-center gap-3 text-[11px] font-medium text-muted-foreground">
                   <div className="flex items-center gap-1.5">
                     <span className="size-2.5 rounded-xs bg-[#16a34a]" />
-                    <span>{t("review.heatmap.highTier", { min: autoMatch })}</span>
+                    <span>{t("review.heatmap.highTier", { min: qualityHigh })}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="size-2.5 rounded-xs bg-[#d97706]" />
                     <span>
                       {t("review.heatmap.medTier", {
-                        min: reviewMin,
-                        max: autoMatch > reviewMin ? autoMatch - 1 : autoMatch,
+                        min: qualityMedium,
+                        max: qualityHigh > qualityMedium ? qualityHigh - 1 : qualityHigh,
                       })}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="size-2.5 rounded-xs bg-[#dc2626]" />
-                    <span>{t("review.heatmap.lowTier", { max: reviewMin })}</span>
+                    <span>{t("review.heatmap.lowTier", { max: qualityMedium })}</span>
                   </div>
                 </div>
               </div>
 
               {fieldQualityStats.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-                  {t("review.heatmap.noMappedFields")}
+                  {fieldQualitySummary === undefined ? t("matching.review.loading") : t("review.heatmap.noMappedFields")}
                 </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {fieldQualityStats.map((stat) => {
                     const avgToneClass =
-                      stat.avgScore >= autoMatch
+                      stat.avgScore >= qualityHigh
                         ? "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
-                        : stat.avgScore >= reviewMin
+                        : stat.avgScore >= qualityMedium
                           ? "text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30"
                           : "text-rose-700 dark:text-rose-400 bg-rose-500/10 border-rose-500/30";
 
@@ -582,21 +490,21 @@ export function ReviewDiagnosticCharts({
                                 <div
                                   className="h-full bg-[#16a34a] transition-all"
                                   style={{ width: `${stat.highPct}%` }}
-                                  title={`${t("review.heatmap.highTier", { min: autoMatch })}: ${stat.highCount} (${stat.highPct}%)`}
+                                  title={`${t("review.heatmap.highTier", { min: qualityHigh })}: ${stat.highCount} (${stat.highPct}%)`}
                                 />
                               )}
                               {stat.medPct > 0 && (
                                 <div
                                   className="h-full bg-[#d97706] transition-all"
                                   style={{ width: `${stat.medPct}%` }}
-                                  title={`${t("review.heatmap.medTier", { min: reviewMin, max: autoMatch > reviewMin ? autoMatch - 1 : autoMatch })}: ${stat.medCount} (${stat.medPct}%)`}
+                                  title={`${t("review.heatmap.medTier", { min: qualityMedium, max: qualityHigh > qualityMedium ? qualityHigh - 1 : qualityHigh })}: ${stat.medCount} (${stat.medPct}%)`}
                                 />
                               )}
                               {stat.lowPct > 0 && (
                                 <div
                                   className="h-full bg-[#dc2626] transition-all"
                                   style={{ width: `${stat.lowPct}%` }}
-                                  title={`${t("review.heatmap.lowTier", { max: reviewMin })}: ${stat.lowCount} (${stat.lowPct}%)`}
+                                  title={`${t("review.heatmap.lowTier", { max: qualityMedium })}: ${stat.lowCount} (${stat.lowPct}%)`}
                                 />
                               )}
                             </div>
@@ -630,8 +538,18 @@ export function ReviewDiagnosticCharts({
                           <span>{t("review.heatmap.avgScore")}</span>
                           <span className="font-semibold text-foreground">
                             {t("review.heatmap.comparisons", { count: stat.totalEvaluated })}
+                            {stat.totalRecords !== undefined && (
+                              <span className="ml-1 font-normal text-muted-foreground">
+                                / {stat.totalRecords.toLocaleString()}
+                              </span>
+                            )}
                           </span>
                         </div>
+                        {(stat.unscoredCount ?? 0) > 0 && (
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            {t("review.heatmap.unscored", { count: stat.unscoredCount ?? 0 })}
+                          </p>
+                        )}
                       </div>
                     );
                   })}

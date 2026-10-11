@@ -2,6 +2,8 @@
 
 ## 1. Overview
 
+Review performance stabilization (2026-10-11): full-job per-column aggregates are computed in MySQL and cached independently of paginated table reads. Immutable case membership is cached separately from current decisions and audit history. Individual decisions lock only targeted results and return a lightweight snapshot after commit. Docker shares Composer dependencies through native volume `rematch_backend_vendor`, while application source remains bind-mounted for development.
+
 BatchMatch uses a separated architecture:
 
 - Frontend: React + Tailwind CSS

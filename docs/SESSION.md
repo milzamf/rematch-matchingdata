@@ -2,7 +2,24 @@
 
 ## Current Milestone
 
-Milestone 9.3: Administration user management completed.
+Stable loading and review updates implemented (2026-10-12).
+
+- Review tables and case groups retain their contents during background refresh. Successful decisions update affected rows; rows leaving the active filter fade out. Filter/page changes use table skeletons, and same-query refresh preserves open record dialogs.
+- Upload inspection has separate pending state. Existing datasets, previews, and mappings remain visible during replacement; failed inspection preserves the active dataset. Initial upload uses skeletons, and newly created workspaces avoid redundant rehydration.
+- Server preview retains rows during refresh with a small updating indicator. No API/database changes.
+- Browser smoke checks with Chrome network set to Offline and synthetic responses: review table remained mounted while 25 rows became 24; All retained 25 rows; new filters/initial upload used skeletons; replacement success/failure retained all four existing tables. No persisted decisions or datasets were changed.
+- Verification: final frontend build, TypeScript check, and whitespace check passed. Browser returned to live Matching with all mocks removed.
+
+## Previous Milestone
+
+Review performance and full-job column diagnostics stabilized (2026-10-11).
+
+- Column quality uses exact full-job primary-candidate aggregates; pagination never substitutes a page sample. Missing scores are reported separately.
+- Review queries bind input keys as strings so MySQL can use its indexes. Decisions/undo return affected-record snapshots after committing; bulk guardrails remain enforced.
+- Case membership is cached independently of review decisions, with current decision/history overlays. Diagnostic requests are separate from table and mutation loading.
+- Router shows pending navigation immediately and preloads on intent. Composer dependencies use shared native Docker volume `rematch_backend_vendor`.
+- Measured on the active 133,524-input job: browser review GET 216–408 ms; rollback-only individual decision 174 ms; Matching-to-Results navigation 314 ms. After the covering index was applied, Unmatched pages 100/4,000 measured 646/922 ms. Cold initial reads can be slower; these are observations, not a throughput guarantee.
+- Verification: review regressions 7 tests/65 assertions; frontend build and TypeScript check passed.
 
 ## Project Status
 

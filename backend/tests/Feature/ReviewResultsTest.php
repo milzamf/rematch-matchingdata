@@ -11,6 +11,112 @@ class ReviewResultsTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_field_quality_counts_all_primary_scores_without_sampling_or_page_dependence(): void
+    {
+        $job = MatchingJob::create([
+            'reference_dataset_id' => $this->dataset('reference')->id,
+            'input_dataset_id' => $this->dataset('input')->id,
+            'status' => 'completed', 'processed_count' => 2102, 'total_count' => 2102,
+        ]);
+        $rows = [];
+        for ($i = 0; $i < 2102; $i++) {
+            $rows[] = [
+                'id' => (string) \Illuminate\Support\Str::uuid(),
+                'matching_job_id' => $job->id, 'input_record_key' => (string) $i,
+                'result_type' => 'unmatched', 'candidate_rank' => 1, 'overall_score' => 0,
+                'field_scores' => $i === 2101 ? null : json_encode([[
+                    'reference_column' => 'name', 'input_column' => 'company',
+                    'score' => $i < 2000 ? 100 : 50,
+                ]]),
+            ];
+        }
+        foreach (array_chunk($rows, 100) as $chunk) \App\Models\MatchingResult::insert($chunk);
+        $job->results()->create([
+            'input_record_key' => '0', 'reference_record_key' => 'secondary',
+            'result_type' => 'unmatched', 'candidate_rank' => 2, 'overall_score' => 0,
+            'field_scores' => [[
+                'reference_column' => 'name', 'input_column' => 'company', 'score' => 0,
+            ]],
+        ]);
+        $url = "/api/matching-jobs/{$job->id}/review-results?include_groups=false&include_quality=true";
+        $first = $this->getJson($url.'&page=1&per_page=25')->assertOk();
+        $stats = $first->json('data.field_quality_summary.name:::company');
+        $this->assertSame(2101, $stats['totalEvaluated']);
+        $this->assertSame(2000, $stats['highCount']);
+        $this->assertSame(101, $stats['lowCount']);
+        $this->assertSame(1, $stats['unscoredCount']);
+        $second = $this->getJson($url.'&page=2&per_page=100')->assertOk();
+        $this->assertSame($stats, $second->json('data.field_quality_summary.name:::company'));
+    }
+
+    public function test_individual_decision_returns_only_target_outside_first_review_page(): void
+    {
+        $job = MatchingJob::create([
+            'reference_dataset_id' => $this->dataset('reference')->id,
+            'input_dataset_id' => $this->dataset('input')->id,
+            'status' => 'completed', 'processed_count' => 30, 'total_count' => 30,
+        ]);
+        for ($i = 1; $i <= 30; $i++) {
+            $result = $job->results()->create([
+                'input_record_key' => (string) $i, 'reference_record_key' => (string) $i,
+                'result_type' => 'possible_match', 'candidate_rank' => 1, 'overall_score' => 82,
+            ]);
+        }
+        $response = $this->postJson("/api/matching-jobs/{$job->id}/review-decisions", [
+            'input_record_key' => '30', 'matching_result_id' => $result->id, 'decision' => 'accept_match',
+        ])->assertOk()->assertJsonCount(1, 'data.review.items')
+            ->assertJsonPath('data.review.items.0.input_record_key', '30')
+            ->assertJsonPath('data.review.summary.matched', 1)
+            ->assertJsonPath('data.review.summary.possible_match', 29)
+            ->assertJsonCount(0, 'data.review.case_groups');
+        $this->postJson("/api/matching-jobs/{$job->id}/review-decisions/".$response->json('data.decision.id').'/undo')
+            ->assertOk()->assertJsonPath('data.review.summary.possible_match', 30);
+    }
+
+    public function test_committed_review_results_are_visible_while_matching_job_is_processing(): void
+    {
+        $reference = $this->dataset('reference');
+        $input = $this->dataset('input');
+        $job = MatchingJob::create([
+            'reference_dataset_id' => $reference->id,
+            'input_dataset_id' => $input->id,
+            'name' => 'In-progress Review Results',
+            'status' => 'processing',
+            'processed_count' => 2,
+            'total_count' => 4,
+        ]);
+
+        foreach (['1', '2'] as $key) {
+            $job->results()->create([
+                'input_record_key' => $key,
+                'reference_record_key' => $key,
+                'result_type' => 'possible_match',
+                'overall_score' => 82.5,
+                'candidate_rank' => 1,
+                'field_scores' => [[
+                    'reference_column' => 'name',
+                    'input_column' => 'name',
+                    'score' => 82.5,
+                    'identity_conflict' => true,
+                ]],
+                'candidate_metadata' => [
+                    'input_record' => ['name' => "CV Satu Data {$key}"],
+                    'reference_record' => ['name' => "PT Satu Data {$key}"],
+                ],
+                'decision_reason' => 'Identity conflict requires review',
+            ]);
+        }
+
+        $this->getJson("/api/matching-jobs/{$job->id}/review-results?status=possible_match")
+            ->assertOk()
+            ->assertJsonPath('data.job.status', 'processing')
+            ->assertJsonPath('data.is_processing', true)
+            ->assertJsonPath('data.summary.possible_match', 2)
+            ->assertJsonPath('data.pagination.total_items', 2)
+            ->assertJsonPath('data.items.0.input_record_key', '1')
+            ->assertJsonPath('data.case_groups.0.item_count', 2);
+    }
+
     public function test_review_results_can_be_loaded_decided_and_undone(): void
     {
         $reference = $this->dataset('reference');

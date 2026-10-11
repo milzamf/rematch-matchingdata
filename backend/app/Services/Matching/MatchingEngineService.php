@@ -26,6 +26,8 @@ class MatchingEngineService
 {
     private readonly FieldValueExtractor $fieldExtractor;
     private readonly MatchingCheckpointManager $checkpointManager;
+    private readonly WilayahDictionaryService $wilayah;
+    private readonly AddressComparator $addresses;
 
     public function __construct(
         private readonly MatchingConfigResolver $configResolver,
@@ -38,6 +40,8 @@ class MatchingEngineService
     ) {
         $this->fieldExtractor = $fieldExtractor ?? new FieldValueExtractor($this->entityNameParser, $this->normalizer);
         $this->checkpointManager = $checkpointManager ?? new MatchingCheckpointManager();
+        $this->wilayah = new WilayahDictionaryService();
+        $this->addresses = new AddressComparator($this->normalizer);
     }
 
     /**
@@ -194,7 +198,7 @@ class MatchingEngineService
     public function runJob(MatchingJob $job): array
     {
         if (ini_get('memory_limit') !== '-1') {
-            @ini_set('memory_limit', '4096M');
+            @ini_set('memory_limit', '1024M');
         }
 
         $job->loadMissing(['referenceDataset.columns', 'inputDataset.columns', 'mappings', 'configuration', 'workspace']);
@@ -239,11 +243,20 @@ class MatchingEngineService
 
         $mappings = $this->resolveMappings($rawMappings, $configuration);
 
-        $referenceRowsRaw = $this->loadDatasetRows($reference);
-        $rawInputRows = $this->loadDatasetRows($input);
-        $dedupAnalysis = $this->analyzeAndDeduplicateInputRows($rawInputRows);
-        $inputRowsRaw = $dedupAnalysis['unique_rows'];
-        unset($rawInputRows);
+        $referenceRowsRaw = $this->streamDatasetRows($reference);
+        $inputRowsRaw = new MatchingRowStore();
+        $rawCount = 0;
+        foreach ($this->streamDatasetRows($input) as $row) {
+            $rawCount++;
+            $signatureRow = array_map(static fn ($value) => is_string($value) ? strtolower(trim($value)) : $value, $row);
+            ksort($signatureRow);
+            $inputRowsRaw->append($row, hash('sha256', json_encode($signatureRow, JSON_THROW_ON_ERROR)), $rawCount);
+        }
+        $dedupAnalysis = [
+            'raw_count' => $rawCount, 'unique_count' => count($inputRowsRaw),
+            'duplicate_count' => $rawCount - count($inputRowsRaw),
+            'duplicate_details' => $inputRowsRaw->duplicateDetails(),
+        ];
         $totalInputCount = count($inputRowsRaw);
 
         $job->refresh();
@@ -405,6 +418,13 @@ class MatchingEngineService
                 }
             }
         } catch (Throwable $exception) {
+            $job->refresh();
+            if (in_array($job->status, ['cancelled', 'stopped'], true)) {
+                Log::info("Matching job {$job->id} stopped during dataset normalization.");
+
+                return $this->responseFor($job);
+            }
+
             $job->update([
                 'status' => 'failed',
                 'error_message' => substr($exception->getMessage(), 0, 1000),
@@ -697,64 +717,196 @@ class MatchingEngineService
      * @return array<int, array<string, mixed>>
      */
     private function normalizeRows(
-        array $rows,
+        iterable $rows,
         array $mappings,
         string $columnKey,
         array $columnDataTypes = [],
+        ?callable $onProgress = null,
+        ?MatchingRowStore $store = null,
+    ): MatchingRowStore {
+        $store ??= new MatchingRowStore();
+        $index = 0;
+        foreach ($rows as $row) {
+            $store->append($this->normalizeRecord($row, $index + 1, $mappings, $columnKey, $columnDataTypes));
+            $index++;
+            if ($onProgress !== null) $onProgress($index);
+        }
+        if ($onProgress !== null) $onProgress($index, true);
+        return $store;
+    }
+
+    /** Load a persistent normalized reference snapshot, or build and publish it once. */
+    private function loadOrBuildReferenceRows(
+        Dataset $dataset,
+        iterable $rawRows,
+        array $mappings,
+        array $columnTypes,
+        callable $onProgress,
     ): array {
-        return collect($rows)
-            ->values()
-            ->map(function (array $row, int $index) use ($mappings, $columnKey, $columnDataTypes) {
-                $normalized = [];
-                $identity = [];
+        $sourcePath = $this->datasetFilePath($dataset);
+        if ($sourcePath === null) {
+            $store = $this->normalizeRows($rawRows, $mappings, 'reference_column_name', $columnTypes, $onProgress);
+            $this->buildExactLookups($store, $mappings, $onProgress);
+            return ['rows' => $store, 'cache_hit' => false, 'cache_key' => null];
+        }
 
-                // Pre-extract entity name parsed object from row once if possible
-                $entityNameVal = $this->findEntityNameValue($row);
-                $parsedEntity = $entityNameVal !== null ? $this->entityNameParser->parse($entityNameVal) : null;
-
-                foreach ($mappings as $mapping) {
-                    $columnName = (string) ($mapping[$columnKey] ?? '');
-                    if ($columnName === '') {
-                        continue;
-                    }
-
-                    $rawValue = $this->fieldExtractor->extract($row, $mapping, $columnKey, $parsedEntity);
-                    $dataType = $columnDataTypes[$columnName] ?? null;
-
-                    if (($mapping['transform'] ?? null) === 'EXTRACT_LEGAL_FORM') {
-                        $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
-                        $identity[$columnName] = ['legal_form' => $rawValue];
-                        continue;
-                    }
-
-                    if (($mapping['transform'] ?? null) === 'EXTRACT_CORE_NAME') {
-                        $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
-                        $identity[$columnName] = ['core_name' => $rawValue];
-                        continue;
-                    }
-
-                    $parsedCurrent = $this->entityNameParser->parse($rawValue);
-                    $isEntityName = $this->entityNameParser->isEntityNameColumn($columnName)
-                        || $this->entityNameParser->hasEntityMetadata($parsedCurrent);
-
-                    if ($isEntityName) {
-                        $normalized[$columnName] = $this->normalizer->normalizeByType($parsedCurrent['core_name'], $dataType, $columnName);
-                        $identity[$columnName] = $parsedCurrent;
-
-                        continue;
-                    }
-
-                    $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, $dataType, $columnName);
+        $regionsDir = storage_path('app/wilayah');
+        $signaturePayload = [
+            'engine' => 'streaming-mfd-address-v3',
+            'source_sha256' => hash_file('sha256', $sourcePath),
+            'reference_mappings' => array_map(static fn ($mapping) => [
+                'reference_column_name' => $mapping['reference_column_name'] ?? '',
+                'parent_reference_column' => $mapping['parent_reference_column'] ?? null,
+                'transform' => $mapping['transform'] ?? null,
+                'required_match' => (bool) ($mapping['required_match'] ?? false),
+            ], $mappings),
+            'column_types' => $columnTypes,
+            'regions' => [
+                'provinces' => is_file($regionsDir.'/provinces.json') ? hash_file('sha256', $regionsDir.'/provinces.json') : null,
+                'regencies' => is_file($regionsDir.'/regencies.json') ? hash_file('sha256', $regionsDir.'/regencies.json') : null,
+            ],
+        ];
+        $signature = hash('sha256', json_encode($signaturePayload, JSON_THROW_ON_ERROR));
+        $cacheDir = rtrim((string) (env('MATCHING_CACHE_PATH') ?: storage_path('app/matching-cache')), DIRECTORY_SEPARATOR);
+        if (!is_dir($cacheDir) && !mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) {
+            throw new \RuntimeException('Could not create the matching reference cache directory.');
+        }
+        $cachePath = $cacheDir.DIRECTORY_SEPARATOR.'reference_'.$signature.'.sqlite';
+        // Use a renewable lease so a killed worker cannot leave this cache
+        // unavailable for the full duration of a large matching job.
+        $lockLeaseSeconds = 300;
+        $lock = \Illuminate\Support\Facades\Cache::lock('matching_reference_cache_'.$signature, $lockLeaseSeconds);
+        $lock->block(30);
+        $lastLockRefresh = microtime(true);
+        $progressWithLockLease = function (int $processed, bool $force = false, ?string $phase = null) use ($onProgress, $lock, $lockLeaseSeconds, &$lastLockRefresh): void {
+            if (microtime(true) - $lastLockRefresh >= 30) {
+                if (! $lock->refresh($lockLeaseSeconds)) {
+                    throw new \RuntimeException('Matching reference cache lease was lost while building the cache.');
                 }
+                $lastLockRefresh = microtime(true);
+            }
 
-                return [
-                    'key' => (string) ($index + 1),
-                    'row' => $row,
-                    'normalized' => $normalized,
-                    'identity' => $identity,
-                ];
-            })
-            ->all();
+            $onProgress($processed, $force, $phase);
+        };
+        try {
+            if (MatchingRowStore::isValidCache($cachePath, $signature)) {
+                return ['rows' => new MatchingRowStore($cachePath, false), 'cache_hit' => true, 'cache_key' => $signature];
+            }
+            if (is_file($cachePath)) @unlink($cachePath);
+
+            $buildingPath = $cachePath.'.building_'.Str::uuid();
+            $store = new MatchingRowStore($buildingPath);
+            try {
+                $store = $this->normalizeRows($rawRows, $mappings, 'reference_column_name', $columnTypes, $progressWithLockLease, $store);
+                $this->buildExactLookups($store, $mappings, $progressWithLockLease);
+                $store->markCacheReady($signature);
+                $store->promoteCache($cachePath);
+            } catch (\Throwable $e) {
+                unset($store);
+                if (is_file($buildingPath)) @unlink($buildingPath);
+                throw $e;
+            }
+
+            return ['rows' => new MatchingRowStore($cachePath, false), 'cache_hit' => false, 'cache_key' => $signature];
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function buildExactLookups(MatchingRowStore $store, array $mappings, callable $onProgress): void
+    {
+        $mandatoryMappings = array_values(array_filter($mappings, fn ($m) => (bool) ($m['required_match'] ?? false)));
+        $compositeMappings = array_values(array_filter($mappings, fn ($m) => ! (bool) ($m['required_match'] ?? false)));
+        $count = count($store);
+        for ($offset = 0; $offset < $count; $offset += 5000) {
+            $chunk = $store->chunk(intdiv($offset, 5000), 5000);
+            foreach ($chunk as $record) {
+                $mandatoryValues = array_map(fn ($m) => (string) ($record['normalized'][$m['reference_column_name']] ?? ''), $mandatoryMappings);
+                $compositeValues = array_map(fn ($m) => trim((string) ($record['normalized'][$m['reference_column_name']] ?? '')), $compositeMappings);
+                $store->setExactKeys((int) $record['key'],
+                    $mandatoryMappings !== [] && !in_array('', $mandatoryValues, true) ? implode('|###|', $mandatoryValues) : null,
+                    $compositeMappings !== [] && count(array_filter($compositeValues, fn ($v) => $v !== '')) > 0 ? md5(implode('|###|', $compositeValues)) : null);
+            }
+            $onProgress(min($count, $offset + count($chunk)), true, 'exact_lookup');
+        }
+        $store->buildLookupIndexes();
+    }
+
+    private function datasetFilePath(Dataset $dataset): ?string
+    {
+        if (!$dataset->storage_path) return null;
+        $paths = [Storage::disk('local')->path($dataset->storage_path), storage_path('app/'.$dataset->storage_path), storage_path('app/private/'.$dataset->storage_path), $dataset->storage_path];
+        foreach ($paths as $path) if (is_file($path) && is_readable($path)) return $path;
+        return null;
+    }
+
+    /** Normalize an existing row store in place, avoiding a second full SQLite copy. */
+    private function normalizeStoreInPlace(
+        MatchingRowStore $store,
+        array $mappings,
+        string $columnKey,
+        array $columnDataTypes = [],
+        ?callable $onProgress = null,
+    ): MatchingRowStore {
+        $total = count($store);
+        $processed = 0;
+        $store->mapPayloads(function (array $raw, int $id) use ($mappings, $columnKey, $columnDataTypes, $onProgress, $total, &$processed): array {
+            $normalized = $this->normalizeRecord($raw, $id, $mappings, $columnKey, $columnDataTypes);
+            $processed++;
+            if ($onProgress !== null) $onProgress($processed, $processed === $total);
+            return $normalized;
+        });
+        return $store;
+    }
+
+    /** @return array<string, mixed> */
+    private function normalizeRecord(array $row, int $index, array $mappings, string $columnKey, array $columnDataTypes): array
+    {
+        $normalized = [];
+        $identity = [];
+        $entityNameVal = $this->findEntityNameValue($row);
+        $parsedEntity = $entityNameVal !== null ? $this->entityNameParser->parse($entityNameVal) : null;
+
+        foreach ($mappings as $mapping) {
+            $columnName = (string) ($mapping[$columnKey] ?? '');
+            if ($columnName === '') continue;
+            $rawValue = $this->fieldExtractor->extract($row, $mapping, $columnKey, $parsedEntity);
+            $dataType = $columnDataTypes[$columnName] ?? null;
+            if (($mapping['transform'] ?? null) === 'EXTRACT_LEGAL_FORM') {
+                $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
+                $identity[$columnName] = ['legal_form' => $rawValue];
+                continue;
+            }
+            if (($mapping['transform'] ?? null) === 'EXTRACT_CORE_NAME') {
+                $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
+                $identity[$columnName] = ['core_name' => $rawValue];
+                continue;
+            }
+            $role = $this->wilayah->detectWilayahColumnRole($columnName);
+            if ($role !== null && (str_starts_with($role, 'KAB_') || str_starts_with($role, 'PROV_'))) {
+                $region = str_starts_with($role, 'PROV_') ? $this->wilayah->resolveProvince($rawValue) : $this->wilayah->resolve($rawValue, $row);
+                $normalized[$columnName] = $region !== null ? (string) ($region['id_kab'] ?? $region['kd_prov']) : $this->normalizer->normalizeByType($rawValue, 'text', $columnName);
+                continue;
+            }
+            if ($this->addresses->isAddress($columnName)) {
+                $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, 'text', 'alamat');
+                continue;
+            }
+            $parsedCurrent = $this->entityNameParser->parse($rawValue);
+            if ($this->entityNameParser->isEntityNameColumn($columnName) || $this->entityNameParser->hasEntityMetadata($parsedCurrent)) {
+                $normalized[$columnName] = $this->normalizer->normalizeByType($parsedCurrent['core_name'], $dataType, $columnName);
+                $identity[$columnName] = $parsedCurrent;
+                continue;
+            }
+            $normalized[$columnName] = $this->normalizer->normalizeByType($rawValue, $dataType, $columnName);
+        }
+
+        return [
+            'key' => (string) $index,
+            'row' => $this->leanRecordRow($row, $mappings, $columnKey === 'reference_column_name' ? 'reference' : 'input'),
+            'normalized' => $normalized,
+            'identity' => $identity,
+        ];
     }
 
     /**
@@ -770,8 +922,8 @@ class MatchingEngineService
         MatchingJob $job,
         Dataset $reference,
         Dataset $input,
-        array $referenceRowsRaw,
-        array $inputRowsRaw,
+        iterable $referenceRowsRaw,
+        iterable $inputRowsRaw,
         array $mappings,
         array $configuration,
         array $dedupAnalysis = [],
@@ -781,11 +933,15 @@ class MatchingEngineService
         $totalWallClockStart = microtime(true);
         $metrics = [
             'INDEX_REUSED' => false,
+            'REFERENCE_CACHE_REUSED' => false,
             'index_initialization_ms' => 0.0,
+            'reference_cache_ms' => 0.0,
             'multisearch_ms' => 0.0,
             'scoring_ms' => 0.0,
             'db_write_ms' => 0.0,
             'total_wall_clock_ms' => 0.0,
+            'reference_rows' => (int) $reference->row_count,
+            'input_rows' => (int) $input->row_count,
         ];
 
         $refColTypes = $reference->columns ? $reference->columns->pluck('data_type', 'name')->all() : [];
@@ -794,13 +950,83 @@ class MatchingEngineService
         // ---------------------------------------------------------------------
         // Phase 1: Automatic Normalization
         // ---------------------------------------------------------------------
-        $referenceRows = $this->normalizeRows($referenceRowsRaw, $mappings, 'reference_column_name', $refColTypes);
+        $lastNormalizationUpdate = 0.0;
+        $publishNormalizationProgress = function (string $label, int $processed, int $total, bool $force = false, ?string $phase = null) use ($job, &$lastNormalizationUpdate): void {
+            $now = microtime(true);
+            if (! $force && ($processed % 5000 !== 0) && ($now - $lastNormalizationUpdate < 3.0)) {
+                return;
+            }
+
+            $job->refresh();
+            if (in_array($job->status, ['cancelled', 'stopped'], true) || $job->error_message === 'Matching stopped by user.') {
+                throw new \RuntimeException('Matching stopped by user.');
+            }
+
+            $counts = array_merge($job->record_counts ?? [], [
+                'current_stage' => sprintf(
+                    'Tahap 1/3: Menormalkan %s (%s%s)...',
+                    $label,
+                    number_format($processed),
+                    $total > 0 ? ' / '.number_format($total).' baris' : ' baris'
+                ),
+                'stage_progress' => [
+                    'phase' => $phase ?? ($label === 'dataset acuan' ? 'reference_normalization' : 'input_normalization'),
+                    'label' => $label,
+                    'processed' => $processed,
+                    'total' => $total,
+                    'percentage' => $total > 0 ? round(($processed / $total) * 100, 1) : 0,
+                    'heartbeat_at' => now()->toIso8601String(),
+                ],
+            ]);
+            $job->record_counts = $counts;
+            $job->save();
+            $lastNormalizationUpdate = $now;
+        };
+
+        $referenceTotal = max(0, (int) $reference->row_count);
+        $publishNormalizationProgress('dataset acuan', 0, $referenceTotal, true);
+        $normalizationStart = microtime(true);
+        $referenceCacheStart = microtime(true);
+        $referenceCache = $this->loadOrBuildReferenceRows(
+            $reference,
+            $referenceRowsRaw,
+            $mappings,
+            $refColTypes,
+            fn (int $processed, bool $force = false, ?string $phase = null) => $publishNormalizationProgress('dataset acuan', $processed, $referenceTotal, $force, $phase)
+        );
+        /** @var MatchingRowStore $referenceRows */
+        $referenceRows = $referenceCache['rows'];
+        $metrics['reference_cache_hit'] = $referenceCache['cache_hit'];
+        $metrics['reference_cache_ms'] = round((microtime(true) - $referenceCacheStart) * 1000, 2);
+        $metrics['reference_cache_key'] = $referenceCache['cache_key'];
+        $metrics['REFERENCE_CACHE_REUSED'] = $referenceCache['cache_hit'];
+        \Illuminate\Support\Facades\Log::info('MATCHING_NORMALIZATION_COMPLETE', [
+            'job_id' => $job->id,
+            'dataset' => 'reference',
+            'processed_rows' => count($referenceRows),
+            'elapsed_ms' => round((microtime(true) - $normalizationStart) * 1000, 2),
+        ]);
         unset($referenceRowsRaw);
-        $inputRows = $this->normalizeRows($inputRowsRaw, $mappings, 'input_column_name', $inpColTypes);
+        $inputTotal = count($inputRowsRaw);
+        $publishNormalizationProgress('dataset input', 0, $inputTotal, true);
+        $normalizationStart = microtime(true);
+        $inputRows = $this->normalizeStoreInPlace(
+            $inputRowsRaw,
+            $mappings,
+            'input_column_name',
+            $inpColTypes,
+            fn (int $processed, bool $force = false) => $publishNormalizationProgress('dataset input', $processed, $inputTotal, $force)
+        );
+        \Illuminate\Support\Facades\Log::info('MATCHING_NORMALIZATION_COMPLETE', [
+            'job_id' => $job->id,
+            'dataset' => 'input',
+            'processed_rows' => count($inputRows),
+            'elapsed_ms' => round((microtime(true) - $normalizationStart) * 1000, 2),
+        ]);
         unset($inputRowsRaw);
         $totalInputCount = $job->total_count > 0 ? (int) $job->total_count : count($inputRows);
 
-        $referenceByKey = collect($referenceRows)->keyBy('key')->all();
+        $referenceByKey = $referenceRows;
 
         // ---------------------------------------------------------------------
         // Phase 2 Preparation: Mandatory Indexing
@@ -808,51 +1034,13 @@ class MatchingEngineService
         $mandatoryMappings = array_values(array_filter($mappings, fn ($m) => (bool) ($m['required_match'] ?? false)));
         $hasMandatoryFields = count($mandatoryMappings) > 0;
 
-        $mandatoryRefIndex = [];
-        if ($hasMandatoryFields) {
-            foreach ($referenceRows as $refRecord) {
-                $refValues = [];
-                $allPresent = true;
-                foreach ($mandatoryMappings as $m) {
-                    $val = (string) ($refRecord['normalized'][$m['reference_column_name']] ?? '');
-                    if ($val === '') {
-                        $allPresent = false;
-                        break;
-                    }
-                    $refValues[] = $val;
-                }
-                if ($allPresent) {
-                    $compKey = implode('|###|', $refValues);
-                    $mandatoryRefIndex[$compKey][] = $refRecord;
-                }
-            }
-        }
-
-        // ---------------------------------------------------------------------
-        // Tier 2 Preparation: Composite Exact ("Gelondongan") Indexing
-        // Mengindeks seluruh gabungan atribut non-mandatory untuk pencocokan O(1)
-        // ---------------------------------------------------------------------
         $compositeMappings = array_values(array_filter($mappings, fn ($m) => ! (bool) ($m['required_match'] ?? false)));
         $hasCompositeFields = count($compositeMappings) > 0;
-        $compositeRefIndex = [];
-
-        if ($hasCompositeFields) {
-            foreach ($referenceRows as $refRecord) {
-                $compValues = [];
-                $hasMeaningfulVal = false;
-                foreach ($compositeMappings as $m) {
-                    $val = trim((string) ($refRecord['normalized'][$m['reference_column_name']] ?? ''));
-                    if ($val !== '') {
-                        $hasMeaningfulVal = true;
-                    }
-                    $compValues[] = $val;
-                }
-                if ($hasMeaningfulVal) {
-                    $compKey = md5(implode('|###|', $compValues));
-                    $compositeRefIndex[$compKey][] = $refRecord;
-                }
-            }
-        }
+        $referenceRowCount = count($referenceRows);
+        $job->update(['record_counts' => array_merge($job->record_counts ?? [], [
+            'current_stage' => sprintf('Tahap 2/3: Lookup exact acuan siap (%s baris; cache %s)...', number_format($referenceRowCount), $referenceCache['cache_hit'] ? 'dipakai ulang' : 'dibangun'),
+            'stage_progress' => ['phase' => 'reference_lookup_ready', 'label' => 'Lookup exact acuan', 'processed' => $referenceRowCount, 'total' => $referenceRowCount, 'percentage' => 100],
+        ])]);
 
         // Candidate Generation Index for Phase 3 via Meilisearch
         $job->update([
@@ -866,7 +1054,8 @@ class MatchingEngineService
         $meiliKey = env('MEILISEARCH_KEY') ?: config('scout.meilisearch.key') ?: '';
         $httpClient = new \GuzzleHttp\Client(['timeout' => 60, 'connect_timeout' => 10]);
         $client = new \Meilisearch\Client($meiliHost, $meiliKey, $httpClient);
-        $indexUid = 'matching_reference_' . str_replace('-', '_', $reference->id);
+        $indexSignature = substr(hash('sha256', json_encode([$referenceCache['cache_key'], 'mfd-address-v3'], JSON_THROW_ON_ERROR)), 0, 16);
+        $indexUid = 'matching_reference_' . str_replace('-', '_', $reference->id) . '_' . $indexSignature;
         
         $indexReused = false;
         $isIndexValid = false;
@@ -881,9 +1070,10 @@ class MatchingEngineService
             $indexReused = true;
         } else {
             $lockKey = 'build_index_' . $indexUid;
-            $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 120);
+            $lockLeaseSeconds = 300;
+            $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, $lockLeaseSeconds);
             try {
-                $lock->block(60); 
+                $lock->block(30);
                 try {
                     $stats = $client->getIndex($indexUid)->stats();
                     if (isset($stats['numberOfDocuments']) && $stats['numberOfDocuments'] === count($referenceRows)) {
@@ -892,47 +1082,67 @@ class MatchingEngineService
                 } catch (\Throwable $e) {}
                 
                 if (!$indexReused) {
-                    try {
-                        $client->deleteIndex($indexUid);
-                    } catch (\Throwable $e) {}
+                    // Existing documents are immutable for this dataset/mapping signature.
+                    // Retry indexing with upserts instead of deleting an index another reader uses.
                     
-                    $searchableDocuments = [];
-                    $searchableAttributes = [];
-                    foreach ($mappings as $mapping) {
-                        $colName = $mapping['reference_column_name'] ?? '';
-                        if ($colName !== '') {
-                            $searchableAttributes[] = 'col_' . md5($colName);
-                        }
-                    }
-                    
+                    $searchableAttributes = array_values(array_unique(array_map(
+                        fn ($m) => 'col_' . md5($m['reference_column_name']), $mappings)));
+                    $index = $client->index($indexUid);
+                    \Illuminate\Support\Facades\Log::info('MATCHING_INDEX_BUILD_STARTED', [
+                        'job_id' => $job->id,
+                        'index_uid' => $indexUid,
+                        'reference_rows' => count($referenceRows),
+                        'batch_size' => max(500, min(10000, (int) (env('MATCHING_MEILI_INDEX_BATCH_SIZE') ?: 5000))),
+                    ]);
+                    $totalDocs = count($referenceRows);
+                    $indexBatchSize = max(500, min(10000, (int) (env('MATCHING_MEILI_INDEX_BATCH_SIZE') ?: 5000)));
+                    $lastIndexLockRefresh = microtime(true);
+                    $progressWhileIndexing = function (int $completedDocs, int $batchNumber) use ($job, $totalDocs, $lock, $lockLeaseSeconds, &$lastIndexLockRefresh): \Closure {
+                        return function () use ($job, $totalDocs, $completedDocs, $batchNumber, $lock, $lockLeaseSeconds, &$lastIndexLockRefresh): void {
+                            if (microtime(true) - $lastIndexLockRefresh >= 30) {
+                                if (! $lock->refresh($lockLeaseSeconds)) {
+                                    throw new \RuntimeException('Matching search index lease was lost while building the index.');
+                                }
+                                $lastIndexLockRefresh = microtime(true);
+                            }
+
+                            $job->refresh();
+                            if (in_array($job->status, ['cancelled', 'stopped'], true)) {
+                                throw new \RuntimeException('Matching stopped by user.');
+                            }
+                            $counts = $job->record_counts ?? [];
+                            $counts['current_stage'] = sprintf('Tahap 2/3: Meilisearch memproses batch %d (%s / %s dokumen)...', $batchNumber, number_format($completedDocs), number_format($totalDocs));
+                            $counts['stage_progress'] = [
+                                'phase' => 'meilisearch_indexing',
+                                'label' => 'Menunggu task indeks Meilisearch',
+                                'processed' => $completedDocs,
+                                'total' => $totalDocs,
+                                'percentage' => $totalDocs > 0 ? round(($completedDocs / $totalDocs) * 100, 1) : 0,
+                                'heartbeat_at' => Carbon::now()->toISOString(),
+                            ];
+                            $job->update(['record_counts' => $counts]);
+                        };
+                    };
+                    $task = $index->updateSearchableAttributes($searchableAttributes);
+                    $this->waitForSearchTask($client, $task['taskUid'], $progressWhileIndexing(0, 0));
+                    $indexedDocs = 0;
+                    $documents = [];
                     foreach ($referenceRows as $refRecord) {
                         $doc = ['id' => $refRecord['key']];
                         foreach ($mappings as $mapping) {
-                            $colName = $mapping['reference_column_name'] ?? '';
-                            if ($colName !== '') {
-                                $doc['col_' . md5($colName)] = $refRecord['normalized'][$colName] ?? '';
-                            }
+                            $colName = $mapping['reference_column_name'];
+                            $doc['col_' . md5($colName)] = $refRecord['normalized'][$colName] ?? '';
                         }
-                        $searchableDocuments[] = $doc;
-                    }
-
-                    $index = $client->index($indexUid);
-                    $task = $index->updateSearchableAttributes($searchableAttributes);
-                    $client->waitForTask($task['taskUid'], 300000);
-                    
-                    if (count($searchableDocuments) > 0) {
-                        $totalDocs = count($searchableDocuments);
-                        $indexedDocs = 0;
-                        foreach(array_chunk($searchableDocuments, 10000) as $chunkDocs) {
-                            $task = $index->addDocuments($chunkDocs);
-                            $client->waitForTask($task['taskUid'], 300000);
-                            $indexedDocs += count($chunkDocs);
-                            $job->update([
-                                'record_counts' => array_merge($job->record_counts ?? [], [
-                                    'current_stage' => sprintf('Tahap 2/3: Menyiapkan indeks pencarian (%s / %s dokumen)...', number_format($indexedDocs), number_format($totalDocs)),
-                                ]),
-                            ]);
-                        }
+                        $documents[] = $doc;
+                        if (count($documents) < $indexBatchSize && $indexedDocs + count($documents) < $totalDocs) continue;
+                        $task = $index->addDocuments($documents);
+                        $this->waitForSearchTask($client, $task['taskUid'], $progressWhileIndexing($indexedDocs, (int) floor($indexedDocs / $indexBatchSize) + 1));
+                        $indexedDocs += count($documents);
+                        $documents = [];
+                        $job->update(['record_counts' => array_merge($job->record_counts ?? [], [
+                            'current_stage' => sprintf('Tahap 2/3: Menyiapkan indeks pencarian (%s / %s dokumen)...', number_format($indexedDocs), number_format($totalDocs)),
+                            'stage_progress' => ['phase' => 'meilisearch_indexing', 'label' => 'Indeks Meilisearch', 'processed' => $indexedDocs, 'total' => $totalDocs, 'percentage' => $totalDocs > 0 ? round(($indexedDocs / $totalDocs) * 100, 1) : 100],
+                        ])]);
                     }
                 }
             } finally {
@@ -942,11 +1152,25 @@ class MatchingEngineService
         $indexes = ['uid' => $indexUid, 'client' => $client];
         $metrics['INDEX_REUSED'] = $indexReused;
         $metrics['index_initialization_ms'] = (microtime(true) - $indexInitStart) * 1000;
+        \Illuminate\Support\Facades\Log::info('MATCHING_INDEX_READY', [
+            'job_id' => $job->id,
+            'index_uid' => $indexUid,
+            'reused' => $indexReused,
+            'documents' => count($referenceRows),
+            'batch_size' => max(500, min(10000, (int) (env('MATCHING_MEILI_INDEX_BATCH_SIZE') ?: 5000))),
+            'elapsed_ms' => round($metrics['index_initialization_ms'], 2),
+        ]);
+
+        $job->update(['record_counts' => array_merge($job->record_counts ?? [], [
+            'current_stage' => $indexReused ? 'Tahap 2/3: Indeks Meilisearch siap (dipakai ulang).' : 'Tahap 2/3: Indeks Meilisearch siap.',
+            'stage_progress' => ['phase' => 'meilisearch_indexing', 'label' => $indexReused ? 'Indeks Meilisearch dipakai ulang' : 'Indeks Meilisearch siap', 'processed' => count($referenceRows), 'total' => count($referenceRows), 'percentage' => 100],
+        ])]);
 
         // Transition stage immediately to Phase 3 so the UI reflects active matching without delay
         $job->update([
             'record_counts' => array_merge($job->record_counts ?? [], [
                 'current_stage' => sprintf('Tahap 3/3: Memulai pencocokan data (%s baris)...', number_format($totalInputCount)),
+                'stage_progress' => ['phase' => 'matching_input', 'label' => 'Pemadanan input', 'processed' => 0, 'total' => $totalInputCount, 'percentage' => 0],
             ]),
         ]);
 
@@ -959,7 +1183,8 @@ class MatchingEngineService
             // For large datasets, scale up to 2,500 to minimize DB commit overhead and transaction pressure.
             $chunkSize = max(25, min(2500, (int) ceil(count($inputRows) / 25)));
         }
-        $workerCount = ($configuration['runOptions']['workerCount'] ?? 1);
+        $workerCount = max(1, min(2, (int) ($configuration['runOptions']['workerCount'] ?? 1)));
+        $chunkSize = max(10, min(250, $chunkSize));
         $topN = (int) data_get($configuration, 'candidateGeneration.topN', 3);
         $candidatePoolLimit = max($topN, (int) data_get($configuration, 'candidateGeneration.searchLimit', min(5, max($topN, 3))));
 
@@ -990,8 +1215,7 @@ class MatchingEngineService
                 }
             }
         }
-        $chunks = array_chunk($inputRows, $chunkSize);
-        $totalChunks = count($chunks);
+        $totalChunks = (int) ceil(count($inputRows) / $chunkSize);
 
         $completedChunkIndices = ! empty($checkpointKey)
             ? array_flip($this->checkpointManager->getCompletedChunkIndices($checkpointKey))
@@ -1002,7 +1226,7 @@ class MatchingEngineService
 
         if ($canFork) {
             $pendingChunkIndices = [];
-            foreach ($chunks as $chunkIndex => $chunk) {
+            for ($chunkIndex = 0; $chunkIndex < $totalChunks; $chunkIndex++) {
                 if ($isResuming && isset($completedChunkIndices[$chunkIndex])) {
                     continue;
                 }
@@ -1013,6 +1237,7 @@ class MatchingEngineService
             $shmDir = is_dir('/dev/shm') && is_writable('/dev/shm') ? '/dev/shm' : sys_get_temp_dir();
             $lastJobStatusCheck = microtime(true);
 
+            try {
             while (! empty($pendingChunkIndices) || ! empty($activeWorkers)) {
                 // Throttle status check to at most once per second instead of every 5ms
                 if (microtime(true) - $lastJobStatusCheck >= 1.0) {
@@ -1032,13 +1257,15 @@ class MatchingEngineService
 
                 while (count($activeWorkers) < $workerCount && ! empty($pendingChunkIndices)) {
                     $chunkIndex = array_shift($pendingChunkIndices);
-                    $chunk = $chunks[$chunkIndex];
+                    $chunk = $inputRows->chunk($chunkIndex, $chunkSize);
                     $workerSlot = $chunkIndex % $workerCount;
                     $tmpFile = $shmDir . '/rematch_' . $job->id . '_' . $chunkIndex . '_' . Str::random(6) . '.tmp';
 
                     // Disconnect DB before fork so child processes do not share PDO socket descriptors
                     \Illuminate\Support\Facades\DB::disconnect();
 
+                    $referenceRows->disconnect();
+                    $inputRows->disconnect();
                     $pid = pcntl_fork();
                     if ($pid === -1) {
                         \Illuminate\Support\Facades\DB::reconnect();
@@ -1052,10 +1279,10 @@ class MatchingEngineService
                             $configuration,
                             $mandatoryMappings,
                             $hasMandatoryFields,
-                            $mandatoryRefIndex,
+
                             $compositeMappings,
                             $hasCompositeFields,
-                            $compositeRefIndex,
+
                             $referenceByKey,
                             $indexes,
                             $candidatePoolLimit,
@@ -1092,10 +1319,10 @@ class MatchingEngineService
                                 $configuration,
                                 $mandatoryMappings,
                                 $hasMandatoryFields,
-                                $mandatoryRefIndex,
+
                                 $compositeMappings,
                                 $hasCompositeFields,
-                                $compositeRefIndex,
+
                                 $referenceByKey,
                                 $childIndexes,
                                 $candidatePoolLimit,
@@ -1150,22 +1377,29 @@ class MatchingEngineService
                             );
                             $processed += $meta['count'];
                         } else {
-                            \Illuminate\Support\Facades\Log::error("Chunk {$meta['chunkIndex']} child worker failed: " . ($chunkOutput['error'] ?? 'Unknown error'));
+                            throw new \RuntimeException("Chunk {$meta['chunkIndex']} failed: " . ($chunkOutput['error'] ?? 'Worker terminated'));
                         }
                     } else {
-                        \Illuminate\Support\Facades\Log::error("Chunk {$meta['chunkIndex']} child worker exited without producing output file.");
+                        throw new \RuntimeException("Chunk {$meta['chunkIndex']} worker exited without output (exit status {$status}). Resume from the last committed checkpoint.");
                     }
                 } else {
                     usleep(30000); // 30ms yield to keep CPU usage low
                 }
             }
+            } finally {
+                foreach ($activeWorkers as $pid => $meta) {
+                    @posix_kill($pid, SIGTERM);
+                    pcntl_waitpid($pid, $waitStatus);
+                    if (is_file($meta['tmpFile'])) @unlink($meta['tmpFile']);
+                }
+            }
         } else {
             // Sequential execution (fallback for testing / single worker)
-            foreach ($chunks as $chunkIndex => $chunk) {
+            for ($chunkIndex = 0; $chunkIndex < $totalChunks; $chunkIndex++) {
                 if ($isResuming && isset($completedChunkIndices[$chunkIndex])) {
                     continue;
                 }
-                $isResuming = false;
+                $chunk = $inputRows->chunk($chunkIndex, $chunkSize);
                 $job->refresh();
                 if (in_array($job->status, ['cancelled', 'stopped']) || $job->error_message === 'Matching stopped by user.') {
                     \Illuminate\Support\Facades\Log::info("Matching job {$job->id} cancellation detected. Halting execution loop.");
@@ -1182,10 +1416,10 @@ class MatchingEngineService
                     $configuration,
                     $mandatoryMappings,
                     $hasMandatoryFields,
-                    $mandatoryRefIndex,
+
                     $compositeMappings,
                     $hasCompositeFields,
-                    $compositeRefIndex,
+
                     $referenceByKey,
                     $indexes,
                     $candidatePoolLimit,
@@ -1208,10 +1442,16 @@ class MatchingEngineService
             }
         }
 
-        if (! empty($checkpointKey)) {
+        $job->refresh();
+        $stopped = in_array($job->status, ['cancelled', 'stopped'], true);
+        if (!$stopped && $processed !== $totalInputCount) {
+            throw new \RuntimeException('Matching incomplete: committed record count does not match input count.');
+        }
+        if (!$stopped && ! empty($checkpointKey)) {
             $this->checkpointManager->markCompleted($checkpointKey);
         }
 
+        $metrics['peak_php_memory_bytes'] = memory_get_peak_usage(true);
         $metrics['total_wall_clock_ms'] = (microtime(true) - $totalWallClockStart) * 1000;
         \Illuminate\Support\Facades\Log::info('MATCHING_METRICS', $metrics);
 
@@ -1232,6 +1472,27 @@ class MatchingEngineService
      * @param array{uid: string, client: \Meilisearch\Client} $indexes
      * @return array{batchResults: array, summaryDelta: array, scoring_ms: float, multisearch_ms: float}
      */
+    private function waitForSearchTask(\Meilisearch\Client $client, int $taskUid, ?callable $heartbeat = null): void
+    {
+        $deadline = microtime(true) + 300;
+        $nextHeartbeat = microtime(true) + 5;
+        do {
+            $result = $client->getTask($taskUid);
+            $status = $result['status'] ?? null;
+            if ($status === 'succeeded') return;
+            if (in_array($status, ['failed', 'canceled'], true)) {
+                throw new \RuntimeException('Meilisearch indexing failed: '.($result['error']['message'] ?? 'unknown task error'));
+            }
+            if ($heartbeat !== null && microtime(true) >= $nextHeartbeat) {
+                $heartbeat();
+                $nextHeartbeat = microtime(true) + 5;
+            }
+            usleep(500000);
+        } while (microtime(true) < $deadline);
+
+        throw new \RuntimeException("Meilisearch indexing task {$taskUid} did not finish within 300 seconds.");
+    }
+
     private function processChunk(
         array $chunk,
         int $chunkIndex,
@@ -1241,11 +1502,9 @@ class MatchingEngineService
         array $configuration,
         array $mandatoryMappings,
         bool $hasMandatoryFields,
-        array $mandatoryRefIndex,
         array $compositeMappings,
         bool $hasCompositeFields,
-        array $compositeRefIndex,
-        array $referenceByKey,
+        MatchingRowStore $referenceByKey,
         array $indexes,
         int $candidatePoolLimit,
         int $topN
@@ -1263,6 +1522,8 @@ class MatchingEngineService
         $memoizationCache = [];
         $searchQueriesToExecute = [];
         $recordsToEvaluate = [];
+        $candidateSearchQueryCount = 0;
+        $candidateSearchHitCount = 0;
 
         foreach ($chunk as $idx => $inputRecord) {
             $signatureString = '';
@@ -1316,9 +1577,13 @@ class MatchingEngineService
 
                 if ($allPresent) {
                     $compKey = implode('|###|', $inpValues);
-                    if (! empty($mandatoryRefIndex[$compKey])) {
+                    $exactRefs = [];
+                    foreach ($referenceByKey->exactMatches('mandatory', $compKey) as $exactRef) {
+                        $exactRefs[] = $exactRef;
+                        if (count($exactRefs) >= $topN) break;
+                    }
+                    if ($exactRefs !== []) {
                         $exactMatchFound = true;
-                        $exactRefs = array_slice($mandatoryRefIndex[$compKey], 0, $topN);
                         $candidatesScoredForThisRecord += count($exactRefs);
                         $summaryDelta['candidates_scored'] += count($exactRefs);
                         $summaryDelta['matched']++;
@@ -1379,8 +1644,8 @@ class MatchingEngineService
 
                 if ($hasMeaningfulVal) {
                     $inpCompKey = md5(implode('|###|', $inpCompValues));
-                    if (! empty($compositeRefIndex[$inpCompKey])) {
-                        $potentialExactRefs = $compositeRefIndex[$inpCompKey];
+                    {
+                        $potentialExactRefs = $referenceByKey->exactMatches('composite', $inpCompKey);
                         $validExactRefs = [];
 
                         foreach ($potentialExactRefs as $exactRef) {
@@ -1407,6 +1672,7 @@ class MatchingEngineService
                             }
 
                             $validExactRefs[] = $exactRef;
+                            if (count($validExactRefs) >= $topN) break;
                         }
 
                         if (! empty($validExactRefs)) {
@@ -1472,9 +1738,9 @@ class MatchingEngineService
             }
 
             // Needs fuzzy matching via Meilisearch!
-            $searchQuery = $this->buildCandidateBlockingQuery($inputRecord, $mappings);
+            $searchQueries = $this->buildCandidateBlockingQueries($inputRecord, $mappings);
 
-            if ($searchQuery === '') {
+            if ($searchQueries === []) {
                 $resRow = $this->resultRow(
                     $job,
                     $inputRecord,
@@ -1502,9 +1768,10 @@ class MatchingEngineService
             }
 
             $searchQueriesToExecute[$idx] = [
-                'query' => $searchQuery,
+                'queries' => $searchQueries,
                 'cacheKey' => $cacheKey,
             ];
+            $candidateSearchQueryCount += count($searchQueries);
             $recordsToEvaluate[$idx] = $inputRecord;
         }
 
@@ -1514,23 +1781,39 @@ class MatchingEngineService
             $queries = [];
             $idxMap = [];
             foreach ($searchQueriesToExecute as $idx => $meta) {
-                $queries[] = (new \Meilisearch\Contracts\SearchQuery())
-                    ->setIndexUid($indexes['uid'])
-                    ->setQuery($meta['query'])
-                    ->setLimit($candidatePoolLimit);
-                $idxMap[] = $idx;
+                foreach ($meta['queries'] as $queryText) {
+                    $queries[] = (new \Meilisearch\Contracts\SearchQuery())
+                        ->setIndexUid($indexes['uid'])
+                        ->setQuery($queryText)
+                        ->setLimit($candidatePoolLimit)
+                        ->setAttributesToRetrieve(['id']);
+                    $idxMap[] = $idx;
+                }
             }
 
             try {
                 $msStart = microtime(true);
-                $multiResults = $indexes['client']->multiSearch($queries)['results'] ?? [];
+                $multiResults = [];
+                foreach (array_chunk($queries, 50) as $queryBatch) {
+                    $batch = $indexes['client']->multiSearch($queryBatch)['results'] ?? [];
+                    if (count($batch) !== count($queryBatch)) throw new \RuntimeException('Incomplete Meilisearch response.');
+                    array_push($multiResults, ...$batch);
+                }
                 $multisearchMs += (microtime(true) - $msStart) * 1000;
                 foreach ($multiResults as $resultIndex => $searchResult) {
                     $originalIdx = $idxMap[$resultIndex];
-                    $searchResultsByIndex[$originalIdx] = $searchResult['hits'] ?? [];
+                    $candidateSearchHitCount += count($searchResult['hits'] ?? []);
+                    $searchResultsByIndex[$originalIdx] ??= [];
+                    $known = array_fill_keys(array_column($searchResultsByIndex[$originalIdx], 'id'), true);
+                    foreach (($searchResult['hits'] ?? []) as $hit) {
+                        if (!isset($known[$hit['id']])) {
+                            $searchResultsByIndex[$originalIdx][] = $hit;
+                            $known[$hit['id']] = true;
+                        }
+                    }
                 }
             } catch (Throwable $e) {
-                \Illuminate\Support\Facades\Log::error('Meilisearch MultiSearch Error: ' . $e->getMessage());
+                throw new \RuntimeException('Candidate search failed; no unmatched decisions were committed for this batch. ' . $e->getMessage(), 0, $e);
             }
         }
 
@@ -1542,12 +1825,14 @@ class MatchingEngineService
             $recordFuzzyResults = [];
 
             $hits = $searchResultsByIndex[$idx] ?? [];
-            $candidates = [];
+            $candidateKeys = [];
             foreach ($hits as $hit) {
-                $refKey = $hit['id'];
-                if (isset($referenceByKey[$refKey])) {
-                    $candidates[] = $referenceByKey[$refKey];
-                }
+                $candidateKeys[] = (string) ($hit['id'] ?? '');
+            }
+            $candidateRecords = $referenceByKey->getMany($candidateKeys);
+            $candidates = [];
+            foreach ($candidateKeys as $refKey) {
+                if (isset($candidateRecords[$refKey])) $candidates[] = $candidateRecords[$refKey];
             }
 
             $scoredCandidates = $this->evaluateCandidates(
@@ -1661,6 +1946,8 @@ class MatchingEngineService
             'summaryDelta' => $summaryDelta,
             'scoring_ms' => $scoringMs,
             'multisearch_ms' => $multisearchMs,
+            'candidate_search_queries' => $candidateSearchQueryCount,
+            'candidate_search_hits' => $candidateSearchHitCount,
         ];
     }
 
@@ -1693,6 +1980,8 @@ class MatchingEngineService
 
         $metrics['scoring_ms'] += (float) ($chunkOutput['scoring_ms'] ?? 0.0);
         $metrics['multisearch_ms'] += (float) ($chunkOutput['multisearch_ms'] ?? 0.0);
+        $metrics['candidate_search_queries'] = ($metrics['candidate_search_queries'] ?? 0) + (int) ($chunkOutput['candidate_search_queries'] ?? 0);
+        $metrics['candidate_search_hits'] = ($metrics['candidate_search_hits'] ?? 0) + (int) ($chunkOutput['candidate_search_hits'] ?? 0);
 
         $currentProcessed = $processedSoFar + $chunkCount;
         $workerBadge = $workerCount > 1 ? " [{$workerCount} Worker Paralel]" : '';
@@ -1704,11 +1993,19 @@ class MatchingEngineService
                 number_format($totalInputCount),
                 $workerBadge
             ),
+            'stage_progress' => [
+                'phase' => 'matching_input',
+                'label' => 'Pemadanan input',
+                'processed' => $currentProcessed,
+                'total' => $totalInputCount,
+                'percentage' => $totalInputCount > 0 ? round(($currentProcessed / $totalInputCount) * 100, 1) : 100,
+            ],
             'is_resumed' => ! empty($checkpointKey),
             'checkpoint_key' => $checkpointKey,
         ]);
 
         DB::transaction(function () use ($batchResults, $job, $currentProcessed, $summaryWithStage) {
+            MatchingResult::where('matching_job_id', $job->id)->whereIn('input_record_key', array_values(array_unique(array_column($batchResults, 'input_record_key'))))->delete();
             if (! empty($batchResults)) {
                 foreach (array_chunk($batchResults, 2000) as $insertBatch) {
                     MatchingResult::insert($insertBatch);
@@ -1735,6 +2032,19 @@ class MatchingEngineService
         }
 
         $metrics['db_write_ms'] += (microtime(true) - $dbStart) * 1000;
+        \Illuminate\Support\Facades\Log::info('MATCHING_CHUNK_METRICS', [
+            'job_id' => $job->id,
+            'chunk' => $chunkIndex + 1,
+            'processed' => $currentProcessed,
+            'chunk_rows' => $chunkCount,
+            'candidate_search_queries' => (int) ($chunkOutput['candidate_search_queries'] ?? 0),
+            'candidate_search_hits' => (int) ($chunkOutput['candidate_search_hits'] ?? 0),
+            'candidates_scored' => (int) ($delta['candidates_scored'] ?? 0),
+            'multisearch_ms' => round((float) ($chunkOutput['multisearch_ms'] ?? 0), 2),
+            'scoring_ms' => round((float) ($chunkOutput['scoring_ms'] ?? 0), 2),
+            'db_write_ms' => round((microtime(true) - $dbStart) * 1000, 2),
+            'memory_bytes' => memory_get_usage(true),
+        ]);
         gc_collect_cycles();
     }
 
@@ -1793,7 +2103,10 @@ class MatchingEngineService
                     $identityConflict = true;
                 }
 
-                $fieldNumericMismatch = $this->scorer->hasNumericMismatch($left, $right);
+                $addressEvidence = $this->addresses->isAddress((string) $refCol) || $this->addresses->isAddress((string) $inpCol)
+                    ? $this->addresses->compare($left, $right) : null;
+                $fieldNumericMismatch = $addressEvidence !== null
+                    ? $addressEvidence['conflict'] : $this->scorer->hasNumericMismatch($left, $right);
                 if ($fieldNumericMismatch) {
                     $numericConflict = true;
                 }
@@ -1817,6 +2130,10 @@ class MatchingEngineService
                     $score = $this->scorer->score($algorithm, $left, $right);
                 }
 
+                if ($addressEvidence !== null) {
+                    if ($addressEvidence['conflict']) $score = min($score, 60.0);
+                    elseif ($addressEvidence['compatible'] && $addressEvidence['richer_side'] !== null) $score = max($score, 92.0);
+                }
                 $weight = max(0.0, (float) ($mapping['weight'] ?? 0));
                 $weightedScoreSum += $score * $weight;
                 $weightTotal += $weight;
@@ -1834,6 +2151,7 @@ class MatchingEngineService
                     ] : null,
                     'identity_conflict' => $fieldIdentityConflict,
                     'numeric_mismatch' => $fieldNumericMismatch,
+                    'address_evidence' => $addressEvidence,
                 ];
             }
 
@@ -2057,6 +2375,23 @@ class MatchingEngineService
                 } else {
                     $decisionReason = "Unmatched (score: {$ws}% below review threshold)";
                 }
+            }
+
+            // A partial address can raise similarity, but it cannot prove identity.
+            // Keep any candidate that depends on a richer address in manual review,
+            // regardless of the configured auto-match threshold or preset rules.
+            $hasAddressEnrichmentEvidence = collect($fieldScores)->contains(function ($score) {
+                $evidence = $score['address_evidence'] ?? null;
+                return ($evidence['compatible'] ?? false)
+                    && !($evidence['conflict'] ?? true)
+                    && ($evidence['richer_side'] ?? null) !== null;
+            });
+            if ($hasAddressEnrichmentEvidence && $finalClassification === 'matched') {
+                $finalClassification = 'possible_match';
+                $allRulesPassed = false;
+                $downgraded = true;
+                $downgradeReason = 'Partial address agreement needs review before enrichment';
+                $decisionReason = $downgradeReason;
             }
 
             $verificationEvidence = [
@@ -2329,6 +2664,8 @@ class MatchingEngineService
                 ] : null,
                 'identity_conflict' => $fieldIdentityConflict,
                 'numeric_mismatch' => $this->scorer->hasNumericMismatch($left, $right),
+                'address_evidence' => $this->addresses->isAddress((string) $refCol) || $this->addresses->isAddress((string) $inpCol)
+                    ? $this->addresses->compare($left, $right) : null,
             ];
         }
 
@@ -2504,6 +2841,7 @@ class MatchingEngineService
                 'total' => $job->total_count,
                 'percentage' => $progress,
                 'stage' => data_get($job->record_counts, 'current_stage'),
+                'stage_progress' => data_get($job->record_counts, 'stage_progress'),
             ],
             'summary' => [
                 'matched' => (int) ($counts['matched'] ?? 0),
@@ -2544,6 +2882,36 @@ class MatchingEngineService
      *
      * @return array<int, array<string, mixed>>
      */
+    public function streamDatasetRows(Dataset $dataset): \Generator
+    {
+        $storagePath = $dataset->storage_path;
+        if (!$storagePath) {
+            if (!app()->runningUnitTests()) throw new InvalidArgumentException('Dataset source file is missing. Please upload it again.');
+            yield from $dataset->preview_rows ?? [];
+            return;
+        }
+        $paths = [Storage::disk('local')->path($storagePath), storage_path('app/'.$storagePath), storage_path('app/private/'.$storagePath), $storagePath];
+        $filePath = null;
+        foreach ($paths as $path) {
+            if (is_file($path) && is_readable($path)) { $filePath = $path; break; }
+        }
+        if ($filePath === null) {
+            if (!app()->runningUnitTests()) throw new InvalidArgumentException('Dataset source file is unreadable. Please upload it again.');
+            yield from $dataset->preview_rows ?? [];
+            return;
+        }
+        $format = strtolower((string) ($dataset->file_format ?: pathinfo($filePath, PATHINFO_EXTENSION)));
+        $parser = match ($format) {
+            'csv', 'tsv' => new CsvDatasetParser(),
+            'xlsx', 'xls' => new XlsxDatasetParser(),
+            default => throw new InvalidArgumentException('Unsupported dataset format.'),
+        };
+        yield from $parser->streamRows($filePath, [
+            'delimiter' => $dataset->delimiter, 'header_row' => max(1, (int) $dataset->header_row),
+            'sheet_name' => $dataset->selected_sheet,
+        ]);
+    }
+
     public function loadDatasetRows(Dataset $dataset): array
     {
         $storagePath = $dataset->storage_path;
@@ -2699,20 +3067,18 @@ class MatchingEngineService
         return $this->analyzeAndDeduplicateInputRows($rows)['unique_rows'];
     }
 
-    /**
-     * Extract a fast, targeted candidate blocking search query for Meilisearch.
-     * Candidate blocking should ONLY query the primary entity name (core name or company name)
-     * capped at 5 tokens to prevent combinatorial explosion in typo tolerance.
-     * Address, geographic location, and IDs are evaluated in in-memory scoring (Phase 3 & 4).
-     *
-     * @param array<string, mixed> $inputRecord
-     * @param array<int, array<string, mixed>> $mappings
-     */
+    /** Compatibility helper returning the highest-priority candidate query. */
     public function buildCandidateBlockingQuery(array $inputRecord, array $mappings): string
     {
-        $primaryCandidate = '';
-        $secondaryCandidate = '';
-        $fallbackCandidate = '';
+        return $this->buildCandidateBlockingQueries($inputRecord, $mappings)[0] ?? '';
+    }
+
+    /** Build a bounded union of independent name-field queries for better candidate recall. */
+    public function buildCandidateBlockingQueries(array $inputRecord, array $mappings): array
+    {
+        $coreCandidates = [];
+        $nameCandidates = [];
+        $fallbackCandidates = [];
 
         foreach ($mappings as $mapping) {
             $colName = $mapping['input_column_name'] ?? '';
@@ -2727,17 +3093,16 @@ class MatchingEngineService
             $colLower = strtolower($colName);
             $transform = (string) ($mapping['transform'] ?? data_get($mapping, 'metadata.transform') ?? '');
 
-            // Priority 1: Extracted core name
-            if ($transform === 'EXTRACT_CORE_NAME' || str_contains($colLower, 'nama_inti') || str_contains($colLower, 'core_name')) {
-                $primaryCandidate = $val;
-                break;
-            }
+            if ($transform === 'EXTRACT_LEGAL_FORM' || str_contains($colLower, 'badan_usaha') || str_contains($colLower, 'legal_form')) continue;
 
-            // Priority 2: Primary entity name (nama, nama_perusahaan, etc.)
+            // Prefer generated core name, then other mapped name fields.
+            if ($transform === 'EXTRACT_CORE_NAME' || str_contains($colLower, 'nama_inti') || str_contains($colLower, 'core_name')) {
+                $coreCandidates[] = $val;
+                continue;
+            }
             if (str_contains($colLower, 'nama') || str_contains($colLower, 'name') || str_contains($colLower, 'perusahaan') || str_contains($colLower, 'usaha')) {
-                if (empty($secondaryCandidate)) {
-                    $secondaryCandidate = $val;
-                }
+                $nameCandidates[] = $val;
+                continue;
             }
 
             // Priority 3: Non-address, non-id, non-legal-form column
@@ -2745,32 +3110,30 @@ class MatchingEngineService
             $isId = str_contains($colLower, 'id') || str_contains($colLower, 'nib') || str_contains($colLower, 'npwp') || str_contains($colLower, 'kode');
             $isLegal = str_contains($colLower, 'badan_usaha') || str_contains($colLower, 'legal_form');
 
-            if (!$isAddress && !$isId && !$isLegal && empty($fallbackCandidate)) {
-                $fallbackCandidate = $val;
-            }
+            if (!$isAddress && !$isId && !$isLegal) $fallbackCandidates[] = $val;
         }
 
-        $chosen = $primaryCandidate ?: ($secondaryCandidate ?: $fallbackCandidate);
-
-        // Fallback: if no candidate selected, take the first non-empty value
-        if ($chosen === '') {
-            foreach ($mappings as $mapping) {
-                $colName = $mapping['input_column_name'] ?? '';
-                if ($colName !== '') {
-                    $val = trim((string) ($inputRecord['normalized'][$colName] ?? ''));
-                    if ($val !== '') {
-                        $chosen = $val;
-                        break;
-                    }
-                }
+        $queries = [];
+        foreach ([$coreCandidates, $nameCandidates, $fallbackCandidates] as $group) {
+            foreach ($group as $candidate) {
+                $query = $this->prepareCandidateQuery($candidate);
+                if ($query !== '' && !in_array($query, $queries, true)) $queries[] = $query;
+                if (count($queries) >= 3) return $queries;
             }
         }
+        return $queries;
+    }
 
-        // Clean punctuation and cap to 5 tokens max for instant Meilisearch execution (< 5ms)
-        $clean = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $chosen) ?? $chosen;
-        $tokens = array_filter(preg_split('/\s+/', trim($clean)) ?: []);
-        $capped = array_slice($tokens, 0, 5);
-
-        return implode(' ', $capped);
+    private function prepareCandidateQuery(string $candidate): string
+    {
+        $clean = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $candidate) ?? $candidate;
+        $tokens = array_values(array_filter(preg_split('/\s+/u', trim($clean)) ?: [], static fn ($token) => $token !== ''));
+        if (count($tokens) > 5) {
+            $ranked = $tokens;
+            usort($ranked, static fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+            $selected = array_fill_keys(array_slice($ranked, 0, 5), true);
+            $tokens = array_values(array_filter($tokens, static fn ($token) => isset($selected[$token])));
+        }
+        return implode(' ', $tokens);
     }
 }

@@ -281,7 +281,7 @@ class MatchingEngineTest extends TestCase
         $this->assertCount(2, $rulesEvaluated);
         $this->assertTrue($rulesEvaluated[0]['passed']);
         $this->assertFalse($rulesEvaluated[1]['passed']);
-        $this->assertStringContainsString('downgraded to needs_review', $result->decision_reason);
+        $this->assertSame('Numeric sequence mismatch requires review', $result->decision_reason);
     }
 
     public function test_multi_candidate_generation_counts_distinct_input_rows_in_summary(): void

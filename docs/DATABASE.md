@@ -2,6 +2,8 @@
 
 Status: actual schema updated through Milestone 9.5.1. This document now separates the current implemented schema from future target entities that are still deferred.
 
+2026-10-11 review optimization: migration `2026_10_11_000001_add_review_pagination_covering_index.php` adds `matching_results_review_page_cover_idx` on `(matching_job_id, candidate_rank, result_type, id, input_record_key)`. It covers status-filtered ordered pagination and key projection without fetching large JSON payloads for skipped rows. No result or decision data is changed.
+
 ## 1. Current Implemented Schema
 
 Implemented tables in migrations today:
