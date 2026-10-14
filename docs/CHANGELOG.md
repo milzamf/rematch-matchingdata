@@ -258,3 +258,7 @@
 - Sync still uses local audit state; Export is frontend-generated from latest Review results; Results still uses mock/local state.
 - Matching Engine MVP currently runs against inspected preview rows, not full stored file contents.
 - Review decisions remain tied indirectly to owned matching jobs; dedicated membership and reviewer audit tables are still future work.
+
+- 2026-10-14: Restore backup utama terisolasi terverifikasi setelah restart (18 tabel, 18 FK tanpa orphan); backup privat, salinan dibersihkan. Cutover utama belum diizinkan; lihat WORKSPACE_SHARING_CUTOVER_UAT.md.
+
+- 2026-10-14: Urutan cutover final dipin pada maintenance fence, readiness per job, batas fitur dan rollback forward-only; menunggu izin, tanpa perubahan utama.
