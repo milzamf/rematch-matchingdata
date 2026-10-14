@@ -262,3 +262,5 @@
 - 2026-10-14: Restore backup utama terisolasi terverifikasi setelah restart (18 tabel, 18 FK tanpa orphan); backup privat, salinan dibersihkan. Cutover utama belum diizinkan; lihat WORKSPACE_SHARING_CUTOVER_UAT.md.
 
 - 2026-10-14: Urutan cutover final dipin pada maintenance fence, readiness per job, batas fitur dan rollback forward-only; menunggu izin, tanpa perubahan utama.
+
+- 2026-10-14: Cutover disetujui, drain dan tiga migrasi additive selesai; trigger migration tertahan MySQL 1419. Histori diverifikasi utuh, legacy dipulihkan, sharing tetap off.
