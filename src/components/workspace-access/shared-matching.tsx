@@ -141,6 +141,7 @@ function SharedWorkspaceDetail({
                 </p>
               </div>
               <ManageAccessButton
+                label="Bagikan Workspace"
                 workspaceId={w.id}
                 name={w.name}
                 owner={workspace.data?.owner.name ?? ""}

@@ -22,10 +22,12 @@ export function ManageAccessButton({
   workspaceId,
   name,
   owner,
+  label = "Kelola Akses",
 }: {
   workspaceId: string;
   name: string;
   owner: string;
+  label?: string;
 }) {
   const { access } = useWorkspaceAccess(workspaceId);
   const [open, setOpen] = useState(false);
@@ -34,7 +36,7 @@ export function ManageAccessButton({
   return (
     <>
       <button ref={triggerRef} type="button" className={accessButton} onClick={() => setOpen(true)}>
-        Kelola Akses
+        {label}
       </button>
       {open && (
         <AccessManagementDialog

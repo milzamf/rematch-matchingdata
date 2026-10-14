@@ -56,6 +56,16 @@ final class WorkspaceAccessService
             'dataset_write' => in_array($role, ['admin', 'owner'], true),
             'export_read' => in_array($role, ['admin', 'owner', 'editor', 'viewer', 'pimpinan'], true),
         ];
+        if (ReviewDeploymentFence::productionMode()) {
+            // This release admits sharing/review only; legacy wizard writers stay fenced.
+            $ready = $workspace->matching_job_id !== null && $this->db->table('matching_jobs')
+                ->where('id', $workspace->matching_job_id)->where('status', 'completed')
+                ->where('review_state_readiness', 'ready')->where('review_state_schema_version', 1)->exists();
+            foreach (['review', 'propose', 'approve', 'members', 'export_read'] as $capability) {
+                $permissions[$capability] = $permissions[$capability] && $ready;
+            }
+            foreach (['configure', 'run', 'dataset_write'] as $capability) $permissions[$capability] = false;
+        }
         if (! ($permissions[$permission] ?? false)) {
             throw new ReviewWriteConflict('workspace_forbidden', [], 403);
         }

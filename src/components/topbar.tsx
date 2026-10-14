@@ -11,6 +11,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { nav, secondaryNav } from "@/components/app-sidebar";
 import { useSidebarContext } from "@/lib/sidebar-context";
+import { workspaceSharingEnabled } from "@/lib/workspace-access";
 
 export function Topbar() {
   const { t, theme, setTheme, resolvedTheme, language, setLanguage } = usePreferences();
@@ -97,7 +98,7 @@ export function Topbar() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {can(PERMISSIONS.MATCHING_CREATE) && (
+          {!workspaceSharingEnabled && can(PERMISSIONS.MATCHING_CREATE) && (
             <Link
               to="/matching"
               className="inline-flex items-center gap-1 sm:gap-1.5 rounded-md bg-brand text-brand-foreground px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium hover:opacity-90 transition-opacity cursor-pointer active:scale-95 shadow-xs min-h-[36px]"
