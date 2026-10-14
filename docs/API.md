@@ -1,5 +1,7 @@
 # BatchMatch REST API Draft
 
+Admission produksi dapat menolak request dengan HTTP 503 `review_deployment_busy`, `review_admission_lock_unavailable`, atau `review_maintenance_not_approved`. Tidak ada retry otomatis keputusan; retry recovery memakai idempotency key yang sama. Freeze dan lock eksklusif maintenance melindungi penulisan yang belum selesai; perubahan ini nonaktif pada konfigurasi utama.
+
 Shared endpoints return HTTP 503 `review_deployment_not_approved` if deployment mode/database/release or pinned approval evidence do not match. Feature flags alone do not authorize production. Existing freeze, permissions, readiness and HTTP 409 version/reference conflicts remain in force; no new endpoint or flag activation.
 
 Status: API contract draft with implemented MVP slices called out explicitly.

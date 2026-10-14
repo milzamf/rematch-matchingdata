@@ -135,7 +135,7 @@ Review performance and full-job column diagnostics stabilized (2026-10-11).
 - Admin currently supports role/password/owner management; monitoring has limited filters/export.
 
 ## Continuation Rules
-- Latest: production admission implemented inactive/exact DB+release/hash-pinned operator evidence; guard tests 8/17 and one-input MySQL post-write recovery 7 assertions pass. Fixture 502 upstream not ready diagnosed; bootstrap skips host DB files. Main backup 0 bytes; backup path/heavy restore permission and production backfill admission pending. NO-GO; main untouched.
+- Terbaru: admission lock API/matching/queue/backfill, Linux baru 4/18+penolakan non-fixture dan MySQL tiga cek recovery/admission lulus. Backup utama diizinkan dan selesai 4,04 GB, gzip/checksum tercatat lokal. Restore penuh menunggu izin/bukti; NO-GO. Tidak ada migrasi/flag utama.
 - Latest Docker-active blocker follow-up: isolated MySQL backfill/recovery 57 assertions, InnoDB two-connection lock/release and fence/recovery unit 12/32 pass. Browser login pending (fixture startup/proxy 502). Fixed-test production guards, restorable main backup and post-write recovery remain NO-GO; fixture cleanup complete, five main services running, no main DB/flags changed.
 - PRD.md is the product source of truth; .codex/PROJECT_RULES.md and docs/UX_GUIDELINES.md apply. One request = one milestone.
 - Preserve published Git history (Lovable). Existing unrelated working-tree changes must be retained.

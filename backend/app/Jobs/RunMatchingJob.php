@@ -29,6 +29,11 @@ class RunMatchingJob implements ShouldQueue
 
     public function handle(MatchingEngineService $engine): void
     {
+        \App\Services\Matching\Transactions\ReviewDeploymentFence::withAdmission(fn () => $this->handleAdmitted($engine));
+    }
+
+    private function handleAdmitted(MatchingEngineService $engine): void
+    {
         \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable(true);
         if (ini_get('memory_limit') !== '-1') {
             @ini_set('memory_limit', '1024M');
@@ -71,6 +76,11 @@ class RunMatchingJob implements ShouldQueue
     }
 
     public function failed(\Throwable $exception): void
+    {
+        \App\Services\Matching\Transactions\ReviewDeploymentFence::withAdmission(fn () => $this->failedAdmitted($exception));
+    }
+
+    private function failedAdmitted(\Throwable $exception): void
     {
         // A deployment refusal must not rewrite the matching business state.
         if (\App\Services\Matching\Transactions\ReviewDeploymentFence::legacyBlocked()) {

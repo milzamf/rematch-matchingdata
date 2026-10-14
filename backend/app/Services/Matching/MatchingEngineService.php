@@ -197,6 +197,14 @@ class MatchingEngineService
      */
     public function runJob(MatchingJob $job): array
     {
+        return \App\Services\Matching\Transactions\ReviewDeploymentFence::withAdmission(function () use ($job) {
+            \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable(true);
+            return $this->runAdmittedJob($job);
+        });
+    }
+
+    private function runAdmittedJob(MatchingJob $job): array
+    {
         if (ini_get('memory_limit') !== '-1') {
             @ini_set('memory_limit', '1024M');
         }

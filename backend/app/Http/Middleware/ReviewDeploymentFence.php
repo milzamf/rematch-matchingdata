@@ -9,6 +9,14 @@ final class ReviewDeploymentFence
 {
     public function handle(Request $request, \Closure $next)
     {
+        if ($request->is('api/*') && ! $request->is('api/login', 'api/logout', 'api/me')) {
+            return Fence::withAdmission(fn () => $this->handleAdmitted($request, $next));
+        }
+        return $next($request);
+    }
+
+    private function handleAdmitted(Request $request, \Closure $next)
+    {
         // Keep session login/logout/bootstrap available, not business endpoints.
         if ($request->is('api/*') && ! $request->is('api/login', 'api/logout', 'api/me')) {
             if (Fence::frozen()) Fence::assertWritable();

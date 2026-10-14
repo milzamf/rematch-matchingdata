@@ -1,5 +1,7 @@
 # BatchMatch Architecture
 
+Admission produksi sekarang memakai lock bersama sepanjang API bisnis, matching, queue/indexing dan operasi review; maintenance backfill/rollback memakai lock eksklusif dengan freeze dan kedua flag backend nonaktif. Semua instance harus memakai inode/volume flock yang sama; worker lama tetap wajib drain. Operator harus membungkus DDL dengan withMaintenance. Retry recovery idempotent dan penolakan Undo tersupersesi dibuktikan pada MySQL kecil; recovery tetap forward-only tanpa menimpa keputusan baru.
+
 Production review admission remains inactive by default. ReviewDeploymentFence now admits an exact configured MySQL database/release only with both backend flags and hash-pinned operator backup/restore, writer-drain and forward-recovery attestation; per-job readiness/access remain mandatory. Test probes and fallback authorization are prohibited in production mode. One-input MySQL Accept/Undo proves append-only operation recovery; backup replay and production backfill admission remain pending. No main configuration was activated.
 
 ## 1. Overview

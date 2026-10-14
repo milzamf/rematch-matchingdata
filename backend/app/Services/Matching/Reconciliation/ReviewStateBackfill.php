@@ -110,11 +110,17 @@ final class ReviewStateBackfill
         return $this->report();
     }
 
-    /** Writes are deliberately restricted to the disposable test database in this milestone. */
+    /** Penulisan hanya pada fixture terisolasi atau maintenance produksi yang disetujui dan terkunci. */
     public function apply(string $jobId, string $artifact, ?int $maxChunks = null, ?callable $afterCommit = null): array
     {
-        if ($this->db->getDriverName() !== 'mysql' || $this->db->getDatabaseName() !== 'rematch_stage3_test'
-            || getenv('REMATCH_BACKFILL_TEST') !== 'isolated-stage3') {
+        return \App\Services\Matching\Transactions\ReviewDeploymentFence::withMaintenance($this->db, fn () => $this->applyAdmitted($jobId, $artifact, $maxChunks, $afterCommit));
+    }
+
+    private function applyAdmitted(string $jobId, string $artifact, ?int $maxChunks, ?callable $afterCommit): array
+    {
+        $production = \App\Services\Matching\Transactions\ReviewDeploymentFence::productionMode();
+        if (! $production && ($this->db->getDriverName() !== 'mysql' || $this->db->getDatabaseName() !== 'rematch_stage3_test'
+            || getenv('REMATCH_BACKFILL_TEST') !== 'isolated-stage3')) {
             throw new RuntimeException('Production backfill is disabled.');
         }
         $this->open($artifact);
@@ -172,7 +178,13 @@ final class ReviewStateBackfill
 
     public function rollback(string $jobId, string $artifact): void
     {
-        if ($this->db->getDriverName() !== 'mysql' || $this->db->getDatabaseName() !== 'rematch_stage3_test' || getenv('REMATCH_BACKFILL_TEST') !== 'isolated-stage3') {
+        \App\Services\Matching\Transactions\ReviewDeploymentFence::withMaintenance($this->db, fn () => $this->rollbackAdmitted($jobId, $artifact));
+    }
+
+    private function rollbackAdmitted(string $jobId, string $artifact): void
+    {
+        $production = \App\Services\Matching\Transactions\ReviewDeploymentFence::productionMode();
+        if (! $production && ($this->db->getDriverName() !== 'mysql' || $this->db->getDatabaseName() !== 'rematch_stage3_test' || getenv('REMATCH_BACKFILL_TEST') !== 'isolated-stage3')) {
             throw new RuntimeException('Production rollback is disabled.');
         }
         $this->open($artifact);

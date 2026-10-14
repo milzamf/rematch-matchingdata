@@ -18,6 +18,11 @@ class BuildReviewRegionIndex implements ShouldQueue
 
     public function handle(ReviewRegionIndexService $regions): void
     {
+        \App\Services\Matching\Transactions\ReviewDeploymentFence::withAdmission(fn () => $this->handleAdmitted($regions));
+    }
+
+    private function handleAdmitted(ReviewRegionIndexService $regions): void
+    {
         \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable(true);
         // Connection-owned MySQL locks disappear if a worker dies; no long
         // cache lease can leave the region index stuck after container restart.

@@ -112,6 +112,11 @@ final class ReviewTransactionService
 
     private function execute(int $actor, string $job, string $idempotency, array $items, string $mode): array
     {
+        return ReviewDeploymentFence::withAdmission(fn () => $this->executeAdmitted($actor, $job, $idempotency, $items, $mode));
+    }
+
+    private function executeAdmitted(int $actor, string $job, string $idempotency, array $items, string $mode): array
+    {
         $this->guard();
         if ($actor < 1 || $idempotency === '' || strlen($idempotency) > 128 || ! array_is_list($items) || count($items) < 1 || count($items) > 50 || ($mode === 'one' && count($items) !== 1)) {
             throw new ReviewWriteConflict('invalid_review_request', [], 422);

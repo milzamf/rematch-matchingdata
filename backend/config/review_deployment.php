@@ -8,6 +8,7 @@ return [
     'release' => env('REVIEW_DEPLOYMENT_RELEASE'),
     'approval_file' => env('REVIEW_DEPLOYMENT_APPROVAL_FILE'),
     'approval_sha256' => env('REVIEW_DEPLOYMENT_APPROVAL_SHA256'),
+    'admission_lock_file' => env('REVIEW_DEPLOYMENT_ADMISSION_LOCK_FILE'),
     'write_frozen' => env('REVIEW_DEPLOYMENT_WRITE_FROZEN', false),
     'freeze_file' => env('REVIEW_DEPLOYMENT_FREEZE_FILE', storage_path('framework/review-write.freeze')),
 ];
