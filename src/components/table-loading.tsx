@@ -1,10 +1,11 @@
 import { Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function TableLoadingSkeleton({ label, columns = 6 }: { label: string; columns?: number }) {
+export function TableLoadingSkeleton({ label, columns = 6, viewportHeight }: { label: string; columns?: number; viewportHeight?: number }) {
   return (
     <div role="status" aria-label={label} className="overflow-hidden rounded-lg border border-border">
       <span className="sr-only">{label}</span>
+      <div style={viewportHeight ? { height: viewportHeight, overflow: "hidden" } : undefined}>
       <table aria-hidden="true" className="w-full table-fixed">
         <thead className="bg-secondary/60"><tr>
           {Array.from({ length: columns }, (_, index) => (
@@ -22,6 +23,7 @@ export function TableLoadingSkeleton({ label, columns = 6 }: { label: string; co
           </tr>)}
         </tbody>
       </table>
+      </div>
       <div className="h-12 border-t border-border bg-secondary/10" />
     </div>
   );

@@ -1,0 +1,16 @@
+{
+    "checks": 15,
+    "profiles": {
+        "similarity_desc": {
+            "p50_ms": 3396.451950073242,
+            "p95_ms": 3512.49098777771,
+            "samples": 5
+        },
+        "record_order": {
+            "p50_ms": 242.49601364135742,
+            "p95_ms": 254.57406044006348,
+            "samples": 5
+        }
+    },
+    "php_peak_mib": 8
+}

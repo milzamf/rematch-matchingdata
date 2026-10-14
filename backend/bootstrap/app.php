@@ -13,7 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Opaque record/idempotency identities must reach the isolated service unchanged.
+        $middleware->trimStrings(except: [fn (Request $request) => $request->is('api/stage5a/*')]);
         $middleware->statefulApi();
+        $middleware->append(\App\Http\Middleware\ReviewDeploymentFence::class);
         $middleware->redirectGuestsTo(fn (Request $request) => $request->is('api/*') ? null : '/login');
         $middleware->alias([
             'permission' => \App\Http\Middleware\EnsurePermission::class,

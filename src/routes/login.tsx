@@ -9,10 +9,7 @@ import { LogoIcon } from "@/components/ui/logo";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
-    meta: [
-      { title: "Masuk - RE-MATCH" },
-      { name: "description", content: "Masuk ke RE-MATCH" },
-    ],
+    meta: [{ title: "Masuk - RE-MATCH" }, { name: "description", content: "Masuk ke RE-MATCH" }],
   }),
   component: LoginPage,
 });
@@ -37,7 +34,7 @@ function LoginPage() {
       event.preventDefault();
       event.stopPropagation();
     }
-    if (loading) return;
+    if (loading || isLoadingAuth) return;
 
     setError(null);
 
@@ -68,6 +65,7 @@ function LoginPage() {
           autoFocus
           autoComplete="username"
           inputMode="text"
+          disabled={isLoadingAuth || loading}
         />
         <Field
           label={t("auth.password")}
@@ -76,15 +74,14 @@ function LoginPage() {
           onChange={setPassword}
           placeholder={t("auth.passwordPlaceholder")}
           autoComplete="current-password"
+          disabled={isLoadingAuth || loading}
         />
         {error && (
-          <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {error}
-          </p>
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>
         )}
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || isLoadingAuth}
           className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading && <Loader2 className="size-4 animate-spin" />}
@@ -123,15 +120,18 @@ export function AuthShell({
 }) {
   const { t } = usePreferences();
 
-  const formattedSubtitle = typeof subtitle === "string" && subtitle.includes("RE-MATCH") ? (
-    <>
-      {subtitle.split("RE-MATCH")[0]}
-      <span className="inline-block whitespace-nowrap font-medium text-foreground">RE&#8209;MATCH</span>
-      {subtitle.split("RE-MATCH")[1]}
-    </>
-  ) : (
-    subtitle
-  );
+  const formattedSubtitle =
+    typeof subtitle === "string" && subtitle.includes("RE-MATCH") ? (
+      <>
+        {subtitle.split("RE-MATCH")[0]}
+        <span className="inline-block whitespace-nowrap font-medium text-foreground">
+          RE&#8209;MATCH
+        </span>
+        {subtitle.split("RE-MATCH")[1]}
+      </>
+    ) : (
+      subtitle
+    );
 
   return (
     <div className="min-h-screen bg-background px-4 py-8 sm:py-12 flex items-center justify-center">
@@ -154,7 +154,9 @@ export function AuthShell({
         </div>
 
         <div className="rounded-xl border border-border bg-card p-5 sm:p-8 shadow-xs">
-          <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-foreground">{title}</h2>
+          <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-foreground">
+            {title}
+          </h2>
           <div className="mt-1 mb-5 sm:mb-6 text-xs sm:text-sm text-muted-foreground leading-normal">
             {formattedSubtitle}
           </div>
@@ -174,6 +176,7 @@ export function Field({
   autoFocus,
   autoComplete,
   inputMode,
+  disabled,
 }: {
   label: string;
   value: string;
@@ -183,6 +186,7 @@ export function Field({
   autoFocus?: boolean;
   autoComplete?: string;
   inputMode?: "text" | "none" | "tel" | "url" | "email" | "numeric" | "decimal" | "search";
+  disabled?: boolean;
 }) {
   return (
     <label className="block">
@@ -195,6 +199,7 @@ export function Field({
         autoFocus={autoFocus}
         autoComplete={autoComplete}
         inputMode={inputMode}
+        disabled={disabled}
         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
       />
     </label>

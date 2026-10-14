@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-13",
+  "scope": "warm direct service; 5000 synthetic input fixture; one reviewer; not production/HTTP/approval load",
+  "mysql_version": "8.0.46",
+  "database": "rematch_stage4_test",
+  "network": "none",
+  "cpu_quota": 2,
+  "mysql_ram_mib": 1024,
+  "buffer_pool_mib": 128,
+  "tmpfs_mib": 2048,
+  "binlog": false,
+  "profiles": [
+    {"profile": "legacy-owner", "requests": 40, "p50_ms": 13.171911239624023, "p95_ms": 14.361143112182617, "sql_per_request": 33, "lock_call_ms_per_request": 0.8693337440490723},
+    {"profile": "membership-editor", "requests": 40, "p50_ms": 15.543937683105469, "p95_ms": 24.389982223510742, "sql_per_request": 39, "lock_call_ms_per_request": 0.9286999702453613}
+  ],
+  "php_core_fixture_peak_mib": 12,
+  "php_after_http_boot_peak_mib": 26,
+  "mysql_container_snapshot_mib": 901.3,
+  "cgroup_max_events": 0,
+  "oom": 0,
+  "oom_kill": 0,
+  "stage5_assertions": 81,
+  "stage5_test_seconds": 3.110365867614746,
+  "stage4_assertions": 48,
+  "notes": "SQL count includes session/savepoint statements, excludes PDO BEGIN/COMMIT and fixture lookup. Lock calls include roundtrip. Server RAM includes repeated schema fixtures/tmpfs/cache; PHP peaks are process allocation, not total system RAM. No 300k or binlog durability extrapolation."
+}

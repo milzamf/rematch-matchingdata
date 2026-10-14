@@ -93,6 +93,33 @@ class MatchingExportTest extends TestCase
         $this->assertStringContainsString('10,NEED_REVIEW,78.5,REF-10', $content);
     }
 
+    public function test_rejected_candidate_is_pending_but_mark_unmatched_is_new_entity(): void
+    {
+        $job = MatchingJob::create([
+            'reference_dataset_id' => $this->dataset('reference')->id,
+            'input_dataset_id' => $this->dataset('input')->id,
+            'status' => 'completed', 'processed_count' => 2, 'total_count' => 2,
+        ]);
+        foreach (['rejected-input' => 'reject_match', 'unmatched-input' => 'mark_unmatched'] as $key => $action) {
+            $candidate = $job->results()->create([
+                'input_record_key' => $key, 'reference_record_key' => 'ref-'.$key,
+                'result_type' => 'possible_match', 'overall_score' => 92, 'candidate_rank' => 1,
+                'candidate_metadata' => ['input_record' => ['name' => $key]],
+            ]);
+            $this->postJson("/api/matching-jobs/{$job->id}/review-decisions", [
+                'input_record_key' => $key, 'matching_result_id' => $candidate->id,
+                'decision' => $action, 'scope' => 'one',
+            ])->assertOk();
+        }
+        $pending = $this->get("/api/matching-jobs/{$job->id}/export?preset=pending_review")->assertOk()->streamedContent();
+        // Export keeps the historical action label even in the effective pending preset.
+        $this->assertStringContainsString('rejected-input,REJECTED', $pending);
+        $this->assertStringNotContainsString('unmatched-input', $pending);
+        $master = $this->get("/api/matching-jobs/{$job->id}/export?preset=master_update")->assertOk()->streamedContent();
+        $this->assertStringContainsString('unmatched-input,NEW_ENTITY', $master);
+        $this->assertStringNotContainsString('rejected-input', $master);
+    }
+
     private function dataset(string $role): Dataset
     {
         return Dataset::create([

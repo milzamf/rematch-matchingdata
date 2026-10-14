@@ -12,6 +12,8 @@ Status: API contract draft with implemented MVP slices called out explicitly.
 
 ## Implemented MVP Vertical Slice
 
+Backend Tahap 5A (2026-10-13) is implemented only under guarded `/api/stage5a`: own/shared/admin workspace lists, permissions, member list/search/grant/change/revoke, scoped resource metadata, proposal inbox/submit/resolve, CAS decisions and atomic Undo. All use authenticated actors and fixed isolated MySQL/env guards; `WORKSPACE_ACCESS_ENABLED` and `REVIEW_STATE_TRANSACTIONS_ENABLED` default false. Main routes retain existing ownership and legacy state authority. See [REVIEW_ACCESS_APPROVAL_STAGE5A.md](REVIEW_ACCESS_APPROVAL_STAGE5A.md) for paths, payloads, permission matrix, submitted/rejected/applied distinctions and 403/409 handling. Full preview/review/export reader adapters have not been switched to sharing.
+
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
 | `/api/health` | `GET` | Check API availability. | none | `success`, `data.service`, `data.status`, `data.version` |
@@ -130,6 +132,17 @@ Note: implemented workflow endpoints are now behind Laravel Sanctum session auth
 
 ## 10. Manual Review
 
+Implemented review filters (2026-10-12):
+
+- Candidate verification evidence now includes `address_enrichment_available` for newly evaluated outcomes. This is an informational flag; compatible extra address detail does not force `possible_match` after thresholds and verification pass. Real address-component conflicts still require review. Previously persisted outcomes are not reclassified by a GET request.
+
+- `GET /api/matching-jobs/{jobId}/review-results` accepts `sort=record_order|similarity_desc|similarity_asc`, `similarity_min`, `similarity_max`, `input_province_code`, and `input_regency_code`, alongside the existing parameters. All predicates run before pagination. Scores must be 0–100; minimum must not exceed maximum. Region codes must exist in MFD, and a selected regency must belong to the selected province.
+- Regions refer to **input** records. Regency codes use the full MFD ID (for example Jakarta Barat `3174`), not the province-local `74`. New rank-1 results carry canonical codes; older results are backfilled in queued batches without rerunning matching or changing review decisions.
+- `GET /api/matching-jobs/{jobId}/review-region-options` returns `data: {ready, remaining, provinces: [{code, label}], regencies: [{code, province_code, label}]}`. It schedules preparation for an older job. While `ready=false`, ordinary table queries work; applying a region predicate returns 409. The UI disables only region controls until ready.
+- `case_group_id` resolves cached membership even with `include_groups=false`. This suppresses the group payload, not membership lookup. Unknown group IDs return a specific 404; concurrent cache preparation returns 503 with `code: case_groups_preparing` and `Retry-After: 5`. Clients may retry this GET while retaining loading state; other failures are not automatically retried.
+- Displayed candidate and similarity sort/range use the reviewer's selected candidate when present. Equal scores use text record keys as a stable tie breaker; null scores sort last. Default `record_order` retains primary-row insertion order. The current schema stores overall scores as non-null decimals; the query also handles future null scores.
+- Group searches inspect record contents as well as keys. Pagination fetches candidate payloads only for that page. Column quality remains cumulative across the whole job and is loaded separately.
+
 | Endpoint | Method | Purpose | Basic request fields | Basic response fields |
 | --- | --- | --- | --- | --- |
 | `/api/matching-jobs/{jobId}/review-results` | `GET` | Paginate persisted matching outcomes and load case groups, including already-committed rows while a job is still processing. | `status`, `search`, `page`, `per_page`, `case_group_id`, `include_groups`, `include_quality` | `job`, `summary`, `pagination`, `items`, `case_groups`, `field_quality_summary`, `is_processing` |
@@ -185,3 +198,29 @@ Review performance contract (2026-10-11):
 - Mutating endpoints should create `audit_logs` entries where the action changes data, workflow state, AI recommendation status, sync strategy, review decision, or export state.
 - AI tokens must never be exposed to frontend code. AI requests should use masked/redacted data where configured by user privacy settings.
 - Long-running operations such as parsing, profiling, matching, AI generation, and export generation should be queue-backed when implemented.
+
+## Review compatibility contract v1 (2026-10-13)
+
+Review-results adds `data.contract_version = 1`, `data.summary.accounting`, and
+`decision.actors` (including decision history). Existing fields and request values
+remain compatible. New writes use existing reviewer_user_id; Undo retains the
+reviewer and records its own actor in existing metadata. Legacy unknown actors
+remain unknown. `reject_match` is effectively possible_match, while mark_unmatched
+is unmatched; badges and exported action labels remain separate.
+
+See [REVIEW_CONTRACT_V1.md](REVIEW_CONTRACT_V1.md) for field definitions, opaque-key
+rules, statistics provenance, export compatibility and the boundaries of Tahap 1.
+No migration, Workspace Sharing, approval or new concurrency behavior is enabled.
+
+## Stage 5B frontend consumer note (2026-10-13)
+
+No backend API was added/changed. The default-disabled workspace-access client consumes the existing 11 Stage 5A list/permission/member/user/proposal/decision/Undo contracts and preserves `code`, `details` and durable 409 `data` acknowledgements. Membership writes return user_id/role/status/version only. Actor attribution comes from session/server; opaque record keys remain strings. Unknown fields/endpoints are not invented. Full shared workspace/dataset/current-version review readers and owner-name metadata are still absent; the UI cannot use scalar resource metadata as that reader. See REVIEW_FRONTEND_STAGE5B.md for the exact endpoint table and development mock boundaries.
+## Tahap 5C isolated readers (2026-10-13)
+
+Shared integration adds authenticated/scoped GET `/api/stage5a/workspaces/{workspace}/jobs/{job}/export` (CSV effective states, keyset 500, permission rechecked per chunk). UAT hardening prepares the complete CSV in temporary disk storage before publishing HTTP 200; a generation error/revocation returns an error and removes that temporary file. Authorization is checked again before download. This delays first byte, needs bounded concurrent-export disk capacity, and is not a whole-job transactional snapshot. Existing readers now feed gated actual frontend; ready score projections accelerate sorting without changing DTO/decision semantics. State CSV is not the full legacy preset/audit export. See [SHARED_WORKSPACE_INTEGRATION_QA.md](SHARED_WORKSPACE_INTEGRATION_QA.md). Main activation remains off.
+
+Legacy review decision/Undo writers return HTTP 409 `legacy_review_write_disabled` when either `workspace_access.enabled` or `review_transactions.enabled` is true. Both flags false retain legacy behavior. This fence does not replace deployment fencing for matching/configuration/autosave/queue writers.
+
+Blocker follow-up: default-off `review_deployment` freeze config/shared marker returns HTTP 503 `review_deployment_frozen` before every business API handler (including reads with possible side effects); login/logout/me remain available. With either new backend flag enabled, legacy business mutations return 409 `legacy_workspace_write_disabled`; legacy decision/Undo retain their existing reason above. Stage 5A mutations retain their versioned services outside freeze. Requires shared marker/config coherence and draining existing requests/workers; does not authorize production activation.
+
+New authenticated GETs under `/api/stage5a`: `/workspaces/{workspace}`, `/workspaces/{workspace}/jobs/{job}/review-results`, `/workspaces/{workspace}/jobs/{job}/candidates?record_key=001`, `/workspaces/{workspace}/datasets/{dataset}/rows`. Existing fixed-test guard/default-off remains; main legacy API/frontend unchanged. Review/candidates require completed + ready + schema 1 and use review_states exclusively for effective decisions/version/actors. Pagination up to 100 rows, filters before paging, 2 MiB payload limit. Actual parameters/DTO/errors/scoping and benchmark limitations: [REVIEW_READERS_STAGE5C.md](REVIEW_READERS_STAGE5C.md). This is not a live rollout or frontend integration.

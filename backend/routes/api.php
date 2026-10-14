@@ -20,6 +20,8 @@ use App\Http\Controllers\Api\WorkspaceController;
 use App\Support\Auth\PermissionRegistry;
 use Illuminate\Support\Facades\Route;
 
+require __DIR__.'/workspace_access.php';
+
 Route::get('/health', HealthController::class);
 
 Route::post('/login', [AuthController::class, 'login'])->name('login');
@@ -59,6 +61,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::match(['GET', 'POST'], '/matching-jobs/{job}/ai-matching-configuration', AiMatchingConfigurationController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_CONFIGURE);
     Route::get('/matching-jobs/{job}/review-results', ReviewResultsController::class)
+        ->middleware('permission:'.PermissionRegistry::REVIEW_VIEW);
+    Route::get('/matching-jobs/{job}/review-region-options', \App\Http\Controllers\Api\ReviewRegionOptionsController::class)
         ->middleware('permission:'.PermissionRegistry::REVIEW_VIEW);
     Route::get('/matching-jobs/{job}/export', \App\Http\Controllers\Api\MatchingExportController::class)
         ->middleware('permission:'.PermissionRegistry::MATCHING_VIEW);

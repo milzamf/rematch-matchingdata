@@ -27,26 +27,18 @@ export const WILAYAH_REGENCIES_LIST: RegencyItem[] = Object.values(WILAYAH_REGEN
   a.id_kab.localeCompare(b.id_kab)
 );
 
-// Reverse index: name -> id_kab
-const NAME_TO_IDKAB_MAP: Map<string, string> = new Map();
-
-for (const [idKab, item] of Object.entries(WILAYAH_REGENCIES)) {
-  const nm = item.nm_kab.toLowerCase().trim();
-  if (nm) {
-    if (!NAME_TO_IDKAB_MAP.has(nm)) {
-      NAME_TO_IDKAB_MAP.set(nm, idKab);
-    }
-    NAME_TO_IDKAB_MAP.set(`kabupaten ${nm}`, idKab);
-    NAME_TO_IDKAB_MAP.set(`kab. ${nm}`, idKab);
-    NAME_TO_IDKAB_MAP.set(`kab ${nm}`, idKab);
-    NAME_TO_IDKAB_MAP.set(`kota ${nm}`, idKab);
-
-    const spaceless = nm.replace(/[\s\-_.]+/g, "");
-    if (!NAME_TO_IDKAB_MAP.has(spaceless)) {
-      NAME_TO_IDKAB_MAP.set(spaceless, idKab);
-    }
-  }
+// Keep every candidate for a name; bare names must not silently pick a city.
+const NAME_TO_IDKAB_MAP = new Map<string, Set<string>>();
+const regencyNameKey = (name: string) => name.toLowerCase().trim()
+  .replace(/^(?:(?:kabupaten|kab|kota|administrasi|adm)\.?\s+)+/u, "")
+  .replace(/[^\p{L}\p{N}]+/gu, "");
+function indexRegencyName(name: string, id: string) {
+  const key = regencyNameKey(name);
+  const ids = NAME_TO_IDKAB_MAP.get(key) ?? new Set<string>();
+  ids.add(id);
+  NAME_TO_IDKAB_MAP.set(key, ids);
 }
+for (const [id, item] of Object.entries(WILAYAH_REGENCIES)) indexRegencyName(item.nm_kab, id);
 
 // Known historical renames & aliases
 const KNOWN_ALIASES: Record<string, string> = {
@@ -67,8 +59,7 @@ const KNOWN_ALIASES: Record<string, string> = {
 };
 
 for (const [alias, idKab] of Object.entries(KNOWN_ALIASES)) {
-  NAME_TO_IDKAB_MAP.set(alias, idKab);
-  NAME_TO_IDKAB_MAP.set(alias.replace(/\s+/g, ""), idKab);
+  if (WILAYAH_REGENCIES[idKab]) indexRegencyName(alias, idKab);
 }
 
 /**
@@ -81,6 +72,8 @@ export function resolveRegency(
   if (val === null || val === undefined) return null;
   const str = String(val).trim();
   if (!str) return null;
+
+  if (/^\d{2}\.\d{2}$/.test(str)) return WILAYAH_REGENCIES[str.replace(".", "")] ?? null;
 
   // 0. Bracket composite format e.g. "[3515] SIDOARJO", "[15] SIDOARJO"
   const bracketMatch = str.match(/^\[?(\d{2,4})\]?[\s\-:]*(.*)$/);
@@ -134,49 +127,31 @@ export function findRegencyByName(
   name: string,
   provCode?: string | null
 ): RegencyItem | null {
-  const norm = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-    .replace(/\s+/g, " ");
+  const key = regencyNameKey(name);
+  const type = /^kota\b/i.test(name.trim()) ? "KOTA"
+    : /^(kabupaten|kab)\b/i.test(name.trim()) ? "KABUPATEN" : null;
+  const matches = [...(NAME_TO_IDKAB_MAP.get(key) ?? [])].map(id => WILAYAH_REGENCIES[id])
+    .filter(item => (!provCode || item.kd_prov === String(provCode).trim().padStart(2, "0"))
+      && (!type || item.tipe === type));
+  return matches.length === 1 ? matches[0] : null;
+}
 
-  if (!norm) return null;
-
-  // Direct lookup
-  let idKab = NAME_TO_IDKAB_MAP.get(norm);
-  if (!idKab) {
-    // Strip prefixes
-    const stripped = norm.replace(/^(kabupaten|kab|kota|adm\.?|administrasi)\s+/i, "").trim();
-    idKab = NAME_TO_IDKAB_MAP.get(stripped);
-
-    // Spaceless lookup e.g. "gunung kidul" -> "gunungkidul"
-    if (!idKab) {
-      const spaceless = stripped.replace(/[\s\-_.]+/g, "");
-      idKab = NAME_TO_IDKAB_MAP.get(spaceless);
-    }
-
-    // Token containment (e.g. "toba samosir" contains "toba")
-    if (!idKab) {
-      const tokens = stripped.split(" ");
-      for (const t of tokens) {
-        if (t.length >= 4 && NAME_TO_IDKAB_MAP.has(t)) {
-          idKab = NAME_TO_IDKAB_MAP.get(t);
-          break;
-        }
-      }
+/** Resolve a name using separate province/regency codes from its source row. */
+export function resolveRegencyFromRow(value: string | number | null | undefined, row?: Record<string, unknown>): RegencyItem | null {
+  const province = extractProvCode(row);
+  if (value == null || String(value).trim() === "") return null;
+  if (/^\[?\d/.test(String(value).trim())) {
+    const explicit = resolveRegency(value, province);
+    if (explicit) return explicit;
+  }
+  for (const role of ["KAB_CODE_FULL", "KAB_CODE_RAW", "KAB_NAME"]) {
+    for (const [column, code] of Object.entries(row ?? {})) {
+      if (detectWilayahColumnRole(column) !== role || code == null) continue;
+      const digits = String(code).trim().match(/^\[?(\d{1,4}(?:\.\d{2})?)\]?$/)?.[1];
+      if (digits) { const item = resolveRegency(digits, province); if (item) return item; }
     }
   }
-
-  if (idKab) {
-    const reg = WILAYAH_REGENCIES[idKab];
-    if (reg) {
-      if (!provCode || reg.kd_prov === String(provCode).trim().padStart(2, "0")) {
-        return reg;
-      }
-    }
-  }
-
-  return null;
+  return resolveRegency(value, province);
 }
 
 /**
@@ -188,11 +163,8 @@ export function isMatchingLocation(
   row1?: Record<string, unknown>,
   row2?: Record<string, unknown>
 ): boolean | null {
-  const p1 = extractProvCode(row1);
-  const p2 = extractProvCode(row2);
-
-  const reg1 = resolveRegency(val1, p1);
-  const reg2 = resolveRegency(val2, p2);
+  const reg1 = resolveRegencyFromRow(val1, row1);
+  const reg2 = resolveRegencyFromRow(val2, row2);
 
   if (reg1 && reg2) {
     return reg1.id_kab === reg2.id_kab;
@@ -205,7 +177,7 @@ export function isMatchingLocation(
  * Detects semantic role for Indonesian wilayah column names.
  */
 export function detectWilayahColumnRole(columnName: string): string | null {
-  const c = columnName.toLowerCase().trim().replace(/[_\-.]/g, "");
+  const c = columnName.toLowerCase().trim().replace(/[_\-.\s/]/g, "");
 
   if (["idkab", "idkabupaten", "kodekabbps", "kdkabbps", "idregency"].includes(c)) {
     return "KAB_CODE_FULL"; // 4-digit BPS code e.g. 3515
@@ -250,11 +222,13 @@ function extractProvCode(row?: Record<string, unknown>): string | null {
   if (!row) return null;
   for (const [k, v] of Object.entries(row)) {
     const role = detectWilayahColumnRole(k);
-    if (role === "PROV_CODE" && v !== null && v !== undefined) {
+    if ((role === "PROV_CODE" || role === "PROV_NAME") && v !== null && v !== undefined) {
       const s = String(v).trim();
-      if (/^\d{1,2}$/.test(s)) {
-        return s.padStart(2, "0");
-      }
+      const code = s.match(/^\[?(\d{1,2})\]?(?:$|\s)/)?.[1]?.padStart(2, "0");
+      if (code && WILAYAH_PROVINCES[code]) return code;
+      const name = s.toLowerCase().replace(/^(?:provinsi|prov\.?|propinsi)\s+/, "");
+      const item = Object.values(WILAYAH_PROVINCES).find(p => p.nm_prov.toLowerCase() === name);
+      if (item) return item.kd_prov;
     }
   }
   return null;

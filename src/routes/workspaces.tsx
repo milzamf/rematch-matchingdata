@@ -5,6 +5,8 @@ import { ArrowRight, Edit3, Inbox, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccessDeniedState } from "@/components/access-denied-state";
+import { workspaceSharingEnabled } from "@/lib/workspace-access";
+import { SharedWorkspaces } from "@/components/workspace-access/shared-workspaces";
 import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { EmptyState } from "@/components/empty-state";
 import { ConfirmationDialog, ErrorPanel } from "@/components/feedback-states";
@@ -23,6 +25,7 @@ import { usePreferences } from "@/lib/preferences";
 import { buildMatchingSearch } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/workspaces")({
+  ssr: !workspaceSharingEnabled,
   head: () => ({
     meta: [
       { title: "Workspace - RE-MATCH" },
@@ -36,6 +39,10 @@ export const Route = createFileRoute("/workspaces")({
 });
 
 function WorkspacesPage() {
+  return workspaceSharingEnabled ? <SharedWorkspaces /> : <LegacyWorkspacesPage />;
+}
+
+function LegacyWorkspacesPage() {
   const { t } = usePreferences();
   const { can } = useAuth();
   const queryClient = useQueryClient();

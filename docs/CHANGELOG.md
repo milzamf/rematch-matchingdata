@@ -2,6 +2,126 @@
 
 ## Unreleased
 
+### NO-GO blocker hardening (2026-10-14)
+
+- Follow-up: rollback evidence deletion now locks and revalidates the row within a short transaction; resolved evidence is retained. Focused recovery tests: 7 passed / 10 assertions; PHP lint and diff check passed. CodeGraph installed/integrated locally and indexed once; Docker unavailable, MySQL lock/login verification and production recovery remain pending.
+- Gate login inputs/submit on auth bootstrap; focused delayed-bootstrap browser regression passes, real MySQL login still pending. Add default-off shared-marker API/legacy writer and queue admission fence; running requests/workers must be drained separately.
+- Capture/recheck preexisting checkpoint versions/operation IDs and source/history before recovery; old incomplete proof fails closed, processing jobs cannot become ready. Native isolated tests 11/30 + review regression 17/181, TypeScript/lint pass. No main DB/schema/flags, guard relaxation, heavy UAT rerun or cutover; full MySQL/backfill/replay readiness pending.
+
+### Workspace Sharing UAT closure (2026-10-14)
+
+- Hardened export against successful partial CSVs and fenced legacy review/Undo in new backend modes. Optimized paging/counts/joins with an additive region-count index; main database/flags unchanged.
+- Real shared workflows and 300k/900k/30k integrity/load/export verified. Similarity/deep/region p95 145/277/611 ms; ten-reader load requires capacity review, substring search remains ~5.07 s. Synthetic backup/restore and DDL verified; full 300k backfill completion and real flag-off browser remain unverified. NO-GO; stopped on user request. Docker offline prevents final UAT resource removal; safe cleanup script prepared. See WORKSPACE_SHARING_CUTOVER_UAT.md.
+
+### Indexed similarity and real shared frontend integration (2026-10-13)
+
+- Added derived-score migration/indexes/transactional triggers and optimized identity joins; no main migration/history/similarity change. Comparable warm 300k reader p95 1,988 -> 259 ms, 8 MiB PHP, same 19,404-byte payload.
+- Sharing UI now consumes actual reader/writer/approval APIs, without runtime fixture. Added scoped state CSV export, current-version refresh fences, durable conflict feedback, authoritative sharing auth bootstrap and shared Results. Legacy behavior remains when flag off.
+- MySQL 48/81/67 + schema/backfill 94/55 assertions and 10 projection checks passed; Laravel 40/260 and Node 3 passed. Real-session browser flow, concurrent record/ref conflicts, Admin access management and flag-off regression tested. See SHARED_WORKSPACE_INTEGRATION_QA.md for final frontend checks, limits and cutover prerequisites. No activation.
+
+### Isolated shared reader and versioned API Tahap 5C (2026-10-13)
+
+- Added four scoped GET readers for workspace metadata, review_states, candidate snapshots and dataset preview under existing fixed-test guard. Enriched isolated workspace catalogue with owner/role. No legacy reader, schema, historical decision, frontend binding or main flag change.
+- Real state versions/actors/protection, explicit readiness and partial preview; bounded payload, batch candidate/actor/canonical reads, selected-candidate scope proof and verified entity claim/hold indicators.
+- Isolated MySQL: Stage 5C 67 assertions + 15 supplemental checks; Stage 4/5A 48/81 and schema Stage 2/3 94/55 passed. Node contracts 3 passed. Laravel 40 tests/260 assertions passed. See REVIEW_READERS_STAGE5C.md for test scope and limits.
+- 300,000 synthetic states, warm status pagination: p50/p95 206.60/236.33 ms, 12 queries, 19,463 bytes, PHP process peak 32.06 MiB. Supplemental similarity sort p95 3,512.49 ms: one-second target not met; large fixture lacks full candidate snapshots. No full matching/browser/cutover guarantee.
+
+### Gated sharing and approval frontend Tahap 5B (2026-10-13)
+
+- Added Stage 5A-only client, backend-effective permission rendering, reusable access modal, own/shared workspace metadata list, admin access action, proposal/inbox/approval/Undo controls, durable conflict feedback and custom remote-search select.
+- Default UI flag off; original workflow/writers retained. No main database, backend, migration, backfill, algorithm, history or cutover changes. Full shared/versioned readers absent from Stage 5A: record UI verified with explicit dev fixture only, never guessed versions or legacy writer fallback. See REVIEW_FRONTEND_STAGE5B.md.
+- 17 mock Chromium scenarios, 1 flag-off legacy browser regression and 3 Node contracts passed; TypeScript/focused lint/build passed. Global frontend lint still fails (25,150 errors/21 warnings). Mock success is not real backend/full-workflow integration; no activation.
+
+### Isolated workspace access and approval backend Tahap 5A (2026-10-13)
+
+- Added workspace application/membership policy, registered member search and versioned grant/change/revoke. Shared permission locks coordinate review and revocation without exclusive workspace review locking.
+- Proposals preserve effective state; Owner/Admin approval uses Stage 4 CAS/unique/hold/idempotency writer, separately records previous reviewer/proposer/approver/operator, and protects approved revisions. Rejection/stale/conflict events remain in operation ledger; historical decision rows unchanged.
+- Added 12 authenticated isolated API routes, strict actor/field validation and namespace-only preservation of padded opaque keys. No new schema, main migration/backfill, UI/algorithm change, cutover or live sharing activation. Main flags false; disposable MySQL removed.
+- MySQL 8.0.46: Stage 5A 81 assertions, Stage 4/2/3 regressions 48/94/55; backend 37 tests/235 assertions and Node contract 3 tests passed. Small warm Editor service benchmark p95 24.39 ms / 39 queries; full-scale/durability still unverified. See REVIEW_ACCESS_APPROVAL_STAGE5A.md.
+
+### Isolated concurrency-safe review Tahap 4 (2026-10-13)
+
+- Added bounded CAS/idempotent transaction service, indexed reference/entity/hold checks, permission and protection checks, explicit partial bulk outcomes and atomic append-only Undo. Historical actors, string identities and engine classifications/scores preserved.
+- MySQL 8.0.46 independent-connection tests passed 48 assertions, including actual deadlock/retry, same-input/reference collisions, revocation, candidate switching and bulk Undo rollback. Stage 2/3 regressions passed 94/55 assertions; backend 33 tests/223 assertions and frontend contract 3 tests passed.
+- Direct-service synthetic benchmark (5,000 inputs): 1/5/10 reviewers p95 11.49/53.99/86.29 ms; PHP peak 12 MiB per worker. Full-scale/HTTP/durability performance remains unverified. See REVIEW_TRANSACTIONS_STAGE4.md for measured server RAM and limits.
+- No main migration/backfill/readiness writes, active API/UI/algorithm change or cutover. Default-disabled configuration plus test-database guard; sharing/approval inactive. Disposable server removed. Stop at Tahap 4.
+
+### Review reconciliation and shadow backfill Tahap 3 (2026-10-13)
+
+- User approved dataset-scoped verification snapshots and additive neutral hold/issue migration. Held states retain provable historical status/resources; colliding claims are held together without selecting a winner.
+- Added disk-backed lineage/history dry-run, explicit accounting/unknown evidence, deterministic proposals, chunked idempotent shadow backfill, checkpoint replay and guarded rollback. Legacy keys/NULL actors/actions/Undo preserved; ambiguous history is quarantined, not recomputed.
+- Isolated MySQL 8.0.46/InnoDB: 55 assertions passed, plus independent Stage 2 94 assertions and relevant backend/frontend contract regressions. Fixture 2,000 input ~6.3s with 12 MiB peak PHP allocation; full-scale benchmark deferred.
+- No main migration/backfill/readiness writes, application cutover, sharing, approval, concurrency service, similarity or UI/API change. Production writer explicitly disabled. Main migration/table counts zero. See REVIEW_BACKFILL_STAGE3.md.
+
+### Additive review schema Tahap 2 (2026-10-13)
+
+- Added six foundation tables for review state, idempotent operations, proposals, memberships and verified reference entities; generated conditional assignment uniqueness, canonical-only duplicate FK and pending-request uniqueness.
+- Prepared workspace/job versioning and nullable review_decisions audit columns without backfill or runtime cutover. Added safe rollback guards for used schema additions.
+- Isolated MySQL 8.0.46 InnoDB tests passed 94 assertions for migration up/down/reapply and constraints, preserving old fixture data/columns/indexes. Stage 1 regressions remained green (19 backend tests / 189 assertions, 3 frontend tests). No primary-database migration performed.
+
+### Review contract Tahap 1 (2026-10-13)
+
+- Centralized existing action/status mapping; Results counts rejected candidates as pending rather than unmatched, while retaining badges and export action categories.
+- Added contract version, honest preprocessing/entity accounting, and separate actor payloads. New decisions record the authenticated reviewer using the existing FK; new Undo records its actor without replacing the reviewer. Legacy attribution remains unknown.
+- Documented opaque keys, lineage limitations, compatibility and deferred concurrency/sharing boundaries in REVIEW_CONTRACT_V1.md. No schema/data migration or similarity change.
+- Verified 19 backend regressions / 189 assertions on isolated SQLite, 3 frontend contract tests, TypeScript and production build; no live review decisions changed.
+
+### Case-group preparation recovery (2026-10-13)
+
+- Concurrent group-cache preparation returns `case_groups_preparing` / Retry-After. Review GET retries that response up to 12 times; leaving the view aborts pending waits. Other errors provide a retry button and unknown counts rather than zeroes.
+- Warm service read returned 11 groups / 7,549 members in 0.45 seconds. Cold construction remains expensive (approximately 93-second request logs); this fixes recovery, not build throughput. Verified 12 review tests / 130 assertions, build/TypeScript, and browser synthetic retry/cancellation. Decisions unchanged.
+
+### Retained-workspace cleanup and compact scores (2026-10-13)
+
+- Keep the seven explicitly selected workspaces and all their linked jobs, datasets, and review decisions. Maintenance scripts default to dry run, validate the exact workspace selection, record a manifest, verify source/evidence round trips, and compare retained counts and decision hashes.
+- Store SQL-readable per-field score projections alongside losslessly packed explanations; avoid growing short records. Sample 1,000-result payload: 3,196,347 -> 2,476,036 bytes (22.5% smaller).
+- Remove four redundant matching-result indexes via reversible migration. Compact SQLite free pages after removing only checkpoint headers associated with explicitly removed jobs.
+- Set local binary-log retention to seven days; logging remains enabled. User approved MINIMAL row images and background I/O capacity 1,000 on 2026-10-13; both applied and persisted in Compose, with max I/O 2,000 and RAM buffer unchanged.
+- Completed historical conversion and physical cleanup: seven workspaces, 17 jobs, 12 datasets, 3,307,263 candidates and all 1,308 decisions verified after restart. Removed 14 unused jobs, 13 datasets and 1,005,045 candidates. Matching-results file approximately 35 -> 15.1 GiB; total MySQL directory approximately 62 -> 43 GiB including logs. Docker VHD 113.08 -> 62.12 GB after offline compaction; temporary peak was 142.31 GB.
+- Reset private staging per batch using TRUNCATE: repeated DELETE had accumulated 3.6 GiB of temporary space; staging now stays around 12 MiB. Final maintenance pass PHP peak was 31.1 MiB. New candidate IDs use UUIDv7; historical IDs remain unchanged. Backend regressions passed (29 tests/232 assertions), all services restored and approved server settings verified persistent.
+
+### Matching storage and RAM efficiency (2026-10-12)
+
+- Merge Meilisearch responses batch by batch, retain candidate IDs only, and free consumed buffers before allocating the next chunk.
+- Compress checkpoint payloads losslessly, read legacy JSON checkpoints, cap SQLite page cache at 8 MiB, and restore in 250-row batches.
+- Store verification evidence losslessly in candidate metadata for new results; preserve model/API evidence shape and historical compatibility. Keep scores and searchable source metadata uncompressed.
+- Exclude runtime files, uploaded datasets, local SQLite databases and testing artifacts from backend images; avoid recursively duplicating storage in a permissions layer.
+- Add read-only sample benchmark and payload-size chunk metrics. No historical results, manual decisions, or binary logs deleted.
+
+### House-number suffix normalization (2026-10-12)
+
+- Standardize No. 14 A, No 14A, and No 014 A identically before address scoring/conflict detection, alongside JL/JLN/JALAN expansion.
+- Align frontend previews with backend normalization; keep genuine 14A/14B/15 differences and preserve source addresses and user decisions.
+- Invalidate old reference-normalization caches for subsequent matching evaluations.
+
+### MFD regency/city context (2026-10-12)
+
+- Resolve ambiguous names such as Bandung/Kupang through separate source-row codes, including numeric columns named `kab` and `prov`.
+- Prefix city dictionary names with KOTA for local codes starting with 7; retain all 514 entries and distinct kabupaten/kota identities. Extraction script and both dictionaries remain synchronized.
+- Align frontend resolution with backend: retain multiple name candidates, require context for ambiguity, and avoid guessing from partial tokens. Region options show full administrative labels.
+- Invalidate old reference-normalization cache signatures for new matching; preserve previous result evidence and manual decisions.
+
+### Bulk feedback and stable sort layout (2026-10-12)
+
+- Report actual bulk affected records instead of the number selected. Explain skipped safety exceptions in a persistent expandable list; do not claim excluded rows were accepted.
+- Keep cumulative diagnostic panels mounted during table-query changes and reserve the review table's viewport height in loading skeletons.
+- Confirmed latest live 100-selection batch saved 82 matches and excluded 18 shared-reference cases. No backend safety rule or persisted review decision was changed.
+
+### Dropdown consistency and address classification (2026-10-12)
+
+- Replace native review sort select with the existing shared dropdown; add a non-searchable variant with identical trigger/panel/items and accessible keyboard focus.
+- Stop forcing compatible partial/full addresses into review after configured thresholds/verification pass. Keep enrichment as an informational evidence flag and retain review for conflicting address components or failed rules.
+- Preserve persisted job outcomes and reviewer decisions; corrected classification applies on evaluation, not as an automatic rewrite of old results.
+
+### Case-group members and review filters (2026-10-12)
+
+- Fix empty case details when `include_groups=false`; resolve cached membership independently of summary delivery, preserve string record keys, and fetch only paginated candidates.
+- Serialize cold group-cache builds; expose specific missing-group and retryable preparation errors. Group search now searches record contents.
+- Add full-job similarity sorting/ranges and input province/regency filters to both review views. Selected reviewer candidates determine the displayed/sorted score; ties use stable text keys.
+- Add indexed canonical MFD region columns, queued incremental backfill for existing jobs, and a readiness/options endpoint. The active 133,524-input job finished backfill and exposes 38 provinces/504 regencies without rerunning matching.
+- Preserve skeletons for changed queries and existing rows during background updates; column charts remain cumulative. Relevant review tests: 10 passed/121 assertions; matching regression tests: 9 passed/60 assertions; TypeScript/build passed.
+- Live warmed HTTP reads after backfill: 899–986 ms across group pages, score sort, region/range, and group search. Cold group rebuilding measured 11.5–19.2 seconds; warm backend group reads 201–327 ms. No persisted user decisions changed during browser verification.
+
 ### Stable loading (2026-10-12)
 
 - Keep review tables/case groups mounted during background refresh; update affected records and gently remove rows that leave the selected status filter.

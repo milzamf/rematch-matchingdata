@@ -267,7 +267,20 @@ class WilayahDictionaryService
             }
         }
 
-        // 3. Try by name
+        // Names such as Bandung/Kupang occur as both kabupaten and kota.
+        // A separate MFD code in the same source row disambiguates that name.
+        foreach (['KAB_CODE_FULL', 'KAB_CODE_RAW', 'KAB_NAME'] as $codeRole) {
+            foreach ($contextRow as $column => $codeValue) {
+                if ($this->detectWilayahColumnRole((string) $column) !== $codeRole) continue;
+                $code = trim((string) $codeValue);
+                if (preg_match('/^\[?(\d{1,4}(?:\.\d{2})?)\]?$/', $code, $parts)) {
+                    $byContext = $this->resolveRegencyCode($parts[1], $provCode);
+                    if ($byContext !== null) return $byContext;
+                }
+            }
+        }
+
+        // 3. Try by name; unresolved bare names remain ambiguous.
         $byName = $this->findRegencyByName($str, $provCode);
         if ($byName !== null) {
             return $byName;

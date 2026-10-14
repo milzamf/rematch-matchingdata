@@ -274,6 +274,8 @@ export function normalizeAddress(value: unknown): string {
     .replace(/\bprov\b/gu, "provinsi")
     .replace(/[^\p{L}\p{N}\s]+/gu, " ")
     .replace(/\s+/g, " ")
+    .replace(/\bnomor\s*(\d+)(?:\s*([a-z]))?\b/gu,
+      (_match: string, digits: string, suffix?: string) => `nomor ${digits.replace(/^0+/, "") || "0"}${suffix ?? ""}`)
     .trim();
 
   return text;

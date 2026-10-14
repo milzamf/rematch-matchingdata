@@ -1,5 +1,31 @@
 # RE-MATCH Database Design
 
+### Tahap 3 reconciliation schema (2026-10-13, isolated only)
+
+Approved additive migration `2026_10_13_000003_create_review_reconciliation_holds.php`
+adds issue evidence and neutral resource reservations. Active review assignment is
+generated only for matched/consistent states; all conflicting inputs can be held
+without selecting an owner. Dataset-scoped verified membership is snapshotted;
+assignment/holds remain per job. The next concurrency service must lock/check holds
+as well as assignments; cross-table protection is not automatic. Main DB remains
+unmigrated. Details, test results and rollback guards: REVIEW_BACKFILL_STAGE3.md.
+
+### Compact verification evidence (2026-10-12)
+
+Extended compact score storage: `field_scores` keeps the SQL-readable reference/input column names and scores; full explanations (weights, algorithms, identity/address evidence) live losslessly in `candidate_metadata._field_scores`. MatchingResult exposes the original field array. Short records keep the original format when an envelope would grow them. Migration `2026_10_12_000002_drop_redundant_matching_result_indexes.php` removes four left-prefix indexes already covered by the existing unique/covering indexes; rollback restores them. Historical compaction updates payload columns only and preserves IDs, status, scores, timestamps, and review links.
+
+Extended compact score storage: `field_scores` keeps the SQL-readable reference/input column names and scores; full explanations (weights, algorithms, identity/address evidence) live losslessly in `candidate_metadata._field_scores`. MatchingResult exposes the original field array. Short records keep the original format when an envelope would grow them. Migration `2026_10_12_000002_drop_redundant_matching_result_indexes.php` removes four left-prefix indexes already covered by the existing unique/covering indexes; rollback restores them. Historical compaction updates payload columns only and preserves IDs, status, scores, timestamps, and review links.
+
+New matching results store lossless JSON or `gz1:` gzip/base64 evidence in `candidate_metadata._verification_evidence`; the physical `verification_evidence` column is null. The model accessor and review API expose the same decoded array and still read historical JSON columns. Direct SQL consumers must decode the metadata payload for new rows. Field scores, source records, and indexes remain queryable in their original formats. SQLite checkpoint `results_json` supports both legacy JSON and compressed payloads. No schema migration or rewriting of historical results occurs.
+
+2026-10-12 review filters: migration `2026_10_12_000001_add_review_region_and_score_indexes.php` adds nullable `input_province_code`, nullable `input_regency_code`, and `input_region_indexed` (false until prepared). Only rank-1 candidates need these input-region facets. New matching results resolve them through MFD; `BuildReviewRegionIndex` backfills older rows in batches of 500 under a connection-owned MySQL advisory lock. Backfill changes only these three columns and preserves matching evidence and decisions.
+
+- `review_score_idx`: `(matching_job_id, candidate_rank, overall_score, input_record_key)` for narrow score/key projection.
+- `review_region_idx`: `(matching_job_id, candidate_rank, input_province_code, input_regency_code, overall_score)` for canonical region predicates.
+- `review_region_ready_idx`: `(matching_job_id, candidate_rank, input_region_indexed, id)` for preparation readiness and batch traversal.
+
+Selected-candidate scores are overlaid using a narrow union of primary scores and reviewer choices before pagination. EXPLAIN on the 133,524-input job used the score/region indexes and the existing job/input/rank index. Sorting the union still uses a filesort over narrow scalar rows; it does not hydrate all candidate JSON in PHP. First installation on the existing ~1.2M-result table took about five minutes to add columns/indexes; this is a migration cost, not a per-request operation.
+
 Status: actual schema updated through Milestone 9.5.1. This document now separates the current implemented schema from future target entities that are still deferred.
 
 2026-10-11 review optimization: migration `2026_10_11_000001_add_review_pagination_covering_index.php` adds `matching_results_review_page_cover_idx` on `(matching_job_id, candidate_rank, result_type, id, input_record_key)`. It covers status-filtered ordered pagination and key projection without fetching large JSON payloads for skipped rows. No result or decision data is changed.
@@ -391,3 +417,22 @@ These are justified for auditability, replay, evidence preservation, and avoidin
 
 4. **LOW — ADD CONSTRAINT LATER**  
    Evaluate whether `matching_results` also needs uniqueness on (`matching_job_id`, `input_record_key`, `reference_record_key`) when `reference_record_key` is not null.
+
+## Tahap 2 review foundation (2026-10-13)
+
+Prepared additive migrations for review_states, review_operations,
+review_change_requests, workspace_members, reference_entity_groups and
+reference_entity_members; workspace configuration version, job readiness/schema
+version and nullable review audit links/actors/versions. Generated assignment,
+canonical and pending columns support MySQL 8 uniqueness and referential integrity.
+
+Not applied to the user's database; no historical backfill or application cutover.
+Existing status/history remain authoritative. See [REVIEW_SCHEMA_STAGE2.md](REVIEW_SCHEMA_STAGE2.md)
+for exact constraints, rollback guards, verification and remaining service responsibilities.
+## Derived review score projection (2026-10-13, additive and unapplied to main)
+
+Migration `2026_10_13_000004` adds nullable decimal(5,2) display_score, display_score_indexed=false and stored display_score_null to review_states, four job/status/all score-direction/key indexes plus readiness index. MySQL BEFORE INSERT/UPDATE triggers project the actual selected candidate or rank-1 score with exact opaque-key verification; all changes share the state transaction. Existing states are not updated by migration; reader retains join fallback until projection ready. No new source decision/version/history or algorithm. Rollback drops derived triggers/indexes/columns only; disable new reader first. See SHARED_WORKSPACE_INTEGRATION_QA.md.
+
+## UAT region count index (2026-10-14, unapplied to main)
+
+Migration `2026_10_14_000001` adds `shared_region_count_idx` on matching_results(job, rank, input province, input regency, input key). Shared region counts use a covered primary-candidate scan then exact binary state-key lookups, independently of score ordering. It adds disk/write cost and must be deployed before the new region-count reader; down removes only this derived index. No columns, candidate scores, historical decisions or main data are changed. See WORKSPACE_SHARING_CUTOVER_UAT.md for rehearsal results and activation gates.

@@ -29,6 +29,7 @@ class RunMatchingJob implements ShouldQueue
 
     public function handle(MatchingEngineService $engine): void
     {
+        \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable(true);
         if (ini_get('memory_limit') !== '-1') {
             @ini_set('memory_limit', '1024M');
         }
@@ -71,6 +72,11 @@ class RunMatchingJob implements ShouldQueue
 
     public function failed(\Throwable $exception): void
     {
+        // A deployment refusal must not rewrite the matching business state.
+        if (\App\Services\Matching\Transactions\ReviewDeploymentFence::legacyBlocked()) {
+            Log::warning('Matching queue admission blocked by review deployment fence.', ['job' => $this->matchingJobId]);
+            return;
+        }
         $rawMessage = $exception->getMessage();
         if (str_contains($rawMessage, 'attempted too many times') || str_contains($rawMessage, 'MaxAttemptsExceededException')) {
             $errorMessage = 'Batas percobaan antrean tercapai. Periksa log worker untuk penyebab awal (timeout, memori, atau layanan pencarian). Coba lagi untuk melanjutkan checkpoint yang tersedia.';

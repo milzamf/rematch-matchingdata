@@ -23,6 +23,14 @@ class ReviewResultService
         $this->wilayahService = $wilayahService ?? app(WilayahDictionaryService::class);
     }
 
+    private function assertLegacyWriterEnabled(): void
+    {
+        // Even a partially enabled cutover must not mix legacy and versioned writes.
+        if (config('workspace_access.enabled', false) || config('review_transactions.enabled', false)) {
+            throw new Transactions\ReviewWriteConflict('legacy_review_write_disabled');
+        }
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -43,6 +51,7 @@ class ReviewResultService
             $totalDuplicates = (int) ($recordCounts['total_duplicates'] ?? 0);
 
             return [
+                'contract_version' => ReviewContract::VERSION,
                 'job' => [
                     'id' => $job->id,
                     'name' => $job->name,
@@ -61,6 +70,7 @@ class ReviewResultService
                     'manual_accepted' => 0,
                     'manual_rejected' => 0,
                     'reviewed' => 0,
+                    'accounting' => ReviewContract::accounting($recordCounts, (int) ($recordCounts['matched'] ?? 0)),
                     'total_raw_input' => $totalRawInput,
                     'total_unique_input' => $totalUniqueInput,
                     'total_duplicates' => $totalDuplicates,
@@ -141,8 +151,8 @@ class ReviewResultService
 
         // Aggregate review groups across all reviewable database records (with caching)
         $includeGroups = filter_var($params['include_groups'] ?? true, FILTER_VALIDATE_BOOLEAN);
-        $reviewGroups = $includeGroups
-            ? $this->aggregateJobReviewGroups($job, $latestDecisions, $decisionHistory, $customRules, $reviewedCount)
+        $reviewGroups = ($includeGroups || $caseGroupId !== '')
+            ? $this->aggregateJobReviewGroups($job, $latestDecisions, $decisionHistory, $customRules, $reviewedCount, ! $includeGroups)
             : ['system_presets' => [], 'custom_rules' => [], 'dynamic_patterns' => [], 'case_groups' => []];
 
         if (isset($params['input_keys'])) {
@@ -155,37 +165,13 @@ class ReviewResultService
             $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
             $totalFiltered = count($targetKeys);
             $totalPages = 1;
-        } elseif ($caseGroupId !== '') {
-            $allGroups = array_merge(
-                $reviewGroups['system_presets'] ?? [],
-                $reviewGroups['custom_rules'] ?? [],
-                $reviewGroups['dynamic_patterns'] ?? [],
-                $reviewGroups['case_groups'] ?? []
-            );
-            $matchedGroup = collect($allGroups)->first(fn ($g) => ($g['id'] ?? '') === $caseGroupId);
-            $groupKeys = $matchedGroup['item_keys'] ?? [];
-
-            if ($search !== '') {
-                $groupKeys = array_values(array_filter($groupKeys, fn ($k) => str_contains(strtolower($k), strtolower($search))));
-            }
-
-            $totalFiltered = count($groupKeys);
-            $totalPages = max(1, (int) ceil($totalFiltered / $perPage));
-            $pageKeys = array_slice($groupKeys, ($page - 1) * $perPage, $perPage);
-
-            $results = MatchingResult::where('matching_job_id', $job->id)
-                ->whereIn('input_record_key', $pageKeys)
-                ->orderBy('input_record_key')
-                ->orderBy('candidate_rank')
-                ->get();
-
-            $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
         } else {
-            // Query input keys using the index on candidate_rank = 1
-            $keysQuery = DB::table('matching_results')
-                ->where('matching_job_id', $job->id)
-                ->where('candidate_rank', 1);
-
+            $keysQuery = DB::table('matching_results')->where('matching_job_id', $job->id)->where('candidate_rank', 1);
+            if ($caseGroupId !== '') {
+                $matchedGroup = collect($reviewGroups['case_groups'])->first(fn ($group) => $group['id'] === $caseGroupId);
+                if (!$matchedGroup) throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel('ReviewCaseGroup', [$caseGroupId]);
+                $keysQuery->whereIn('input_record_key', array_map('strval', $matchedGroup['item_keys']));
+            }
             if ($status !== 'all' && in_array($status, ['possible_match', 'matched', 'unmatched'], true)) {
                 $statusKeys = $latestDecisions->where('new_result_type', $status)->keys()->map(fn ($key) => (string) $key)->all();
                 $keysQuery->where(function ($query) use ($status, $decidedKeys, $statusKeys) {
@@ -193,41 +179,62 @@ class ReviewResultService
                     if ($statusKeys !== []) $query->orWhereIn('input_record_key', $statusKeys);
                 });
             }
-
             if ($search !== '') {
-                $keysQuery->where(function ($q) use ($search) {
-                    $q->where('input_record_key', 'LIKE', "%{$search}%")
-                      ->orWhere('candidate_metadata', 'LIKE', "%{$search}%");
-                });
+                $pattern = '%'.mb_strtolower($search).'%';
+                $keysQuery->where(fn ($q) => $q->where('input_record_key', 'LIKE', "%{$search}%")
+                    ->orWhereRaw("LOWER(JSON_EXTRACT(candidate_metadata, '$.input_record')) LIKE ?", [$pattern])
+                    ->orWhereRaw("LOWER(JSON_EXTRACT(candidate_metadata, '$.reference_record')) LIKE ?", [$pattern]));
             }
-
-            if ($search !== '') {
-                $totalFiltered = (clone $keysQuery)->count();
-            } else {
-                $totalFiltered = match ($status) {
-                    'possible_match' => $possibleMatchCount,
-                    'matched' => $matchedCount,
-                    'unmatched' => $unmatchedCount,
-                    default => $matchedCount + $possibleMatchCount + $unmatchedCount,
-                };
-                if ($totalFiltered === 0) {
-                    $totalFiltered = (clone $keysQuery)->count();
+            $hasRegions = !empty($params['input_province_code']) || !empty($params['input_regency_code']);
+            if ($hasRegions) {
+                if (app(ReviewRegionIndexService::class)->remaining($job->id) > 0) abort(409, 'Input region filters are still being prepared.');
+                foreach (['input_province_code', 'input_regency_code'] as $column) {
+                    if (!empty($params[$column])) $keysQuery->where($column, (string) $params[$column]);
                 }
             }
+            $sort = $params['sort'] ?? 'record_order';
+            $hasRange = isset($params['similarity_min']) || isset($params['similarity_max']);
+            $needsScores = $sort !== 'record_order' || $hasRange;
+            $scoresQuery = (clone $keysQuery)->select('id', 'input_record_key', 'overall_score');
+            if ($needsScores) {
+                $chosen = $latestDecisions->where('new_result_type', 'matched')->filter(fn ($d) => $d->matching_result_id);
+                $chosenScores = MatchingResult::where('matching_job_id', $job->id)->whereIn('id', $chosen->pluck('matching_result_id'))->pluck('overall_score', 'id');
+                $overrides = [];
+                foreach ($chosen as $decision) {
+                    if ($chosenScores->has($decision->matching_result_id)) $overrides[(string) $decision->input_record_key] = $chosenScores[$decision->matching_result_id];
+                }
+                if ($overrides !== []) {
+                    $overrideKeys = array_map('strval', array_keys($overrides));
+                    $bindings = [];
+                    $cases = [];
+                    foreach ($overrides as $key => $score) { $cases[] = 'WHEN ? THEN ?'; array_push($bindings, (string) $key, $score); }
+                    $overrideQuery = (clone $keysQuery)->whereIn('input_record_key', $overrideKeys)->select('id', 'input_record_key')
+                        ->selectRaw('CASE input_record_key '.implode(' ', $cases).' ELSE overall_score END AS overall_score', $bindings);
+                    $scoresQuery->whereNotIn('input_record_key', $overrideKeys)->unionAll($overrideQuery);
+                }
+            }
+            $pageQuery = DB::query()->fromSub($scoresQuery, 'review_records');
+            if (isset($params['similarity_min'])) $pageQuery->where('overall_score', '>=', (float) $params['similarity_min']);
+            if (isset($params['similarity_max'])) $pageQuery->where('overall_score', '<=', (float) $params['similarity_max']);
+            if ($caseGroupId !== '' || $search !== '' || $hasRegions || $hasRange) {
+                $totalFiltered = (clone $pageQuery)->count();
+            } else {
+                $totalFiltered = match ($status) {
+                    'possible_match' => $possibleMatchCount, 'matched' => $matchedCount, 'unmatched' => $unmatchedCount,
+                    default => $matchedCount + $possibleMatchCount + $unmatchedCount,
+                };
+            }
             $totalPages = max(1, (int) ceil($totalFiltered / $perPage));
-
-            $pageKeys = $keysQuery
-                ->orderBy('id', 'asc')
-                ->forPage($page, $perPage)
-                ->pluck('input_record_key');
-
-            $results = MatchingResult::where('matching_job_id', $job->id)
-                ->whereIn('input_record_key', $pageKeys)
-                ->orderBy('input_record_key')
-                ->orderBy('candidate_rank')
-                ->get();
-
-            $items = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules);
+            if ($sort !== 'record_order') {
+                if ($sort === 'similarity_asc') $pageQuery->orderByRaw('overall_score IS NULL');
+                $pageQuery->orderBy('overall_score', $sort === 'similarity_desc' ? 'desc' : 'asc')->orderBy('input_record_key');
+            } else {
+                $pageQuery->orderBy('id');
+            }
+            $pageKeys = $pageQuery->forPage($page, $perPage)->pluck('input_record_key')->map(fn ($key) => (string) $key);
+            $results = MatchingResult::where('matching_job_id', $job->id)->whereIn('input_record_key', $pageKeys)->orderBy('candidate_rank')->get();
+            $byKey = $this->transformResultsToItems($results, $latestDecisions, $decisionHistory, $customRules)->keyBy('input_record_key');
+            $items = $pageKeys->map(fn ($key) => $byKey->get($key))->filter()->values();
         }
 
         $manualAccepted = $latestDecisions->filter(fn ($d) => in_array($d->decision, ['accept_match', 'select_candidate', 'accepted', 'accept'], true))->count();
@@ -241,6 +248,7 @@ class ReviewResultService
         $unprocessedCount = max(0, $totalUniqueInput - $processedCount);
 
         return [
+            'contract_version' => ReviewContract::VERSION,
             'job' => [
                 'id' => $job->id,
                 'name' => $job->name,
@@ -259,6 +267,7 @@ class ReviewResultService
                 'manual_accepted' => $manualAccepted,
                 'manual_rejected' => $manualRejected,
                 'reviewed' => $reviewedCount,
+                'accounting' => ReviewContract::accounting($recordCounts, $effectiveMatched),
                 'total_raw_input' => $totalRawInput,
                 'total_unique_input' => $totalUniqueInput,
                 'total_duplicates' => $totalDuplicates,
@@ -275,15 +284,11 @@ class ReviewResultService
                 'from' => $totalFiltered > 0 ? (($page - 1) * $perPage + 1) : 0,
                 'to' => min($totalFiltered, $page * $perPage),
             ],
-            'items' => $items->sortBy(fn (array $item) => match ($item['status']) {
-                'possible_match' => 0,
-                'matched' => 1,
-                default => 2,
-            })->values()->all(),
-            'system_presets' => $reviewGroups['system_presets'],
-            'custom_rules' => $reviewGroups['custom_rules'],
-            'dynamic_patterns' => $reviewGroups['dynamic_patterns'],
-            'case_groups' => $reviewGroups['case_groups'],
+            'items' => $items->values()->all(),
+            'system_presets' => $includeGroups ? $reviewGroups['system_presets'] : [],
+            'custom_rules' => $includeGroups ? $reviewGroups['custom_rules'] : [],
+            'dynamic_patterns' => $includeGroups ? $reviewGroups['dynamic_patterns'] : [],
+            'case_groups' => $includeGroups ? $reviewGroups['case_groups'] : [],
             'field_quality_summary' => filter_var($params['include_quality'] ?? $includeGroups, FILTER_VALIDATE_BOOLEAN)
                 ? $this->aggregateFieldQuality($job, $totalUniqueInput) : [],
             'is_processing' => $isProcessing,
@@ -372,7 +377,7 @@ class ReviewResultService
      * @param array<int, array<string, mixed>> $customRules
      * @return array{system_presets: array<int, array<string, mixed>>, custom_rules: array<int, array<string, mixed>>, dynamic_patterns: array<int, array<string, mixed>>, case_groups: array<int, array<string, mixed>>}
      */
-    private function aggregateJobReviewGroups(MatchingJob $job, $latestDecisions, $decisionHistory, array $customRules, int $reviewedCount): array
+    private function aggregateJobReviewGroups(MatchingJob $job, $latestDecisions, $decisionHistory, array $customRules, int $reviewedCount, bool $membershipOnly = false): array
     {
         $rulesHash = md5(json_encode($customRules));
         $cacheKey = "matching_job_case_membership_v3_{$job->id}_{$rulesHash}_{$job->processed_count}_{$job->status}";
@@ -381,23 +386,30 @@ class ReviewResultService
             ? collect($groups['case_groups'])->flatMap(fn ($group) => $group['item_keys'])->all() : [];
         // A decision on a previously unreviewable record can introduce a new case.
         if (!is_array($groups) || array_diff($latestDecisions->keys()->all(), $knownKeys) !== []) {
-            // Discover keys with narrow indexed predicates before loading JSON payloads.
-            $keys = MatchingResult::where('matching_job_id', $job->id)->where('candidate_rank', 1)
-                ->where('result_type', 'possible_match')->pluck('input_record_key');
-            $reviewedKeys = MatchingResult::where('matching_job_id', $job->id)->where('candidate_rank', 1)
-                ->where('review_status', 'reviewed')->pluck('input_record_key');
-            $keys = $keys->merge($reviewedKeys)->merge($latestDecisions->keys())
-                ->map(fn ($key) => (string) $key)->unique()->values();
-            $results = MatchingResult::where('matching_job_id', $job->id)
-                ->whereIn('input_record_key', $keys)->whereIn('candidate_rank', [1, 2])
-                ->orderBy('input_record_key')->orderBy('candidate_rank')->get();
-            // Cache immutable classification and membership; decisions/undo are
-            // overlaid below without re-reading thousands of result payloads.
-            $items = $this->transformResultsToItems($results, collect(), collect(), $customRules)
-                ->map(fn ($item) => [...$item, 'status' => 'possible_match', 'display_status' => 'need_review']);
-            $groups = $this->buildReviewGroups($items, $customRules);
-            cache()->put($cacheKey, $groups, 3600);
+            $groups = cache()->lock("{$cacheKey}_build", 300)->block(10, function () use ($cacheKey, $job, $latestDecisions, $customRules) {
+                $cached = cache()->get($cacheKey);
+                $cachedKeys = is_array($cached) ? collect($cached['case_groups'])->flatMap(fn ($group) => $group['item_keys'])->all() : [];
+                if (is_array($cached) && array_diff($latestDecisions->keys()->all(), $cachedKeys) === []) return $cached;
+                // Discover keys with narrow indexed predicates before loading JSON payloads.
+                $keys = MatchingResult::where('matching_job_id', $job->id)->where('candidate_rank', 1)
+                    ->where('result_type', 'possible_match')->pluck('input_record_key');
+                $reviewedKeys = MatchingResult::where('matching_job_id', $job->id)->where('candidate_rank', 1)
+                    ->where('review_status', 'reviewed')->pluck('input_record_key');
+                $keys = $keys->merge($reviewedKeys)->merge($latestDecisions->keys())
+                    ->map(fn ($key) => (string) $key)->unique()->values();
+                $results = MatchingResult::where('matching_job_id', $job->id)
+                    ->whereIn('input_record_key', $keys)->whereIn('candidate_rank', [1, 2])
+                    ->orderBy('input_record_key')->orderBy('candidate_rank')->get();
+                // Cache immutable classification and membership; decisions/undo are
+                // overlaid below without re-reading thousands of result payloads.
+                $items = $this->transformResultsToItems($results, collect(), collect(), $customRules)
+                    ->map(fn ($item) => [...$item, 'status' => 'possible_match', 'display_status' => 'need_review']);
+                $groups = $this->buildReviewGroups($items, $customRules);
+                cache()->put($cacheKey, $groups, 3600);
+                return $groups;
+            });
         }
+        if ($membershipOnly) return $groups;
 
         $decorateItem = function (?array $item) use ($latestDecisions, $decisionHistory): ?array {
             if ($item === null) return null;
@@ -455,6 +467,9 @@ class ReviewResultService
             $primary = $group->first();
             $decision = $latestDecisions->get($inputKey);
             $history = $decisionHistory->get($inputKey, collect());
+            if ($decision?->new_result_type === 'matched' && $decision->matching_result_id) {
+                $group = $group->sortBy(fn ($result) => [$result->id === $decision->matching_result_id ? 0 : 1, $result->candidate_rank])->values();
+            }
             $candidates = $group->map(fn (MatchingResult $result) => $this->candidatePayload($result))->values()->all();
             $item = [
                 'input_record_key' => $inputKey,
@@ -481,6 +496,7 @@ class ReviewResultService
      */
     public function decide(User $user, string $jobId, array $payload): array
     {
+        $this->assertLegacyWriterEnabled();
         $response = DB::transaction(function () use ($user, $jobId, $payload) {
             $job = $this->ownership->findMatchingJob($user, $jobId);
             $decision = (string) $payload['decision'];
@@ -565,6 +581,7 @@ class ReviewResultService
                 }
 
                 $audits[] = ReviewDecision::create([
+                    'reviewer_user_id' => $user->id,
                     'matching_job_id' => $job->id,
                     'matching_result_id' => $result?->id,
                     'input_record_key' => $inputKey,
@@ -621,6 +638,7 @@ class ReviewResultService
      */
     public function undo(User $user, string $jobId, string $decisionId): array
     {
+        $this->assertLegacyWriterEnabled();
         $response = DB::transaction(function () use ($user, $jobId, $decisionId) {
             $this->ownership->findMatchingJob($user, $jobId);
             $decision = ReviewDecision::where('matching_job_id', $jobId)
@@ -654,7 +672,10 @@ class ReviewResultService
                         ]);
                 }
 
-                $item->update(['undone_at' => Carbon::now()]);
+                $item->update([
+                    'undone_at' => Carbon::now(),
+                    'metadata' => array_merge($item->metadata ?? [], ['undone_by_user_id' => $user->id]),
+                ]);
             }
 
             return [
@@ -897,6 +918,7 @@ class ReviewResultService
             'undone_at' => optional($decision->undone_at)->toISOString(),
             'source' => data_get($decision->metadata, 'decision_source', data_get($decision->metadata, 'scope', 'individual')),
             'reviewer' => data_get($decision->metadata, 'reviewer', data_get($decision->metadata, 'created_by')),
+            'actors' => ReviewContract::actors($decision),
             'affected_records' => (int) data_get($decision->metadata, 'affected_records', 1),
             'case_group_id' => data_get($decision->metadata, 'case_group_id'),
             'batch_id' => data_get($decision->metadata, 'batch_id'),
@@ -1740,12 +1762,7 @@ class ReviewResultService
 
     private function newResultType(string $decision): string
     {
-        return match ($decision) {
-            'accept_match', 'select_candidate' => 'matched',
-            'mark_unmatched' => 'unmatched',
-            'reject_match' => 'possible_match',
-            default => throw new InvalidArgumentException('Unsupported review decision.'),
-        };
+        return ReviewContract::resultType($decision);
     }
 
     private function comparisonLabel(float $score): string

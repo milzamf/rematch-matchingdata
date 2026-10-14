@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { workspaceSharingEnabled } from "@/lib/workspace-access";
 import {
   AUTH_UNAUTHORIZED_EVENT,
   fetchCurrentUser,
@@ -70,13 +71,13 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
-    return getStoredSession()?.user ?? null;
+    return workspaceSharingEnabled ? null : (getStoredSession()?.user ?? null);
   });
   const [permissions, setPermissions] = useState<PermissionName[]>(() => {
-    return getStoredSession()?.permissions ?? [];
+    return workspaceSharingEnabled ? [] : (getStoredSession()?.permissions ?? []);
   });
   const [isLoadingAuth, setIsLoadingAuth] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
+    if (workspaceSharingEnabled || typeof window === "undefined") return true;
     return !getStoredSession();
   });
   const currentUserRef = useRef<AuthUser | null>(currentUser);
@@ -174,27 +175,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("storage", handleStorage);
   }, [applySession]);
 
-  const login = useCallback(async (input: { email: string; password: string }): Promise<AuthResult> => {
-    try {
-      const session = await loginWithSession(input);
-      invalidateAuthRefreshes();
-      applySession(session);
-      setIsLoadingAuth(false);
-      return { ok: true };
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 401 || error.status === 422) {
-          invalidateAuthRefreshes();
-          applySession(null);
-          setIsLoadingAuth(false);
-          return { ok: false, error: error.message || "Email or password is incorrect" };
+  const login = useCallback(
+    async (input: { email: string; password: string }): Promise<AuthResult> => {
+      try {
+        const session = await loginWithSession(input);
+        invalidateAuthRefreshes();
+        applySession(session);
+        setIsLoadingAuth(false);
+        return { ok: true };
+      } catch (error) {
+        if (error instanceof ApiError) {
+          if (error.status === 401 || error.status === 422) {
+            invalidateAuthRefreshes();
+            applySession(null);
+            setIsLoadingAuth(false);
+            return { ok: false, error: error.message || "Email or password is incorrect" };
+          }
+          return { ok: false, error: "Unable to connect to the server" };
         }
+
         return { ok: false, error: "Unable to connect to the server" };
       }
-
-      return { ok: false, error: "Unable to connect to the server" };
-    }
-  }, [applySession, invalidateAuthRefreshes]);
+    },
+    [applySession, invalidateAuthRefreshes],
+  );
 
   const logout = useCallback(async () => {
     try {

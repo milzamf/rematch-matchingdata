@@ -108,14 +108,46 @@ class DynamicAlgorithmBindingPipelineTest extends TestCase
 
         $result = MatchingResult::where('input_record_key', '1')->firstOrFail();
 
-        // Name is 100%, and address containment can score 100%. The richer
-        // reference address is evidence for review, not proof for auto-match.
+        // Address completeness does not override the configured thresholds.
         $this->assertEquals(100.0, (float) $result->overall_score);
-        $this->assertSame('possible_match', $result->result_type);
+        $this->assertSame('matched', $result->result_type);
         $addressEvidence = collect($result->field_scores)
             ->firstWhere('reference_column', 'address')['address_evidence'];
         $this->assertSame('reference', $addressEvidence['richer_side']);
-        $this->assertSame('Partial address agreement needs review before enrichment', $result->decision_reason);
+        $this->assertFalse($result->verification_evidence['downgraded']);
+        $this->assertTrue($result->verification_evidence['summary']['all_passed']);
+        $this->assertTrue($result->verification_evidence['address_enrichment_available']);
+    }
+
+    public function test_partial_address_respects_passed_and_failed_guardrails(): void
+    {
+        $engine = app(MatchingEngineService::class);
+        $method = new \ReflectionMethod($engine, 'evaluateCandidates');
+        $mappings = [];
+        foreach (['name' => 70, 'address' => 25, 'city' => 5] as $field => $weight) {
+            $mappings[] = ['id' => $field, 'reference_column_name' => $field, 'input_column_name' => $field,
+                'algorithm' => $field === 'address' ? 'Levenshtein' : 'Exact', 'weight' => $weight];
+        }
+        $reference = ['name' => 'KARMA MANGGALA YUDHA', 'address' => 'JL SEMANGKA RAYA NO 9', 'city' => '3174'];
+        $input = [...$reference, 'address' => 'SEMANGKA RAYA NO. 9 RT 015 RW 002, JATI PULO, PALMERAH, JAKARTA BARAT 11430'];
+        $row = static fn ($data) => ['key' => '1', 'row' => $data, 'normalized' => $data, 'identity' => []];
+        $config = ['preset' => 'Konstruksi', 'thresholds' => ['autoMatch' => 90, 'review' => 80]];
+        $result = $method->invoke($engine, $row($input), [$row($reference)], $mappings, $config)[0];
+        $this->assertSame(98.0, $result['score']);
+        $this->assertSame('matched', $result['classification']);
+        $this->assertTrue($result['verification_evidence']['summary']['all_passed']);
+        $this->assertTrue($result['verification_evidence']['address_enrichment_available']);
+        $strictAddress = [...$config, 'preset' => 'Default', 'rules' => ['verificationEnabled' => true,
+            'verificationOrder' => [['mappingId' => 'address', 'method' => 'Levenshtein', 'threshold' => 95]]]];
+        $failed = $method->invoke($engine, $row($input), [$row($reference)], $mappings, $strictAddress)[0];
+        $this->assertSame('possible_match', $failed['classification']);
+        $this->assertFalse($failed['verification_evidence']['summary']['all_passed']);
+        $conflictMappings = array_map(fn ($mapping) => [...$mapping, 'weight' => match ($mapping['id']) {
+            'name' => 90, 'address' => 5, default => 5,
+        }], $mappings);
+        $conflict = $method->invoke($engine, $row([...$input, 'address' => 'JL SEMANGKA RAYA NO 10']), [$row($reference)], $conflictMappings, $config)[0];
+        $this->assertSame('possible_match', $conflict['classification']);
+        $this->assertSame('Address component conflict requires review', $conflict['reason']);
     }
 
     public function test_disabled_verification_rule_does_not_downgrade_auto_matches(): void

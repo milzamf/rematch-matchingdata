@@ -38,7 +38,7 @@ for row in rows:
     idkab = kdprov + kdkab
     if idkab not in regencies:
         try:
-            is_kota = int(kdkab) >= 71
+            is_kota = kdkab.startswith('7')
         except ValueError:
             is_kota = 'KOTA' in nmkab.upper()
             
@@ -51,7 +51,7 @@ for row in rows:
             'kd_prov': kdprov,
             'kd_kab': kdkab,
             'nm_prov': nmprov,
-            'nm_kab': clean_nmkab,
+            'nm_kab': f"KOTA {clean_nmkab}" if is_kota else clean_nmkab,
             'tipe': tipe,
             'full_name': full_name,
         }

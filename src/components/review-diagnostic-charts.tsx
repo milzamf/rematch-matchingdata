@@ -310,7 +310,8 @@ export function ReviewDiagnosticCharts({
     return { count: vitalCount, percent: vitalPct };
   }, [paretoStats]);
 
-  if (!items || items.length === 0) return null;
+  // Job-wide diagnostics stay mounted while a different table query loads.
+  if ((!items || items.length === 0) && !caseGroups?.length && !Object.keys(fieldQualitySummary ?? {}).length) return null;
 
   return (
     <Card className="overflow-hidden border-border bg-background shadow-xs transition-all">

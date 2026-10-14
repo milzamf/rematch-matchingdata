@@ -30,9 +30,7 @@ class ValueNormalizer
         }
 
         if ($preset === 'Address') {
-            $text = preg_replace('/\bjl\b/u', 'jalan', $text) ?? $text;
-            $text = preg_replace('/\bno\b/u', 'nomor', $text) ?? $text;
-            $text = preg_replace('/\s+/', ' ', $text) ?? $text;
+            return $this->normalizeByType($text, 'text', 'alamat');
         }
 
         if ($preset === 'Identifier Strict') {
@@ -101,6 +99,10 @@ class ValueNormalizer
             $text = preg_replace('/\bprov\b/u', 'provinsi', $text) ?? $text;
             $text = preg_replace('/[^\pL\pN\s]+/u', ' ', $text) ?? $text;
             $text = preg_replace('/\s+/u', ' ', $text) ?? $text;
+            // Whitespace between a labeled house number and its single-letter
+            // suffix does not identify a different building: No. 14 A == No 14A.
+            $text = preg_replace_callback('/\bnomor\s*(\d+)(?:\s*([a-z]))?\b/u',
+                static fn ($m) => 'nomor '.(ltrim($m[1], '0') ?: '0').($m[2] ?? ''), $text) ?? $text;
 
             return trim($text);
         }

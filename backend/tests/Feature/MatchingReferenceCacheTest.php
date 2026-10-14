@@ -17,7 +17,9 @@ class MatchingReferenceCacheTest extends TestCase
         $relative = 'matching-cache-test-'.uniqid().'.csv';
         $source = Storage::disk('local')->path($relative);
         if (!is_dir(dirname($source))) mkdir(dirname($source), 0775, true);
-        file_put_contents($source, "name\nSinar Abadi\n");
+        // Reference caches use content hashes, so a unique filename alone does
+        // not guarantee a cold first read across repeated test-suite runs.
+        file_put_contents($source, "name,fixture\nSinar Abadi,".uniqid('', true)."\n");
 
         $dataset = new Dataset(['storage_path' => $relative, 'file_format' => 'csv']);
         $mappings = [[
@@ -33,10 +35,10 @@ class MatchingReferenceCacheTest extends TestCase
 
         try {
             $first = $method->invoke($engine, $dataset, $rows, $mappings, [], static fn () => null);
+            $cachePath = storage_path('app/matching-cache/reference_'.$first['cache_key'].'.sqlite');
             $this->assertFalse($first['cache_hit']);
             $this->assertCount(1, $first['rows']);
             $this->assertSame(1, count(iterator_to_array($first['rows']->exactMatches('mandatory', 'sinar abadi'))));
-            $cachePath = storage_path('app/matching-cache/reference_'.$first['cache_key'].'.sqlite');
             unset($first['rows']);
 
             $second = $method->invoke($engine, $dataset, [['name' => 'This must not be read on a cache hit']], $mappings, [], static fn () => null);

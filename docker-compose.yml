@@ -11,6 +11,11 @@ services:
       - --innodb_flush_log_at_trx_commit=2
       - --innodb_write_io_threads=8
       - --max_allowed_packet=256M
+      # Local development: prevent weeks of obsolete change logs accumulating.
+      - --binlog-expire-logs-seconds=604800
+      # User-approved local logging and background I/O limits; logging stays active.
+      - --binlog-row-image=MINIMAL
+      - --innodb-io-capacity=1000
     environment:
       MYSQL_DATABASE: rematch
       MYSQL_USER: rematch

@@ -51,6 +51,7 @@ type ApiSuccess<T> = {
 
 type ApiFailure = {
   success: false;
+  code?: string;
   message?: string;
   errors?: Record<string, string[]>;
 };
@@ -357,6 +358,13 @@ export type ReviewDecisionSummary = {
   undone_at?: string | null;
   source?: "individual" | "group" | string;
   reviewer?: string | null;
+  actors?: {
+    reviewer_user_id: number | null;
+    proposed_by_user_id: number | null;
+    approved_by_user_id: number | null;
+    last_modified_by_user_id: number | null;
+    attribution: "authenticated" | "unknown_legacy";
+  };
   affected_records?: number;
   case_group_id?: string | null;
   batch_id?: string | null;
@@ -478,6 +486,7 @@ export type DuplicateDetail = {
 };
 
 export type ReviewResults = {
+  contract_version?: 1;
   job: {
     id: string;
     name: string | null;
@@ -510,6 +519,15 @@ export type ReviewResults = {
     manual_accepted?: number;
     manual_rejected?: number;
     reviewed: number;
+    accounting?: {
+      source_row_count: number | null;
+      unique_input_record_count: number | null;
+      deduplicated_input_row_count: number | null;
+      matched_input_record_count: number;
+      verified_duplicate_entity_count: null;
+      matched_entity_count: null;
+      lineage_status: "unverified";
+    };
     total_raw_input?: number;
     total_unique_input?: number;
     total_duplicates?: number;
@@ -730,7 +748,7 @@ function readCookie(name: string) {
   return match ? decodeURIComponent(match.split("=").slice(1).join("=")) : null;
 }
 
-async function apiFetch(
+export async function apiFetch(
   path: string,
   init: RequestInit = {},
   options: { skipUnauthorizedHandling?: boolean } = {},
@@ -1005,6 +1023,28 @@ export async function fetchMatchingJobStatus(jobId: string): Promise<MatchingRun
   return payload.data;
 }
 
+export type ReviewQueryFilters = {
+  sort: "record_order" | "similarity_desc" | "similarity_asc";
+  similarity_min?: number;
+  similarity_max?: number;
+  input_province_code?: string;
+  input_regency_code?: string;
+};
+
+export type ReviewRegionOptions = {
+  ready: boolean;
+  remaining: number;
+  provinces: { code: string; label: string }[];
+  regencies: { code: string; province_code: string; label: string }[];
+};
+
+export async function fetchReviewRegionOptions(jobId: string, signal?: AbortSignal): Promise<ReviewRegionOptions> {
+  const response = await apiFetch(`/matching-jobs/${jobId}/review-region-options`, { signal });
+  const payload = await response.json();
+  if (!response.ok || payload.success === false) throw new ApiError(payload.message ?? "Region options could not be loaded.", response.status);
+  return payload.data;
+}
+
 export async function fetchReviewResults(
   jobId: string,
   params?: {
@@ -1017,6 +1057,11 @@ export async function fetchReviewResults(
     case_group_id?: string;
     include_groups?: boolean;
     include_quality?: boolean;
+    sort?: ReviewQueryFilters["sort"];
+    similarity_min?: number;
+    similarity_max?: number;
+    input_province_code?: string;
+    input_regency_code?: string;
   },
   signal?: AbortSignal,
 ): Promise<ReviewResults> {
@@ -1031,28 +1076,53 @@ export async function fetchReviewResults(
     if (params.include_groups !== undefined) searchParams.set("include_groups", String(params.include_groups));
     if (params.include_quality !== undefined) searchParams.set("include_quality", String(params.include_quality));
     if (params.case_group_id) searchParams.set("case_group_id", params.case_group_id);
+    for (const key of ["sort", "similarity_min", "similarity_max", "input_province_code", "input_regency_code"] as const) {
+      if (params[key] !== undefined && params[key] !== "") searchParams.set(key, String(params[key]));
+    }
   }
   const queryString = searchParams.toString();
   const endpoint = queryString
     ? `/matching-jobs/${jobId}/review-results?${queryString}`
     : `/matching-jobs/${jobId}/review-results`;
 
-  const response = await apiFetch(endpoint, {
-    headers: { Accept: "application/json" },
-    signal,
-  });
-  const payload = (await response.json().catch(() => null)) as
-    ApiSuccess<ReviewResults> | ApiFailure | null;
+  for (let attempt = 0; ; attempt++) {
+    const response = await apiFetch(endpoint, {
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    const payload = (await response.json().catch(() => null)) as
+      ApiSuccess<ReviewResults> | ApiFailure | null;
 
-  if (!response.ok || !payload || payload.success === false) {
-    throw new ApiError(
-      payload?.message ?? "Review results could not be loaded.",
-      response.status,
-      payload?.success === false ? payload.errors : undefined,
-    );
+    // A concurrent cold build owns the lock. Keep the loading state and retry
+    // this GET only; other failures must still reach the error/retry UI.
+    if (response.status === 503 && payload?.success === false
+      && payload.code === "case_groups_preparing" && attempt < 12) {
+      const retrySeconds = Number(response.headers.get("Retry-After") ?? 5);
+      const delay = Number.isFinite(retrySeconds) ? Math.min(10, Math.max(1, retrySeconds)) * 1000 : 5000;
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener("abort", abort);
+          reject(new DOMException("Request aborted", "AbortError"));
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", abort);
+          resolve();
+        }, delay);
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
+      });
+      continue;
+    }
+    if (!response.ok || !payload || payload.success === false) {
+      throw new ApiError(
+        payload?.message ?? "Review results could not be loaded.",
+        response.status,
+        payload?.success === false ? payload.errors : undefined,
+      );
+    }
+    return payload.data;
   }
-
-  return payload.data;
 }
 
 export async function fetchAiReviewAnalysis(resultId: string): Promise<AiEnvelope<AiReviewAnalysis>> {

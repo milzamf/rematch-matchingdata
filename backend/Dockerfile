@@ -42,10 +42,11 @@ COPY composer.json composer.lock* ./
 RUN composer install --no-interaction --no-scripts --prefer-dist || true
 
 # Copy the rest of the application
-COPY . .
+COPY --chmod=775 . .
 
 # Ensure storage and bootstrap cache permissions
-RUN chmod -R 775 storage bootstrap/cache 2>/dev/null || true
+RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chmod 775 storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
 
 # Expose Laravel default port
 EXPOSE 8000

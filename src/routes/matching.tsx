@@ -4,6 +4,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { AccessDeniedState } from "@/components/access-denied-state";
+import { workspaceSharingEnabled } from "@/lib/workspace-access";
+import { SharedMatching } from "@/components/workspace-access/shared-matching";
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
@@ -39,6 +41,7 @@ import {
 } from "@/components/duplicate-records-dialog";
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { DataPreviewTable } from "@/components/data-preview-table";
+import { ReviewQueryFilterControls } from "@/components/review-query-filters";
 import { RefreshIndicator, TableLoadingSkeleton } from "@/components/table-loading";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -55,6 +58,9 @@ import {
   ApiError,
   createWorkspace,
   fetchReviewResults,
+  fetchReviewRegionOptions,
+  type ReviewQueryFilters,
+  type ReviewRegionOptions,
   fetchMatchingJobStatus,
   fetchWorkspace,
   inspectDataset,
@@ -74,6 +80,7 @@ import {
   type ReviewKnowledgeResponse,
   type ReviewItem,
   type ReviewResults,
+  type ReviewSafetyRecord,
   type WorkspaceStatePayload,
   type WorkspaceStatus,
   type WorkspaceSummary,
@@ -149,6 +156,7 @@ import { MoreHorizontal } from "lucide-react";
 import { ExtractionModal } from "@/components/extraction-modal";
 
 export const Route = createFileRoute("/matching")({
+  ssr: !workspaceSharingEnabled,
   validateSearch: validateWorkflowSearch,
   head: () => ({
     meta: [
@@ -289,6 +297,11 @@ const MAX_MB = 500;
 
 
 function MatchingPage() {
+  const search = Route.useSearch();
+  return workspaceSharingEnabled ? <SharedMatching workspaceId={search.workspace} /> : <LegacyMatchingPage />;
+}
+
+function LegacyMatchingPage() {
   const { t } = usePreferences();
   const { can } = useAuth();
   const navigate = useNavigate();
@@ -5656,6 +5669,31 @@ function StepReview({
   const [recordUpdates, setRecordUpdates] = useState<ReviewResults | null>(null);
   const [caseGroupData, setCaseGroupData] = useState<ReviewResults | null>(null);
   const [qualityData, setQualityData] = useState<ReviewResults["field_quality_summary"]>();
+  const [reviewFilters, setReviewFilters] = useState<ReviewQueryFilters>({ sort: "record_order" });
+  const [regions, setRegions] = useState<ReviewRegionOptions | null>(null);
+  const [regionsError, setRegionsError] = useState<string | null>(null);
+  const [regionsRetry, setRegionsRetry] = useState(0);
+  useEffect(() => { setReviewFilters({ sort: "record_order" }); }, [jobId]);
+  useEffect(() => {
+    setRegions(null);
+    setRegionsError(null);
+    if (!jobId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const load = async () => {
+      try {
+        const options = await fetchReviewRegionOptions(jobId, controller.signal);
+        if (controller.signal.aborted) return;
+        setRegions(options);
+        if (!options.ready) timer = setTimeout(load, 3000);
+      } catch (error) {
+        if (!controller.signal.aborted) setRegionsError(error instanceof Error ? error.message : t("matching.review.loadFailed"));
+      }
+    };
+    void load();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [jobId, regionsRetry, t]);
+
   useEffect(() => {
     setQualityData(undefined);
     if (!jobId) return;
@@ -5703,6 +5741,8 @@ function StepReview({
   const [ruleTabFilter, setRuleTabFilter] = useState<"all" | "system" | "custom" | "dynamic">("all");
   const [selectedSystemPresetNumber, setSelectedSystemPresetNumber] = useState<number | null>(null);
   const [selectedAllRecordKeys, setSelectedAllRecordKeys] = useState<string[]>([]);
+  const [bulkSkippedRecords, setBulkSkippedRecords] = useState<ReviewSafetyRecord[]>([]);
+  useEffect(() => { setBulkSkippedRecords([]); }, [jobId]);
   const [isBulkDecidingAllRecords, setIsBulkDecidingAllRecords] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -5711,7 +5751,7 @@ function StepReview({
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [exitingRecordKeys, setExitingRecordKeys] = useState<string[]>([]);
   const exitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const requestKey = JSON.stringify([jobId, page, pageSize, filter, debouncedQuery]);
+  const requestKey = JSON.stringify([jobId, page, pageSize, filter, debouncedQuery, reviewFilters]);
   const isCurrentPage = loadedRequestKey === requestKey;
   const caseGroupRequestKey = JSON.stringify([jobId]);
   const reviewContextRef = useRef({ jobId, requestKey, filter });
@@ -5753,6 +5793,7 @@ function StepReview({
       per_page: pageSize,
       status: filter,
       search: debouncedQuery,
+      ...reviewFilters,
       include_groups: false,
     }, controller.signal)
       .then((data) => {
@@ -5782,7 +5823,7 @@ function StepReview({
       cancelled = true;
       controller.abort();
     };
-  }, [jobId, page, pageSize, filter, debouncedQuery, t, requestKey, refreshVersion]);
+  }, [jobId, page, pageSize, filter, debouncedQuery, t, requestKey, refreshVersion, reviewFilters]);
 
   useEffect(() => {
     if (viewMode !== "case_groups") return;
@@ -5830,8 +5871,14 @@ function StepReview({
   const currentReview = isCurrentPage ? review : null;
   const hasCurrentCaseGroups = caseGroupLoadedKey === caseGroupRequestKey;
   const groupsAreLoading = Boolean(jobId) && !caseGroupsError && (caseGroupsLoading || !hasCurrentCaseGroups);
+  const matchesCurrentFilters = (item: ReviewItem) => {
+    const score = item.candidates[0]?.score;
+    return (filter === "all" || item.status === filter)
+      && (reviewFilters.similarity_min === undefined || (score != null && score >= reviewFilters.similarity_min))
+      && (reviewFilters.similarity_max === undefined || (score != null && score <= reviewFilters.similarity_max));
+  };
   const items = (currentReview?.items ?? []).filter((item) =>
-    filter === "all" || item.status === filter || exitingRecordKeys.includes(item.input_record_key),
+    matchesCurrentFilters(item) || exitingRecordKeys.includes(item.input_record_key),
   );
   const caseGroups = hasCurrentCaseGroups ? caseGroupData?.case_groups ?? [] : [];
   const systemPresets = hasCurrentCaseGroups ? caseGroupData?.system_presets ?? [] : [];
@@ -6021,9 +6068,13 @@ function StepReview({
     // A mutation may finish after navigation; never apply its records to a different job/page.
     if (reviewContextRef.current.jobId !== jobId) return;
     setRecordUpdates(next);
+    setBulkSkippedRecords(current => current.filter(record => {
+      const updated = next.items.find(item => item.input_record_key === record.input_record_key);
+      return !updated?.decision;
+    }));
     if (reviewContextRef.current.requestKey === requestKey) {
       const leaving = next.items.filter((item) =>
-        keys.includes(item.input_record_key) && filter !== "all" && item.status !== filter,
+        keys.includes(item.input_record_key) && !matchesCurrentFilters(item),
       ).map((item) => item.input_record_key);
       setExitingRecordKeys((current) => Array.from(new Set([...current, ...leaving])));
       setReview((current) => mergeReviewSnapshot(current, next, keys, groupId));
@@ -6059,11 +6110,14 @@ function StepReview({
       });
       applyReviewSnapshot(next.review, selectedAllRecordKeys);
       setSelectedAllRecordKeys([]);
-      toast.success(
-        decision === "accept_match"
-          ? `${selectedAllRecordKeys.length} record berhasil disetujui (Accept Match)`
-          : `${selectedAllRecordKeys.length} record berhasil ditandai Unmatched`,
-      );
+      const applied = next.decision.affected_records;
+      const skipped = next.decision.skipped_records ?? [];
+      setBulkSkippedRecords(skipped);
+      const message = decision === "accept_match"
+        ? `${applied} record berhasil disetujui (Accept Match)`
+        : `${applied} record berhasil ditandai Unmatched`;
+      if (skipped.length) toast.warning(`${message}; ${skipped.length} dilewati dan masih perlu review.`);
+      else toast.success(message);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("matching.review.saveFailed"));
     } finally {
@@ -6145,6 +6199,7 @@ function StepReview({
         caseGroupId: group.id,
       });
       applyReviewSnapshot(next.review, keys, group.id);
+      setBulkSkippedRecords(next.decision.skipped_records ?? []);
       setSelectedGroupKeys((current) => ({ ...current, [group.id]: [] }));
       setSelected((current) => {
         if (!current || !keys.includes(current.input_record_key)) return current;
@@ -6253,6 +6308,17 @@ function StepReview({
         </div>
       )}
 
+      {bulkSkippedRecords.length > 0 && <details className="mb-4 rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
+        <summary className="cursor-pointer font-medium">{bulkSkippedRecords.length} record dilewati saat keputusan kolektif — masih perlu review</summary>
+        <p className="mt-2 text-xs text-muted-foreground">Record yang berhasil diterima berpindah ke tab Match. Record berikut belum disetujui; periksa kandidatnya sebelum mengambil keputusan per record.</p>
+        <ul className="mt-2 max-h-48 overflow-auto space-y-1 text-xs">
+          {bulkSkippedRecords.map(record => <li key={record.input_record_key}>
+            Record {record.input_record_key}: {record.reason === "Multiple input records point to the same reference record."
+              ? "Beberapa input mengarah ke record acuan yang sama." : record.reason}
+          </li>)}
+        </ul>
+      </details>}
+
       {/* Review Diagnostic Charts (Field Quality Summary & Pareto Breakdown) */}
       <div className="mb-6">
         <Suspense fallback={<div className="h-32 animate-pulse rounded-lg border border-border bg-muted/30" />}>
@@ -6308,11 +6374,18 @@ function StepReview({
         </div>
       </div>
 
+      {(viewMode === "all_records" || selectedCaseGroup) && <ReviewQueryFilterControls
+        value={reviewFilters} onChange={(value) => { setReviewFilters(value); setPage(1); }}
+        regions={regions} error={regionsError} onRetry={() => setRegionsRetry(value => value + 1)}
+      />}
+
       {viewMode === "case_groups" &&
         (selectedCaseGroup ? (
           <GroupReviewSubview
             jobId={jobId}
             latestSnapshot={recordUpdates?.job.id === jobId ? recordUpdates : null}
+            queryFilters={reviewFilters}
+            search={debouncedQuery}
             group={selectedCaseGroup}
             identityMappings={identityMappings}
             canDecide={canDecide}
@@ -6349,6 +6422,7 @@ function StepReview({
             ruleCounts={ruleCounts}
             groupsLoading={groupsAreLoading}
             groupsError={caseGroupsError}
+            onRetryGroups={() => setRefreshVersion((version) => version + 1)}
             onOpenAddRuleModal={handleOpenAddRuleModal}
             onPromoteRule={handlePromoteRule}
           />
@@ -6393,8 +6467,10 @@ function StepReview({
           <div className="mb-2 flex h-5 justify-end">
             {loading && isCurrentPage && <RefreshIndicator label={t("common.updating")} />}
           </div>
-          {!isCurrentPage ? (
-            <TableLoadingSkeleton label={t("matching.review.loading")} columns={7} />
+          {!isCurrentPage && error ? (
+            <div className="rounded-lg border border-destructive/30 p-6"><button onClick={() => setRefreshVersion(value => value + 1)} className="underline">{t("common.retry")}</button></div>
+          ) : !isCurrentPage ? (
+            <TableLoadingSkeleton label={t("matching.review.loading")} columns={7} viewportHeight={520} />
           ) : items.length === 0 && !loading ? (
             <div className="rounded-lg border border-border">
               <EmptyState
@@ -6694,6 +6770,7 @@ function CaseGroupsReview({
   ruleCounts,
   groupsLoading,
   groupsError,
+  onRetryGroups,
   onOpenAddRuleModal,
   onPromoteRule,
 }: {
@@ -6722,11 +6799,12 @@ function CaseGroupsReview({
   ruleCounts?: { all: number; system: number; custom: number; dynamic: number };
   groupsLoading: boolean;
   groupsError: string | null;
+  onRetryGroups: () => void;
   onOpenAddRuleModal?: () => void;
   onPromoteRule?: (group: ReviewCaseGroup) => void;
 }) {
   const { t } = usePreferences();
-  const countLabel = (value: number) => groupsLoading ? "…" : value;
+  const countLabel = (value: number) => groupsLoading ? "…" : groupsError ? "—" : value;
 
   return (
     <div className="space-y-3.5">
@@ -6906,7 +6984,12 @@ function CaseGroupsReview({
               {t("matching.review.loading")}
             </div>
           ) : groupsError ? (
-            <div role="alert" className="p-6 text-center text-sm text-destructive">{groupsError}</div>
+            <div role="alert" className="space-y-3 p-6 text-center text-sm">
+              <p className="text-destructive">{groupsError}</p>
+              <button type="button" onClick={onRetryGroups} className="rounded-lg border border-border px-4 py-2 hover:bg-muted">
+                {t("common.tryAgain")}
+              </button>
+            </div>
           ) : (
             <EmptyState
               icon={Inbox}
@@ -7096,6 +7179,8 @@ function CaseGroupsReview({
 function GroupReviewSubview({
   jobId,
   latestSnapshot,
+  queryFilters,
+  search,
   group,
   identityMappings,
   canDecide,
@@ -7111,6 +7196,8 @@ function GroupReviewSubview({
 }: {
   jobId?: string | null;
   latestSnapshot: ReviewResults | null;
+  queryFilters: ReviewQueryFilters;
+  search: string;
   group: ReviewCaseGroup;
   identityMappings: IdentityFieldPair[];
   canDecide: boolean;
@@ -7139,8 +7226,10 @@ function GroupReviewSubview({
   const [totalItems, setTotalItems] = useState<number>(group.item_count ?? 0);
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [groupError, setGroupError] = useState<string | null>(null);
+  useEffect(() => { setPage(1); }, [queryFilters, search, group.id]);
   const [groupLoadedKey, setGroupLoadedKey] = useState<string | null>(null);
-  const groupRequestKey = JSON.stringify([jobId, group.id, page, pageSize]);
+  const groupRequestKey = JSON.stringify([jobId, group.id, page, pageSize, queryFilters, search]);
   const isCurrentGroupPage = groupLoadedKey === groupRequestKey;
   const displayedGroupItems = isCurrentGroupPage ? groupItems : [];
 
@@ -7156,10 +7245,13 @@ function GroupReviewSubview({
     let cancelled = false;
     const controller = new AbortController();
     setLoading(true);
+    setGroupError(null);
     fetchReviewResults(jobId, {
       page,
       per_page: pageSize,
       case_group_id: group.id,
+      search,
+      ...queryFilters,
       include_groups: false,
     }, controller.signal)
       .then((data) => {
@@ -7172,7 +7264,7 @@ function GroupReviewSubview({
         }
       })
       .catch((err) => {
-        if (!cancelled) console.error("Failed to load group items", err);
+        if (!cancelled) setGroupError(err instanceof Error ? err.message : t("matching.review.loadFailed"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -7182,7 +7274,7 @@ function GroupReviewSubview({
       cancelled = true;
       controller.abort();
     };
-  }, [jobId, group.id, page, pageSize, reloadKey, groupRequestKey]);
+  }, [jobId, group.id, page, pageSize, reloadKey, groupRequestKey, queryFilters, search, t]);
 
   const currentPageKeys = useMemo(
     () => displayedGroupItems.map((item) => item.input_record_key),
@@ -7237,6 +7329,7 @@ function GroupReviewSubview({
 
   return (
     <div className="space-y-4">
+      {groupError && <div role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{groupError} <button onClick={() => setReloadKey(value => value + 1)} className="underline">{t("common.retry")}</button></div>}
       <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-background p-4 shadow-sm">
         <div className="min-w-0">
           <button
@@ -7395,7 +7488,9 @@ function GroupReviewSubview({
             </thead>
             <tbody className="divide-y divide-border">
               {loading && isCurrentGroupPage && <tr><td colSpan={7} className="px-3 py-1 text-right"><RefreshIndicator label={t("common.updating")} /></td></tr>}
-              {!isCurrentGroupPage ? (
+              {!isCurrentGroupPage && groupError ? (
+                <tr><td colSpan={7} className="p-6 text-center text-sm text-destructive">{t("matching.review.loadFailed")}</td></tr>
+              ) : !isCurrentGroupPage ? (
                 <tr>
                   <td colSpan={7}>
                     <TableLoadingSkeleton label={t("common.loading")} columns={7} />

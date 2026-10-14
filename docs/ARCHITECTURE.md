@@ -2,6 +2,10 @@
 
 ## 1. Overview
 
+Workspace access and approval Tahap 5A (2026-10-13): isolated WorkspaceAccessService derives owner from workspaces.user_id and checks application role plus membership. WorkspaceMembershipService uses versioned row locks for grants/revocation; review holds a shared membership lock through commit. Proposal/approval reuse the Stage 4 executor, CAS, holds, unique assignments and append-only audit; approved state remains protected. Twelve guarded /api/stage5a routes are inactive on main. No new schema or legacy writer/reader cutover. See [REVIEW_ACCESS_APPROVAL_STAGE5A.md](REVIEW_ACCESS_APPROVAL_STAGE5A.md).
+
+Review transactions Tahap 4 (2026-10-13) are implemented and tested only in an isolated MySQL 8 database. The new service uses version CAS, idempotent operations, bounded resource locks, unique assignments and append-only Undo. Existing API readers/writers remain on the legacy path; no main migration or cutover is performed. The disabled flag alone cannot activate the service. See [REVIEW_TRANSACTIONS_STAGE4.md](REVIEW_TRANSACTIONS_STAGE4.md) for transaction flow, constraints, tests and activation prerequisites.
+
 Review performance stabilization (2026-10-11): full-job per-column aggregates are computed in MySQL and cached independently of paginated table reads. Immutable case membership is cached separately from current decisions and audit history. Individual decisions lock only targeted results and return a lightweight snapshot after commit. Docker shares Composer dependencies through native volume `rematch_backend_vendor`, while application source remains bind-mounted for development.
 
 BatchMatch uses a separated architecture:
@@ -274,3 +278,18 @@ Potential future improvements:
 - active learning from review decisions
 - probabilistic linkage engine
 - enterprise deployment with Docker
+
+## Frontend Stage 5B isolation boundary (2026-10-13)
+
+`VITE_WORKSPACE_SHARING_UI` defaults off. Flag-off Matching/workspace pages use their retained legacy implementations. Flag-on components in `src/components/workspace-access` use only authenticated Stage 5A membership/review/approval APIs, effective backend capabilities, CAS versions, exact keys and operation acknowledgements. Administrator access management reuses the same modal while existing owner reassignment remains separate. No new backend route/security bypass.
+
+Stage 5A resource metadata is not a shared dataset or current review-state reader. The new record UI accepts an explicit versioned read-model interface; its only current demonstration binding is a dev-only local fixture. Production does not infer versions, combine new writers with old ownership readers, or switch historical status sources. Full readers, owner metadata and genuine isolated browser/backend integration require a separately approved contract before cutover. See REVIEW_FRONTEND_STAGE5B.md for capabilities, tests and limits.
+## Tahap 5C read model boundary (2026-10-13)
+
+`SharedWorkspaceReader` reuses Stage 5A scope/permission and isolated guard, reads effective decisions solely from ready schema-1 review_states, and batches page candidates/actors/canonical pointers. Matching results remain immutable snapshot/score evidence; no similarity rerun or legacy-history fallback. Workspace metadata distinguishes current workspace datasets from actual active-job datasets. Source file preview is streamed and reauthorized after I/O; unavailable file yields explicit partial preview. Legacy active readers/frontends are untouched. See [REVIEW_READERS_STAGE5C.md](REVIEW_READERS_STAGE5C.md) for contracts, isolation, tests and remaining dynamic-score/search performance risks. No schema/main migration/backfill/cutover/feature activation.
+
+## Integrated shared reader and score projection (2026-10-14)
+
+Blocker hardening adds an inactive deployment fence in global API middleware plus direct review writer and matching/region queue admission. A shared freeze marker is checked dynamically to avoid relying solely on cached flags. Business reads are also stopped during freeze because legacy GETs can enqueue work/build caches. Existing requests/workers must be drained before snapshots; no runtime production guard is relaxed. Recovery sidecars now retain preexisting state versions/operation IDs and fail closed for missing/changed proof or changed source/history, without altering main schema or historical decisions.
+
+The flag-on frontend now reads actual Stage 5C state/candidate/dataset APIs and uses Stage 4/5A versioned review, membership and approval services. Additive derived score projection enables indexed sorting without changing historical scores or decisions; unprepared jobs retain join fallback. CSV export reauthorizes each keyset chunk and now materializes on temporary disk before successful download headers, with a final authorization check and cleanup on generation failure. Chunks are not a single global snapshot; process crashes require temporary-file cleanup. Legacy decision/Undo writes are fenced when either new backend flag is enabled; other deployment writers still need coordinated fencing. Feature flags and the main database remain unchanged. See SHARED_WORKSPACE_INTEGRATION_QA.md for proof and rollout limits.

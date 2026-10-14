@@ -1,0 +1,212 @@
+{
+  "date": "2026-10-14",
+  "decision": "NO-GO",
+  "closure": "Stopped on user request; no new heavy tests",
+  "fixture": {
+    "candidates": 900000,
+    "inputs": 300000,
+    "mysql": "8.0.46/InnoDB",
+    "buffer_pool_gib": 1,
+    "historical_decisions": 30000,
+    "binary_log_enabled": false,
+    "synthetic": true,
+    "ram_gib": 2
+  },
+  "reader_final": {
+    "reader": {
+      "similarity_desc": {
+        "first_ms": 162.63198852539062,
+        "p50_ms": 137.34912872314453,
+        "p95_ms": 145.26796340942383,
+        "total": 300000,
+        "payload_bytes": 34482
+      },
+      "deep_page": {
+        "first_ms": 247.25604057312012,
+        "p50_ms": 231.7819595336914,
+        "p95_ms": 277.2061824798584,
+        "total": 300000,
+        "payload_bytes": 34467
+      },
+      "region": {
+        "first_ms": 599.3220806121826,
+        "p50_ms": 601.0730266571045,
+        "p95_ms": 611.285924911499,
+        "total": 150000,
+        "payload_bytes": 34112
+      }
+    },
+    "php_peak_mib": 8
+  },
+  "search_final": {
+    "reader": {
+      "name_search": {
+        "first_ms": 13112.475156784058,
+        "p50_ms": 4710.232973098755,
+        "p95_ms": 5070.527076721191,
+        "total": 10,
+        "payload_bytes": 14002
+      }
+    },
+    "php_peak_mib": 8
+  },
+  "http_reader_2cpu": [
+    {
+      "reviewers": 1,
+      "samples": 10,
+      "p50_ms": 208.09999999403954,
+      "p95_ms": 249.59999999403954,
+      "max_ms": 249.59999999403954
+    },
+    {
+      "reviewers": 5,
+      "samples": 50,
+      "p50_ms": 468.59999999403954,
+      "p95_ms": 519.9000000059605,
+      "max_ms": 536.6999999880791
+    },
+    {
+      "reviewers": 10,
+      "samples": 100,
+      "p50_ms": 1102.5,
+      "p95_ms": 2124.699999988079,
+      "max_ms": 3393.699999988079
+    }
+  ],
+  "http_reader_4cpu": {
+    "reviewers": 10,
+    "samples": 100,
+    "p50_ms": 681.0999999940395,
+    "p95_ms": 838.6000000238419,
+    "max_ms": 1501.300000011921
+  },
+  "original_mixed_reader_write_load": [
+    {
+      "reviewers": 1,
+      "reader": {
+        "samples": 10,
+        "p50_ms": 255.5,
+        "p95_ms": 343.7999999821186,
+        "max_ms": 343.7999999821186
+      },
+      "decision": {
+        "samples": 10,
+        "p50_ms": 49.39999997615814,
+        "p95_ms": 81.59999999403954,
+        "max_ms": 81.59999999403954
+      }
+    },
+    {
+      "reviewers": 5,
+      "reader": {
+        "samples": 50,
+        "p50_ms": 688.3000000119209,
+        "p95_ms": 964.5999999940395,
+        "max_ms": 1279.5
+      },
+      "decision": {
+        "samples": 50,
+        "p50_ms": 94.09999999403954,
+        "p95_ms": 113.39999997615814,
+        "max_ms": 132.60000002384186
+      }
+    },
+    {
+      "reviewers": 10,
+      "reader": {
+        "samples": 100,
+        "p50_ms": 1996.300000011921,
+        "p95_ms": 2203.600000023842,
+        "max_ms": 5234
+      },
+      "decision": {
+        "samples": 100,
+        "p50_ms": 199,
+        "p95_ms": 292,
+        "max_ms": 384.5
+      }
+    }
+  ],
+  "integrity": {
+    "counts": {
+      "duplicate_input": 1,
+      "matched": 60162,
+      "possible_match": 179838,
+      "unmatched": 59999
+    },
+    "historical_fingerprint": {
+      "n": 30000,
+      "checksum": "64660469856815"
+    },
+    "duplicate_active_claims": 0,
+    "score_projection_mismatches": 0,
+    "history_rows_after": 30162,
+    "all_source_occurrences": "300000",
+    "php_peak_mib": 8
+  },
+  "browser_export": {
+    "first_table_render_ms": 1569,
+    "export_ms": 31172,
+    "export_rows": 300000
+  },
+  "recovery": {
+    "backup_seconds": 7.294955,
+    "restore_seconds": 685.2607169
+  },
+  "backup_bytes": 587761470,
+  "backup_sha256": "84266e817dc13561fa72f3136a9078b0ffd479c8e9911d8156a8aaa50f7a4a39",
+  "ddl": {
+    "region_index_down_up_seconds": 11.876858949661255,
+    "projection_down_seconds": 0.4971740245819092,
+    "projection_up_seconds": 69.8127019405365,
+    "metadata_lock_timeout_seconds": 1.0514171123504639
+  },
+  "proven": [
+    "Shared browser flows",
+    "Large concurrency/holds/refresh/login/export",
+    "Historical integrity",
+    "Synthetic backup/restore and additive DDL",
+    "Laravel 41 tests/284 assertions",
+    "Isolated backfill regression 55 assertions",
+    "Initial TypeScript/production build"
+  ],
+  "unverified": [
+    "Full 300k backfill/apply/resume/readiness/rollback completion",
+    "Real flag-off browser: login response timeout",
+    "Final TypeScript exit status unavailable",
+    "Production guard/fencing/recovery/durability readiness"
+  ],
+  "cleanup": {
+    "script": "scripts/cleanup-rematch-uat.ps1",
+    "host": "No matching UAT Vite processes found; local synthetic CSV files removed",
+    "docker": "Engine unavailable; resource removal pending"
+  },
+  "main_database_changed": false,
+  "main_flags_changed": false,
+  "blocker_follow_up": {
+    "main_changed": false,
+    "sharing_activated": false,
+    "tests": {
+      "review_regression_assertions": 181,
+      "typescript": "passed",
+      "native_unit_assertions": 30,
+      "native_unit_tests": 11,
+      "focused_mock_browser_login": 1,
+      "review_regression_tests": 17,
+      "lint": "0 errors, 1 existing warning"
+    },
+    "code": [
+      "Auth bootstrap-gated login",
+      "Default-off API/legacy/queue admission fence",
+      "Preexisting state version/operation checkpoint checks",
+      "Rollback source/history freshness and completed-job readiness guard"
+    ],
+    "scope": "NO-GO blockers only; no heavy reruns",
+    "pending": [
+      "Real MySQL flag-off login",
+      "Updated MySQL backfill regression",
+      "Full 300k backfill/readiness/rollback",
+      "Production guard/deployment drain/recovery after new writes"
+    ]
+  }
+}

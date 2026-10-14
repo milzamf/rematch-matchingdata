@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Services\Matching\MatchingPayloadCodec;
 
 class MatchingResult extends Model
 {
@@ -26,6 +27,9 @@ class MatchingResult extends Model
         'candidate_metadata',
         'decision_reason',
         'verification_evidence',
+        'input_province_code',
+        'input_regency_code',
+        'input_region_indexed',
     ];
 
     protected function casts(): array
@@ -48,5 +52,20 @@ class MatchingResult extends Model
     public function reviewDecisions(): HasMany
     {
         return $this->hasMany(ReviewDecision::class, 'matching_result_id');
+    }
+
+    /** Read historical JSON columns and lossless evidence stored with new metadata. */
+    public function getVerificationEvidenceAttribute(mixed $value): ?array
+    {
+        if ($value !== null) return is_array($value) ? $value : MatchingPayloadCodec::decode($value);
+        $packed = ($this->candidate_metadata ?? [])['_verification_evidence'] ?? null;
+        return is_string($packed) ? MatchingPayloadCodec::decode($packed) : null;
+    }
+
+    public function getFieldScoresAttribute(mixed $value): ?array
+    {
+        $packed = ($this->candidate_metadata ?? [])['_field_scores'] ?? null;
+        if (is_string($packed)) return MatchingPayloadCodec::decode($packed);
+        return $value === null ? null : (is_array($value) ? $value : MatchingPayloadCodec::decode($value));
     }
 }

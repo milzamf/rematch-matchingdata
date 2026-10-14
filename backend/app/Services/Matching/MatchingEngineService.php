@@ -752,7 +752,7 @@ class MatchingEngineService
 
         $regionsDir = storage_path('app/wilayah');
         $signaturePayload = [
-            'engine' => 'streaming-mfd-address-v3',
+            'engine' => 'streaming-mfd-address-components-v5',
             'source_sha256' => hash_file('sha256', $sourcePath),
             'reference_mappings' => array_map(static fn ($mapping) => [
                 'reference_column_name' => $mapping['reference_column_name'] ?? '',
@@ -1439,6 +1439,8 @@ class MatchingEngineService
                     1
                 );
                 $processed += count($chunk);
+                // Release the preceding output before allocating the next chunk.
+                unset($chunkOutput, $chunk);
             }
         }
 
@@ -1539,8 +1541,11 @@ class MatchingEngineService
                 $summaryDelta[$cachedData['status']]++;
 
                 foreach ($cachedData['results'] as $cachedRow) {
-                    $cachedRow['id'] = (string) Str::uuid();
+                    $cachedRow['id'] = (string) Str::uuid7();
                     $cachedRow['input_record_key'] = $inputRecord['key'];
+                    $cachedRow = [...$cachedRow, ...((int) $cachedRow['candidate_rank'] === 1
+                        ? (new ReviewRegionIndexService($this->wilayah))->codes($inputRecord['row'])
+                        : ['input_province_code' => null, 'input_regency_code' => null, 'input_region_indexed' => false])];
 
                     $meta = json_decode($cachedRow['candidate_metadata'], true);
                     $meta['input_record'] = $this->leanRecordRow($inputRecord['row'], $mappings, 'input');
@@ -1793,25 +1798,27 @@ class MatchingEngineService
 
             try {
                 $msStart = microtime(true);
-                $multiResults = [];
+                $resultOffset = 0;
                 foreach (array_chunk($queries, 50) as $queryBatch) {
                     $batch = $indexes['client']->multiSearch($queryBatch)['results'] ?? [];
                     if (count($batch) !== count($queryBatch)) throw new \RuntimeException('Incomplete Meilisearch response.');
-                    array_push($multiResults, ...$batch);
-                }
-                $multisearchMs += (microtime(true) - $msStart) * 1000;
-                foreach ($multiResults as $resultIndex => $searchResult) {
-                    $originalIdx = $idxMap[$resultIndex];
-                    $candidateSearchHitCount += count($searchResult['hits'] ?? []);
-                    $searchResultsByIndex[$originalIdx] ??= [];
-                    $known = array_fill_keys(array_column($searchResultsByIndex[$originalIdx], 'id'), true);
-                    foreach (($searchResult['hits'] ?? []) as $hit) {
-                        if (!isset($known[$hit['id']])) {
-                            $searchResultsByIndex[$originalIdx][] = $hit;
-                            $known[$hit['id']] = true;
+                    foreach ($batch as $resultIndex => $searchResult) {
+                        $originalIdx = $idxMap[$resultOffset + $resultIndex];
+                        $candidateSearchHitCount += count($searchResult['hits'] ?? []);
+                        $searchResultsByIndex[$originalIdx] ??= [];
+                        $known = array_fill_keys(array_column($searchResultsByIndex[$originalIdx], 'id'), true);
+                        foreach (($searchResult['hits'] ?? []) as $hit) {
+                            if (!isset($known[$hit['id']])) {
+                                $searchResultsByIndex[$originalIdx][] = ['id' => $hit['id']];
+                                $known[$hit['id']] = true;
+                            }
                         }
                     }
+                    $resultOffset += count($batch);
+                    unset($batch);
                 }
+                $multisearchMs += (microtime(true) - $msStart) * 1000;
+                unset($queries, $idxMap);
             } catch (Throwable $e) {
                 throw new \RuntimeException('Candidate search failed; no unmatched decisions were committed for this batch. ' . $e->getMessage(), 0, $e);
             }
@@ -1825,6 +1832,7 @@ class MatchingEngineService
             $recordFuzzyResults = [];
 
             $hits = $searchResultsByIndex[$idx] ?? [];
+            unset($searchResultsByIndex[$idx]);
             $candidateKeys = [];
             foreach ($hits as $hit) {
                 $candidateKeys[] = (string) ($hit['id'] ?? '');
@@ -2044,6 +2052,8 @@ class MatchingEngineService
             'scoring_ms' => round((float) ($chunkOutput['scoring_ms'] ?? 0), 2),
             'db_write_ms' => round((microtime(true) - $dbStart) * 1000, 2),
             'memory_bytes' => memory_get_usage(true),
+            'result_payload_bytes' => array_sum(array_map(static fn ($row) =>
+                strlen($row['field_scores'] ?? '') + strlen($row['candidate_metadata'] ?? '') + strlen($row['verification_evidence'] ?? ''), $batchResults)),
         ]);
         gc_collect_cycles();
     }
@@ -2377,21 +2387,31 @@ class MatchingEngineService
                 }
             }
 
-            // A partial address can raise similarity, but it cannot prove identity.
-            // Keep any candidate that depends on a richer address in manual review,
-            // regardless of the configured auto-match threshold or preset rules.
+            // Completeness is an enrichment proposal, not a failed guardrail.
+            // Preserve the classification produced by thresholds and verification;
+            // incompatible addresses still carry conflict evidence and lower scores.
             $hasAddressEnrichmentEvidence = collect($fieldScores)->contains(function ($score) {
                 $evidence = $score['address_evidence'] ?? null;
                 return ($evidence['compatible'] ?? false)
                     && !($evidence['conflict'] ?? true)
                     && ($evidence['richer_side'] ?? null) !== null;
             });
-            if ($hasAddressEnrichmentEvidence && $finalClassification === 'matched') {
+            $hasAddressConflict = collect($fieldScores)->contains(fn ($score) => (bool) data_get($score, 'address_evidence.conflict', false));
+            if ($finalClassification === 'matched' && $hasAddressConflict) {
                 $finalClassification = 'possible_match';
                 $allRulesPassed = false;
                 $downgraded = true;
-                $downgradeReason = 'Partial address agreement needs review before enrichment';
+                $downgradeReason = 'Address component conflict requires review';
                 $decisionReason = $downgradeReason;
+                $rulesEvaluated[] = [
+                    'order' => count($rulesEvaluated) + 1,
+                    'field_name' => 'Conflicting address components',
+                    'method' => 'Conflict check',
+                    'required_threshold' => 100.0,
+                    'actual_score' => 0.0,
+                    'passed' => false,
+                    'is_mandatory' => true,
+                ];
             }
 
             $verificationEvidence = [
@@ -2403,6 +2423,7 @@ class MatchingEngineService
                 'weighted_similarity' => $ws,
                 'downgraded' => $downgraded,
                 'downgrade_reason' => $downgradeReason,
+                'address_enrichment_available' => $hasAddressEnrichmentEvidence,
                 'rules_evaluated' => $rulesEvaluated,
                 'summary' => [
                     'total_rules' => count($rulesEvaluated),
@@ -2773,21 +2794,24 @@ class MatchingEngineService
         }
 
         return [
-            'id' => (string) Str::uuid(),
+            // Time-ordered UUIDs keep new InnoDB writes local instead of scattering
+            // millions of inserts across random clustered-index pages.
+            'id' => (string) Str::uuid7(),
             'matching_job_id' => $job->id,
             'input_record_key' => $inputRecord['key'],
             'reference_record_key' => $referenceRecord['key'] ?? null,
             'result_type' => $classification,
             'overall_score' => $score,
+            ...($rank === 1 ? (new ReviewRegionIndexService($this->wilayah))->codes($inputRecord['row'] ?? []) : [
+                'input_province_code' => null, 'input_regency_code' => null, 'input_region_indexed' => false,
+            ]),
             'candidate_rank' => $rank,
-            'field_scores' => json_encode($fieldScores, JSON_THROW_ON_ERROR),
-            'candidate_metadata' => json_encode([
+            ...MatchingResultStorage::pack([
                 'worker_slot' => $workerSlot,
                 'input_record' => $leanInput,
                 'reference_record' => $leanReference,
-            ], JSON_THROW_ON_ERROR),
+            ], $fieldScores, $verificationEvidence),
             'decision_reason' => $reason,
-            'verification_evidence' => $verificationEvidence !== null ? json_encode($verificationEvidence, JSON_THROW_ON_ERROR) : null,
             'created_at' => Carbon::now(),
             'updated_at' => Carbon::now(),
         ];

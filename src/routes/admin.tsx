@@ -15,6 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
+import { workspaceSharingEnabled } from "@/lib/workspace-access";
+import { ManageAccessButton } from "@/components/workspace-access/access-management";
 import {
   ApiError,
   createAdminUser,
@@ -472,6 +474,7 @@ function AdminPage() {
                       >
                         {t("monitoring.openWorkspace")}
                       </Link>
+                      {workspaceSharingEnabled && <ManageAccessButton workspaceId={workspace.id} name={workspace.name} owner={workspace.owner?.name ?? "Tidak diketahui"} />}
                     </div>
                   </div>
                 ))}
@@ -538,6 +541,7 @@ function AdminPage() {
                           >
                             {t("monitoring.openWorkspace")}
                           </Link>
+                      {workspaceSharingEnabled && <ManageAccessButton workspaceId={workspace.id} name={workspace.name} owner={workspace.owner?.name ?? "Tidak diketahui"} />}
                         </td>
                       </tr>
                     ))}

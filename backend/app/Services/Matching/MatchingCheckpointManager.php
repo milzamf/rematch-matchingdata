@@ -50,15 +50,18 @@ class MatchingCheckpointManager
             @mkdir($dir, 0755, true);
         }
 
+        $newDatabase = !is_file($this->dbPath) || filesize($this->dbPath) === 0;
         $this->pdo = new PDO('sqlite:' . $this->dbPath, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_TIMEOUT => 5,
         ]);
 
+        if ($newDatabase) $this->pdo->exec('PRAGMA auto_vacuum = INCREMENTAL;');
         $this->pdo->exec('PRAGMA journal_mode = WAL;');
         $this->pdo->exec('PRAGMA synchronous = NORMAL;');
-        $this->pdo->exec('PRAGMA temp_store = MEMORY;');
+        $this->pdo->exec('PRAGMA temp_store = FILE;');
+        $this->pdo->exec('PRAGMA cache_size = -8192;');
 
         $this->initSchema();
 
@@ -254,7 +257,7 @@ class MatchingCheckpointManager
 
             $now = Carbon::now()->toIso8601String();
             $summaryJson = json_encode($summary, JSON_THROW_ON_ERROR);
-            $resultsJson = json_encode($batchResults, JSON_THROW_ON_ERROR);
+            $resultsJson = MatchingPayloadCodec::encode($batchResults);
 
             // Upsert header checkpoint
             $stmtHeader = $pdo->prepare('
@@ -352,19 +355,19 @@ class MatchingCheckpointManager
                 $nowFormatted = Carbon::now()->toDateTimeString();
                 $rowsToInsert = [];
                 while ($chunkRow = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                    $results = json_decode($chunkRow['results_json'], true);
+                    $results = MatchingPayloadCodec::decode($chunkRow['results_json']);
                     if (! is_array($results)) {
                         continue;
                     }
 
                     foreach ($results as $item) {
-                        $item['id'] = (string) Str::uuid();
+                        $item['id'] = (string) Str::uuid7();
                         $item['matching_job_id'] = $targetJobId;
                         $item['created_at'] = $nowFormatted;
                         $item['updated_at'] = $nowFormatted;
                         $rowsToInsert[] = $item;
 
-                        if (count($rowsToInsert) >= 2000) {
+                        if (count($rowsToInsert) >= 250) {
                             MatchingResult::insert($rowsToInsert);
                             $totalInserted += count($rowsToInsert);
                             $rowsToInsert = [];
@@ -432,6 +435,9 @@ class MatchingCheckpointManager
             $delStmt->execute([':key' => $checkpointKey]);
 
             $pdo->commit();
+            // Reclaim completed chunk pages without rewriting retained checkpoint data.
+            $pdo->exec('PRAGMA incremental_vacuum(1024)');
+            $pdo->exec('PRAGMA wal_checkpoint(PASSIVE)');
         } catch (Throwable $e) {
             if (isset($pdo) && $pdo->inTransaction()) {
                 $pdo->rollBack();

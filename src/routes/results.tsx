@@ -40,6 +40,9 @@ import {
 import { IntentExportPanel } from "@/components/intent-export-panel";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { useAuth } from "@/lib/auth";
+import { workspaceSharingEnabled } from "@/lib/workspace-access";
+import { SharedMatching } from "@/components/workspace-access/shared-matching";
+import { effectiveReviewStatus } from "@/lib/review-contract";
 import { PERMISSIONS } from "@/lib/authorization";
 import {
   ApiError,
@@ -71,6 +74,7 @@ import {
 import { buildMatchingSearch, validateWorkflowSearch } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/results")({
+  ssr: !workspaceSharingEnabled,
   validateSearch: validateWorkflowSearch,
   head: () => ({
     meta: [
@@ -100,6 +104,11 @@ type TabKey = (typeof tabs)[number];
 type ReviewHistoryView = "groups" | "records";
 
 function ResultsPage() {
+  const search = Route.useSearch();
+  return workspaceSharingEnabled ? <SharedMatching workspaceId={search.workspace} results /> : <LegacyResultsPage />;
+}
+
+function LegacyResultsPage() {
   const { t } = usePreferences();
   const { can } = useAuth();
   const navigate = useNavigate();
@@ -2321,27 +2330,25 @@ function buildNextAction(input: {
 }
 
 function isFinalMatched(item: ReviewItem) {
-  const status = finalStatus(item);
-  return status === "auto_matched" || status === "manual_accepted" || status === "matched";
+  return effectiveReviewStatus(item) === "matched";
 }
 
 function isAutoMatched(item: ReviewItem) {
   const status = finalStatus(item);
-  return status === "auto_matched" || (!item.decision && status === "matched");
+  return effectiveReviewStatus(item) === "matched" &&
+    (status === "auto_matched" || (!item.decision && status === "matched"));
 }
 
 function isManualAccepted(item: ReviewItem) {
-  return finalStatus(item) === "manual_accepted";
+  return effectiveReviewStatus(item) === "matched" && finalStatus(item) === "manual_accepted";
 }
 
 function isPendingReview(item: ReviewItem) {
-  const status = finalStatus(item);
-  return status === "need_review" || status === "possible_match";
+  return effectiveReviewStatus(item) === "possible_match";
 }
 
 function isFinalUnmatched(item: ReviewItem) {
-  const status = finalStatus(item);
-  return ["unmatched", "confirmed_unmatched", "manual_rejected"].includes(status);
+  return effectiveReviewStatus(item) === "unmatched";
 }
 
 function finalStatus(item: ReviewItem) {
