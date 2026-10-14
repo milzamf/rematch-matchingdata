@@ -101,8 +101,9 @@ final class ReviewTransactionService
     private function guard(): void
     {
         ReviewDeploymentFence::assertWritable();
-        if (! $this->enabled || $this->db->getDriverName() !== 'mysql' || $this->db->getDatabaseName() !== 'rematch_stage4_test' || getenv('REMATCH_REVIEW_TEST') !== 'isolated-stage4') {
-            throw new ReviewWriteConflict('review_transactions_disabled', [], 503);
+        ReviewDeploymentFence::assertConnection($this->db, $this->enabled, 'review_transactions_disabled');
+        if (config('review_deployment.mode', 'isolated') === 'production' && ($this->access === null || $this->testProbe !== null)) {
+            throw new ReviewWriteConflict('workspace_access_disabled', [], 503);
         }
         if ($this->db->transactionLevel() !== 0) {
             throw new ReviewWriteConflict('nested_review_transaction_not_supported', [], 503);

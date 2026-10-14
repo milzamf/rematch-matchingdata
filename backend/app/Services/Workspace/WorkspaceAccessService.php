@@ -3,6 +3,7 @@
 namespace App\Services\Workspace;
 
 use App\Services\Matching\Transactions\ReviewWriteConflict;
+use App\Services\Matching\Transactions\ReviewDeploymentFence;
 use App\Support\Auth\PermissionRegistry;
 use Illuminate\Database\ConnectionInterface;
 
@@ -13,9 +14,7 @@ final class WorkspaceAccessService
 
     public function guard(): void
     {
-        if (! $this->enabled || $this->db->getDriverName() !== 'mysql' || $this->db->getDatabaseName() !== 'rematch_stage4_test' || getenv('REMATCH_REVIEW_TEST') !== 'isolated-stage4') {
-            throw new ReviewWriteConflict('workspace_access_disabled', [], 503);
-        }
+        ReviewDeploymentFence::assertConnection($this->db, $this->enabled, 'workspace_access_disabled');
     }
 
     public function assertConnection(ConnectionInterface $connection): void

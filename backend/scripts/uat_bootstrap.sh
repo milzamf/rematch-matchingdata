@@ -4,8 +4,15 @@ set -eu
 test "${DB_DATABASE:-}" = rematch_stage4_test
 test "${REMATCH_REVIEW_TEST:-}" = isolated-stage4
 mkdir -p /tmp/app
-for path in app config routes bootstrap public database scripts tests; do
+for path in app config routes bootstrap public scripts tests; do
   cp -R /workspace/$path /tmp/app/$path
+done
+# Copy schema sources only; never copy host SQLite/databases into a login fixture.
+mkdir -p /tmp/app/database
+for path in migrations factories seeders; do
+  if test -d /workspace/database/$path; then
+    cp -R /workspace/database/$path /tmp/app/database/$path
+  fi
 done
 cp /workspace/artisan /workspace/composer.json /tmp/app/
 cp -R /var/www/html/vendor /tmp/app/vendor

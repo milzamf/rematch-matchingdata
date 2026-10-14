@@ -1,5 +1,7 @@
 # BatchMatch REST API Draft
 
+Shared endpoints return HTTP 503 `review_deployment_not_approved` if deployment mode/database/release or pinned approval evidence do not match. Feature flags alone do not authorize production. Existing freeze, permissions, readiness and HTTP 409 version/reference conflicts remain in force; no new endpoint or flag activation.
+
 Status: API contract draft with implemented MVP slices called out explicitly.
 
 ## API Principles

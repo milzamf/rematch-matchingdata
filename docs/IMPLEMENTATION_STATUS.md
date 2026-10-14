@@ -3,6 +3,10 @@
 Last Updated: 2026-10-14
 Version: MVP v0.1.0
 
+Latest: inactive production guard supports hash-pinned operator evidence/exact DB+release, paired flags and access-only writer; 8 guard/boundary tests/17 assertions pass. MySQL one-input post-write recovery 7 assertions pass, operation-based Undo only (not backup replay). Fixture 502 upstream refusal diagnosed; bootstrap excludes host databases. Main backup file empty, valid backup/restore proof and production backfill admission remain NO-GO. No main DB/flags changed.
+
+Docker-active blocker check: MySQL 8.0.46 isolated backfill/recovery 57 assertions, two-connection lock timeout/release, and unit fence/recovery 12/32 pass. Real flag-off browser login remains pending (fixture startup/proxy 502); fixed-test production guards, restorable main backup and post-write recovery not cleared. NO-GO; main services untouched/running, fixture resources removed.
+
 Latest narrow follow-up: atomic locked rollback evidence validation/deletion implemented; 7 recovery tests / 10 assertions passed (SQLite only). CodeGraph indexed once. Docker unavailable; real MySQL/login, production guard/drain and full recovery readiness remain pending; NO-GO, main untouched.
 Blocker follow-up only: bootstrap-gated login, inactive shared-marker API/legacy/queue admission fence, preexisting checkpoint version/operation proof and stale-history recovery refusal saved. Light native tests 11/30 + review regression 17/181, focused mocked login browser 1, TypeScript/lint pass. MySQL real login/full backfill/rollback plus coordinated production guard/drain/recovery remain pending; NO-GO unchanged. No main DB/flags/migrations or heavy test rerun.
 

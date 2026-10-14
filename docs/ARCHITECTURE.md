@@ -1,5 +1,7 @@
 # BatchMatch Architecture
 
+Production review admission remains inactive by default. ReviewDeploymentFence now admits an exact configured MySQL database/release only with both backend flags and hash-pinned operator backup/restore, writer-drain and forward-recovery attestation; per-job readiness/access remain mandatory. Test probes and fallback authorization are prohibited in production mode. One-input MySQL Accept/Undo proves append-only operation recovery; backup replay and production backfill admission remain pending. No main configuration was activated.
+
 ## 1. Overview
 
 Workspace access and approval Tahap 5A (2026-10-13): isolated WorkspaceAccessService derives owner from workspaces.user_id and checks application role plus membership. WorkspaceMembershipService uses versioned row locks for grants/revocation; review holds a shared membership lock through commit. Proposal/approval reuse the Stage 4 executor, CAS, holds, unique assignments and append-only audit; approved state remains protected. Twelve guarded /api/stage5a routes are inactive on main. No new schema or legacy writer/reader cutover. See [REVIEW_ACCESS_APPROVAL_STAGE5A.md](REVIEW_ACCESS_APPROVAL_STAGE5A.md).

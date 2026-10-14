@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Production guard defaults isolated/closed; exact DB/release and hash-pinned operator backup/recovery/drain attestation required, with shared access mandatory and no test probe in production. Guard/boundary 8/17 passed; one-input MySQL post-write recovery 7 assertions passed (destructive rollback refused, append-only Undo restores state). Fix UAT bootstrap copying host SQLite DBs; diagnose 502 as unready fixture upstream. Main backup found empty, isolated restore permission/path pending; no main flags/DB changes.
+
+- Blocker-only Docker follow-up: isolated MySQL backfill 57 assertions and two-connection InnoDB lock/release passed; fence/recovery unit 12/32 passed. Browser login pending due test startup/proxy failure. Fixed-test guards, main backup restore proof and post-write recovery still NO-GO; no main DB/flag changes. Disposable resources cleaned, five main services running.
+
 ### NO-GO blocker hardening (2026-10-14)
 
 - Follow-up: rollback evidence deletion now locks and revalidates the row within a short transaction; resolved evidence is retained. Focused recovery tests: 7 passed / 10 assertions; PHP lint and diff check passed. CodeGraph installed/integrated locally and indexed once; Docker unavailable, MySQL lock/login verification and production recovery remain pending.
