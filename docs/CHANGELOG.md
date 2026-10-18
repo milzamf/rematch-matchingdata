@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 2026-10-19: approved main snapshot migration completed under freeze/drain/maintenance lock; five ready workspaces retain production sharing/review on release 7ed3f86. History/configuration unchanged, authenticated read/access/workflow/reference-export smoke passed, services restored. No historical rewrite, threshold change, new test decisions or heavy UAT.
+
 - 2026-10-19: complete snapshot page batching, connection isolation, generated-column overlays, bounded decompression and checkpoint dependency checks; force InnoDB for the pending additive migration. Detect ambiguous exact references even at top N = 1. Add offline manual-label evaluation and fix prefixed/sparse XLSX import. Prepare one integrated activation/recovery procedure; main database and feature flags untouched, empirical calibration still awaits labels.
 
 - 2026-10-19: restore established workspace/navigation UI, connect review to current versioned states/CAS/Undo, add selectable comparison columns and reference-format XLSX with audit. Prepare 50 unlabeled manual-review pairs locally. Fix generated-name memoization, bounded candidate expansion and provable per-candidate pruning; extend address suffix normalization. Add immutable reference snapshots for new results through an additive migration (not applied to main). Historical results and production flags unchanged.

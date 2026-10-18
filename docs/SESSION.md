@@ -2,6 +2,9 @@
 
 ## Pekerjaan saat ini — 19 Oktober 2026
 
+- Eksekusi final disetujui dan selesai pada release 7ed3f86: migrasi snapshot utama berhasil (InnoDB), lima workspace existing ready, guard sharing/review production aktif, layanan normal dan freeze dicabut. Histori 1.309 keputusan beserta digest, operasi, membership dan konfigurasi matching identik sebelum/sesudah; threshold tidak berubah. Snapshot masih kosong, siap untuk hasil baru; tidak backfill hasil historis.
+- Smoke singkat: sesi Admin, membership, approval inbox dan review HTTP 200; dialog akses di Workspace/Matching, tombol Administrasi dan workflow tiga langkah tersedia; ekspor acuan XLSX job kecil berhasil. Tidak membuat keputusan atau anggota tes pada utama. Penulisan review/approval memakai bukti tes terisolasi terdahulu, tidak diulang. Writer matching/config legacy tetap tertutup. Bukti privat: backend/storage/app/private/final-snapshot-7ed3f86/completed.json. Catatan batas deployment di bawah mencatat kondisi sebelum izin final.
+
 - Kelanjutan a290b9a: integrasi snapshot dibatch per halaman dan koneksi model; tidak memakai cache global lintas database/transaksi. Overlay generated menjaga acuan asli, checkpoint menolak dependensi hilang, batas dekompresi dan rollback skema dilindungi. Migrasi snapshot tetap hanya disiapkan, memakai InnoDB.
 - Ambiguitas exact lebih dari satu acuan tetap Need Review meski top N = 1; memoization mengikuti status tersebut. Checkpoint klasifikasi baru memakai versi v4, hasil/checkpoint lama tidak dihapus.
 - Evaluator CSV/XLSX offline maksimal 50 pasangan tersedia di backend/scripts/evaluate_manual_matching_sample.php. Parser mendukung namespace prefix dan header row yang didahului baris kosong tanpa elemen XML. Sampel aktual terbaca 50 pasangan/0 label; tidak ada klaim akurasi atau perubahan threshold.
