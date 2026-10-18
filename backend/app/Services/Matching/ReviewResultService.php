@@ -14,6 +14,7 @@ use InvalidArgumentException;
 
 class ReviewResultService
 {
+    use VersionedReviewPresentation;
     private readonly WilayahDictionaryService $wilayahService;
 
     public function __construct(
@@ -36,6 +37,9 @@ class ReviewResultService
      */
     public function list(User $user, string $jobId, array $params = []): array
     {
+        if (config('workspace_access.enabled') || config('review_transactions.enabled')) {
+            return $this->versionedList($user, $jobId, $params);
+        }
         $job = $this->ownership->findMatchingJob($user, $jobId);
 
         // A matching chunk commits its results and progress atomically. Expose those
@@ -380,7 +384,8 @@ class ReviewResultService
     private function aggregateJobReviewGroups(MatchingJob $job, $latestDecisions, $decisionHistory, array $customRules, int $reviewedCount, bool $membershipOnly = false): array
     {
         $rulesHash = md5(json_encode($customRules));
-        $cacheKey = "matching_job_case_membership_v3_{$job->id}_{$rulesHash}_{$job->processed_count}_{$job->status}";
+        $mode = config('workspace_access.enabled') ? 'states' : 'legacy';
+        $cacheKey = "matching_job_case_membership_v4_{$mode}_{$job->id}_{$rulesHash}_{$job->processed_count}_{$job->status}";
         $groups = cache()->get($cacheKey);
         $knownKeys = is_array($groups)
             ? collect($groups['case_groups'])->flatMap(fn ($group) => $group['item_keys'])->all() : [];
@@ -397,14 +402,37 @@ class ReviewResultService
                     ->where('review_status', 'reviewed')->pluck('input_record_key');
                 $keys = $keys->merge($reviewedKeys)->merge($latestDecisions->keys())
                     ->map(fn ($key) => (string) $key)->unique()->values();
-                $results = MatchingResult::where('matching_job_id', $job->id)
-                    ->whereIn('input_record_key', $keys)->whereIn('candidate_rank', [1, 2])
-                    ->orderBy('input_record_key')->orderBy('candidate_rank')->get();
+                if (config('workspace_access.enabled')) $keys = $keys->merge(DB::table('review_states')->where('matching_job_id', $job->id)->where('status', 'reference_conflict')->pluck('input_record_key'))->map(fn ($key) => (string) $key)->unique()->values();
                 // Cache immutable classification and membership; decisions/undo are
                 // overlaid below without re-reading thousands of result payloads.
-                $items = $this->transformResultsToItems($results, collect(), collect(), $customRules)
-                    ->map(fn ($item) => [...$item, 'status' => 'possible_match', 'display_status' => 'need_review']);
-                $groups = $this->buildReviewGroups($items, $customRules);
+                $stats = [];
+                foreach ($keys->chunk(100) as $chunk) {
+                    $results = MatchingResult::where('matching_job_id', $job->id)->whereIn('input_record_key', $chunk)->whereIn('candidate_rank', [1, 2])->orderBy('candidate_rank')->get();
+                    foreach ($this->transformResultsToItems($results, collect(), collect(), $customRules) as $item) {
+                        $item = [...$item, 'status' => 'possible_match', 'display_status' => 'need_review'];
+                        $id = $item['case_features']['group_id'];
+                        $score = (float) data_get($item, 'candidates.0.score', 0);
+                        $stats[$id] ??= ['keys' => [], 'min' => $score, 'max' => $score, 'samples' => []];
+                        $stats[$id]['keys'][] = (string) $item['input_record_key'];
+                        $stats[$id]['min'] = min($stats[$id]['min'], $score); $stats[$id]['max'] = max($stats[$id]['max'], $score);
+                        $stats[$id]['samples'][] = $item;
+                        usort($stats[$id]['samples'], fn ($a, $b) => data_get($b, 'candidates.0.score', 0) <=> data_get($a, 'candidates.0.score', 0));
+                        $stats[$id]['samples'] = array_slice($stats[$id]['samples'], 0, 3);
+                    }
+                }
+                $groups = $this->buildReviewGroups(collect($stats)->flatMap(fn ($s) => $s['samples']), $customRules);
+                foreach (['system_presets', 'custom_rules', 'dynamic_patterns', 'case_groups'] as $section) {
+                    foreach ($groups[$section] as &$group) {
+                        if (!isset($stats[$group['id']])) continue;
+                        $s = $stats[$group['id']]; $count = count($s['keys']);
+                        $group['item_count'] = $count; $group['item_keys'] = $s['keys'];
+                        $group['confidence'] = $this->clusterConfidence($count, $s['max'] - $s['min']);
+                        $group['consistency'] = $this->caseConsistency($group['confidence']);
+                        $group['eligible_for_bulk'] = $group['confidence'] === 'High';
+                        $group['decision_summary']['pending'] = $count;
+                    }
+                    unset($group);
+                }
                 cache()->put($cacheKey, $groups, 3600);
                 return $groups;
             });
@@ -909,6 +937,7 @@ class ReviewResultService
     {
         return [
             'id' => $decision->id,
+            'operation_id' => $decision->review_operation_id,
             'decision' => $decision->decision,
             'previous_result_type' => $decision->previous_result_type,
             'new_result_type' => $decision->new_result_type,
@@ -918,7 +947,13 @@ class ReviewResultService
             'undone_at' => optional($decision->undone_at)->toISOString(),
             'source' => data_get($decision->metadata, 'decision_source', data_get($decision->metadata, 'scope', 'individual')),
             'reviewer' => data_get($decision->metadata, 'reviewer', data_get($decision->metadata, 'created_by')),
-            'actors' => ReviewContract::actors($decision),
+            'actors' => $decision->review_state_id ? [
+                'reviewer_user_id' => $decision->reviewer_user_id,
+                'proposed_by_user_id' => $decision->proposed_by_user_id,
+                'approved_by_user_id' => $decision->approved_by_user_id,
+                'last_modified_by_user_id' => $decision->last_modified_by_user_id,
+                'attribution' => $decision->reviewer_user_id === null ? 'unknown_legacy' : 'authenticated',
+            ] : ReviewContract::actors($decision),
             'affected_records' => (int) data_get($decision->metadata, 'affected_records', 1),
             'case_group_id' => data_get($decision->metadata, 'case_group_id'),
             'batch_id' => data_get($decision->metadata, 'batch_id'),

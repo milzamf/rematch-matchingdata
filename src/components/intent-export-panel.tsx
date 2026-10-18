@@ -336,6 +336,15 @@ export function IntentExportPanel({
 
   return (
     <div className="space-y-6">
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div><h3 className="text-sm font-semibold">Format data acuan + audit matching</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Excel: baris acuan asli yang Matched, lalu semua input beserta status, WLS, dan similarity per kolom.</p></div>
+        <button type="button" disabled={!jobId || !canExecute || isExporting}
+          className="inline-flex items-center gap-2 rounded-md bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground disabled:opacity-50"
+          onClick={() => jobId && downloadBackendExport(jobId, { preset: 'reference_format', format: 'xlsx', autoEnrich: false }, 'rematch-acuan-dan-audit.xlsx')}>
+          <Download className="size-4" /> Unduh Excel Acuan
+        </button>
+      </Card>
       {/* SECTION 1: Export Options (Auto-Enrichment & Multi-Sheet Excel) */}
       <div className="grid gap-4 sm:grid-cols-2">
         <Card className="p-4 border-border bg-card">

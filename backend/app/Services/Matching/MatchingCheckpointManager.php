@@ -141,7 +141,7 @@ class MatchingCheckpointManager
         ];
 
         return hash('sha256', json_encode([
-            'engine_version' => 'streaming-mfd-address-v2',
+            'engine_version' => 'bounded-recall-snapshot-v3',
             'ref' => $referenceDatasetId,
             'inp' => $inputDatasetId,
             'map' => $normalizedMappings,

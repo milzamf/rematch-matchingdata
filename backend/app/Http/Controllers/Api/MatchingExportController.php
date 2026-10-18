@@ -17,10 +17,25 @@ class MatchingExportController extends Controller
     {
     }
 
-    public function __invoke(Request $request, string $job): StreamedResponse
+    public function __invoke(Request $request, string $job): \Symfony\Component\HttpFoundation\Response
     {
         $user = $request->user();
-        $matchingJob = $this->ownership->findMatchingJob($user, $job);
+        if ($request->query('preset') === 'reference_format') {
+            try {
+                $path = app(\App\Services\Matching\ReferenceFormatExport::class)->create($user, $job);
+                return response()->download($path, 'rematch-acuan-dan-audit.xlsx', ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])->deleteFileAfterSend(true);
+            } catch (\App\Services\Matching\Transactions\ReviewWriteConflict $e) { throw $e; }
+            catch (\Illuminate\Database\QueryException $e) { report($e); return response()->json(['success' => false, 'message' => 'Ekspor belum dapat disiapkan. Silakan coba kembali.'], 503); }
+            catch (\RuntimeException $e) { return response()->json(['success' => false, 'message' => $e->getMessage()], 422); }
+        }
+        $versioned = config('workspace_access.enabled') || config('review_transactions.enabled');
+        if ($versioned) {
+            $access = new \App\Services\Workspace\WorkspaceAccessService(\Illuminate\Support\Facades\DB::connection(), (bool) config('workspace_access.enabled'));
+            $access->guard();
+            $scope = $access->job((int) $user->getKey(), $job, 'export_read');
+            (new \App\Services\Workspace\SharedWorkspaceReader(\Illuminate\Support\Facades\DB::connection(), $access))->assertExport((int) $user->getKey(), $scope['workspace']->id, $job);
+            $matchingJob = MatchingJob::findOrFail($job);
+        } else $matchingJob = $this->ownership->findMatchingJob($user, $job);
 
         $preset = $request->query('preset', 'master_update');
         $autoEnrich = filter_var($request->query('auto_enrich', true), FILTER_VALIDATE_BOOLEAN);
@@ -45,6 +60,18 @@ class MatchingExportController extends Controller
             })
             ->orderBy('matching_results.id');
 
+        if ($versioned) {
+            $effectiveType = \Illuminate\Support\Facades\DB::raw('review_state.status');
+            $query = MatchingResult::query()->join('review_states as review_state', function ($join) {
+                $join->on('review_state.matching_job_id', '=', 'matching_results.matching_job_id')
+                    ->whereRaw('BINARY review_state.input_record_key = BINARY matching_results.input_record_key');
+            })->where('matching_results.matching_job_id', $matchingJob->id)
+                ->where(fn ($q) => $q->whereColumn('matching_results.id', 'review_state.selected_matching_result_id')
+                    ->orWhere(fn ($q) => $q->whereNull('review_state.selected_matching_result_id')->where('candidate_rank', 1)))
+                ->select('matching_results.*')->selectRaw("review_state.status AS result_type, review_state.decision AS review_decision, CASE WHEN review_state.decision IS NULL THEN 'pending' ELSE 'reviewed' END AS review_status")
+                ->orderBy('matching_results.id');
+        }
+
         // Apply filters based on preset and optional sheet tab
         if ($preset === 'master_update') {
             if ($sheet === 'matched') {
@@ -55,17 +82,17 @@ class MatchingExportController extends Controller
                 $query->whereIn($effectiveType, ['matched', 'unmatched']);
             }
         } elseif ($preset === 'pending_review') {
-            $query->where($effectiveType, 'possible_match');
+            $query->whereIn($effectiveType, $versioned ? ['possible_match', 'reference_conflict'] : ['possible_match']);
         } elseif ($preset === 'full_audit') {
             if ($sheet === 'matched') {
                 $query->where($effectiveType, 'matched');
             } elseif ($sheet === 'unmatched') {
                 $query->where($effectiveType, 'unmatched');
             } elseif ($sheet === 'need_review' || $sheet === 'pending') {
-                $query->where($effectiveType, 'possible_match');
+                $query->whereIn($effectiveType, $versioned ? ['possible_match', 'reference_conflict'] : ['possible_match']);
             } elseif ($sheet === 'rejected') {
-                $query->where('review_status', 'reviewed')
-                    ->where('review_decision', 'reject_match');
+                if ($versioned) $query->where('review_state.decision', 'reject_match');
+                else $query->where('review_status', 'reviewed')->where('review_decision', 'reject_match');
             }
         }
 

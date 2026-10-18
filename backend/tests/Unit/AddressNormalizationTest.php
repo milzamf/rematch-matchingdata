@@ -14,7 +14,7 @@ class AddressNormalizationTest extends TestCase
         $normalizer = app(ValueNormalizer::class);
         $comparator = app(AddressComparator::class);
         $canonical = $normalizer->normalizeByType('JALAN JROBANG RAYA No. 14A', 'text', 'alamat');
-        foreach (['JL JROBANG RAYA NO 14 A', 'Jl. Jrobang Raya No. 14A', 'JLN JROBANG RAYA NOMOR 014 A'] as $address) {
+        foreach (['JL JROBANG RAYA NO 14 A', 'Jl. Jrobang Raya No. 14A', 'JLN JROBANG RAYA NOMOR 014 A', 'JL JROBANG RAYA No14 A'] as $address) {
             $actual = $normalizer->normalizeByType($address, 'text', 'alamat');
             $this->assertSame($canonical, $actual);
             $this->assertSame($canonical, $normalizer->normalize($address, 'Address'));
@@ -26,5 +26,6 @@ class AddressNormalizationTest extends TestCase
         }
         $this->assertSame('jalan mawar nomor 45 jakarta pusat', $normalizer->normalizeByType('JL MAWAR NO 45 JAKARTA PUSAT', 'text', 'alamat'));
         $this->assertSame('jalan mawar nomor 9 rt 015', $normalizer->normalizeByType('JL MAWAR NO 9 RT 015', 'text', 'alamat'));
+        $this->assertSame($normalizer->normalize('Jl Mawar 14A', 'Address'), $normalizer->normalize('Jalan Mawar 14 A', 'Address'));
     }
 }

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { UsersRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -23,11 +25,13 @@ export function ManageAccessButton({
   name,
   owner,
   label = "Kelola Akses",
+  iconOnly = false,
 }: {
   workspaceId: string;
   name: string;
   owner: string;
   label?: string;
+  iconOnly?: boolean;
 }) {
   const { access } = useWorkspaceAccess(workspaceId);
   const [open, setOpen] = useState(false);
@@ -35,9 +39,19 @@ export function ManageAccessButton({
   if (!access?.permissions.members) return null;
   return (
     <>
-      <button ref={triggerRef} type="button" className={accessButton} onClick={() => setOpen(true)}>
-        {label}
-      </button>
+      <Button
+        ref={triggerRef}
+        type="button"
+        variant="outline"
+        size={iconOnly ? "icon" : "sm"}
+        className="h-9 shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen(true)}
+        aria-label={label}
+        title={label}
+      >
+        <UsersRound aria-hidden="true" className="size-4" />
+        {!iconOnly && label}
+      </Button>
       {open && (
         <AccessManagementDialog
           workspaceId={workspaceId}
@@ -202,9 +216,10 @@ export function AccessManagementDialog({
                 />
               </div>
             </div>
-            <button
+            <Button
               type="button"
-              className={accessButton}
+              size="sm"
+              className="justify-self-start"
               disabled={!canAdd}
               onClick={() =>
                 void mutate(
@@ -220,7 +235,7 @@ export function AccessManagementDialog({
               }
             >
               {existing ? "Simpan Role Anggota" : "Tambah Anggota"}
-            </button>
+            </Button>
             {selected && lookup.isFetching && (
               <p role="status" className="text-xs text-muted-foreground">
                 Memeriksa versi keanggotaan…
@@ -234,7 +249,7 @@ export function AccessManagementDialog({
               {members.data?.data.map((member) => (
                 <div
                   key={member.id}
-                  className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3"
+                  className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-3"
                 >
                   <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
                     <p className="break-words text-sm font-medium">{member.name}</p>

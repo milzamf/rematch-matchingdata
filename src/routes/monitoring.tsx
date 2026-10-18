@@ -139,7 +139,7 @@ function MonitoringPage() {
                         </div>
                         <Link
                           to="/matching"
-                          search={buildMatchingSearch(workspace.id)}
+                          search={buildMatchingSearch(workspace.id, workspace.current_step)}
                           className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-secondary shrink-0 min-h-[36px] active:scale-95 shadow-2xs"
                         >
                           {t("monitoring.openWorkspace")}
@@ -206,7 +206,7 @@ function MonitoringPage() {
                           <td className="px-6 py-3 text-right align-middle">
                             <Link
                               to="/matching"
-                              search={buildMatchingSearch(workspace.id)}
+                              search={buildMatchingSearch(workspace.id, workspace.current_step)}
                               className="inline-flex items-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary cursor-pointer"
                             >
                               {t("monitoring.openWorkspace")}

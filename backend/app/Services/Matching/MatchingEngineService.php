@@ -28,6 +28,7 @@ class MatchingEngineService
     private readonly MatchingCheckpointManager $checkpointManager;
     private readonly WilayahDictionaryService $wilayah;
     private readonly AddressComparator $addresses;
+    private ?bool $snapshotStorageAvailable = null;
 
     public function __construct(
         private readonly MatchingConfigResolver $configResolver,
@@ -760,7 +761,7 @@ class MatchingEngineService
 
         $regionsDir = storage_path('app/wilayah');
         $signaturePayload = [
-            'engine' => 'streaming-mfd-address-components-v5',
+            'engine' => 'streaming-full-row-address-v6',
             'source_sha256' => hash_file('sha256', $sourcePath),
             'reference_mappings' => array_map(static fn ($mapping) => [
                 'reference_column_name' => $mapping['reference_column_name'] ?? '',
@@ -911,7 +912,7 @@ class MatchingEngineService
 
         return [
             'key' => (string) $index,
-            'row' => $this->leanRecordRow($row, $mappings, $columnKey === 'reference_column_name' ? 'reference' : 'input'),
+            'row' => $row,
             'normalized' => $normalized,
             'identity' => $identity,
         ];
@@ -1194,7 +1195,8 @@ class MatchingEngineService
         $workerCount = max(1, min(2, (int) ($configuration['runOptions']['workerCount'] ?? 1)));
         $chunkSize = max(10, min(250, $chunkSize));
         $topN = (int) data_get($configuration, 'candidateGeneration.topN', 3);
-        $candidatePoolLimit = max($topN, (int) data_get($configuration, 'candidateGeneration.searchLimit', min(5, max($topN, 3))));
+        // Retrieval breadth is independent of the number of candidates retained.
+        $candidatePoolLimit = min(100, max($topN, (int) data_get($configuration, 'candidateGeneration.searchLimit', 12)));
 
         $summary = [
             'matched' => 0,
@@ -1536,12 +1538,7 @@ class MatchingEngineService
         $candidateSearchHitCount = 0;
 
         foreach ($chunk as $idx => $inputRecord) {
-            $signatureString = '';
-            foreach ($mappings as $mapping) {
-                $col = ($mapping['input_column_name'] ?? null);
-                $signatureString .= ($inputRecord['row'][$col] ?? '') . '|';
-            }
-            $cacheKey = md5(strtolower(trim($signatureString)));
+            $cacheKey = $this->memoizationKey($inputRecord, $mappings);
 
             if (isset($memoizationCache[$cacheKey])) {
                 $cachedData = $memoizationCache[$cacheKey];
@@ -1556,10 +1553,11 @@ class MatchingEngineService
                         : ['input_province_code' => null, 'input_regency_code' => null, 'input_region_indexed' => false])];
 
                     $meta = json_decode($cachedRow['candidate_metadata'], true);
-                    $meta['input_record'] = $this->leanRecordRow($inputRecord['row'], $mappings, 'input');
+                    if (isset($meta['_input_primary'])) $meta['_input_primary'] = (string) $inputRecord['key'];
+                    else $meta['input_record'] = $this->snapshotStorageAvailable ? $inputRecord['row'] : $this->leanRecordRow($inputRecord['row'], $mappings, 'input');
                     if (! empty($inputRecord['normalized'])) {
                         foreach ($inputRecord['normalized'] as $normK => $normV) {
-                            if (str_starts_with($normK, '[Generated]') && ! isset($meta['input_record'][$normK]) && $normV !== null && $normV !== '') {
+                            if (!isset($meta['_input_primary']) && str_starts_with($normK, '[Generated]') && ! isset($meta['input_record'][$normK]) && $normV !== null && $normV !== '') {
                                 $meta['input_record'][$normK] = $normV;
                             }
                         }
@@ -1858,6 +1856,30 @@ class MatchingEngineService
                 $configuration
             );
 
+            // Expand only a saturated, inconclusive search. Never rerun already scored hits.
+            $best = $scoredCandidates[0] ?? null;
+            $runner = $scoredCandidates[1] ?? null;
+            $uncertain = ! $best || $best['classification'] !== 'matched'
+                || ($runner && abs($best['score'] - $runner['score']) < 3.0);
+            $expandedLimit = min(100, max($candidatePoolLimit, (int) data_get($configuration, 'candidateGeneration.expandedLimit', 48)));
+            if ($uncertain && count($hits) >= $candidatePoolLimit && $expandedLimit > $candidatePoolLimit) {
+                $extraQueries = array_map(fn ($text) => (new \Meilisearch\Contracts\SearchQuery())
+                    ->setIndexUid($indexes['uid'])->setQuery($text)->setLimit($expandedLimit)->setAttributesToRetrieve(['id']), $meta['queries']);
+                $response = $indexes['client']->multiSearch($extraQueries)['results'] ?? [];
+                if (count($response) !== count($extraQueries)) throw new \RuntimeException('Incomplete expanded candidate response.');
+                $known = array_fill_keys(array_map(fn ($key) => 'key:'.$key, $candidateKeys), true);
+                $extraKeys = [];
+                foreach ($response as $search) foreach ($search['hits'] ?? [] as $hit) {
+                    $key = (string) $hit['id'];
+                    if (! isset($known['key:'.$key])) { $extraKeys[] = $key; $known['key:'.$key] = true; }
+                }
+                $extraRows = $referenceByKey->getMany($extraKeys);
+                $extra = [];
+                foreach ($extraKeys as $key) if (isset($extraRows[$key])) $extra[] = $extraRows[$key];
+                // Each pool's top N contains every candidate eligible for the combined top N.
+                $scoredCandidates = $this->retainCandidates([...$scoredCandidates, ...$this->evaluateCandidates($inputRecord, $extra, $mappings, $configuration)], $configuration);
+            }
+
             if ($scoredCandidates === []) {
                 $presetName = (string) ($configuration['preset'] ?? '');
                 $modeName = (string) ($configuration['mode'] ?? '');
@@ -1956,6 +1978,8 @@ class MatchingEngineService
         }
 
         $scoringMs = (microtime(true) - $scoringStart) * 1000;
+        // Persist immutable evidence before publishing a worker result/checkpoint.
+        MatchingRecordSnapshots::flush();
 
         return [
             'batchResults' => $batchResults,
@@ -2087,14 +2111,12 @@ class MatchingEngineService
         $autoMatchThreshold = (float) (($configuration['thresholds'] ?? null)['autoMatch'] ?? 90);
         $reviewThreshold = (float) (($configuration['thresholds'] ?? null)['review'] ?? 75);
         $topN = (int) data_get($configuration, 'candidateGeneration.topN', 3);
-        $pruningEnabled = (bool) data_get($configuration, 'searchOptimization.candidatePruning', true);
+        $totalPossibleWeight = array_sum(array_map(fn ($m) => max(0.0, (float) ($m['weight'] ?? 0)), $mappings));
+        $keptScores = [];
 
         // Verification rules list (ordered)
         $verificationRules = $this->resolveVerificationRules($configuration, $mappings, $reviewThreshold);
 
-        $bestCandidateScore = 0.0;
-        $autoMatchCount = 0;
-        $evaluatedCount = 0;
 
         foreach ($candidates as $candidate) {
             // -----------------------------------------------------------------
@@ -2171,6 +2193,13 @@ class MatchingEngineService
                     'numeric_mismatch' => $fieldNumericMismatch,
                     'address_evidence' => $addressEvidence,
                 ];
+                // A proven upper bound may discard this candidate, never the rest
+                // of the search results. Equality is retained for stable key ties.
+                if ((bool) data_get($configuration, 'searchOptimization.candidatePruning', true)
+                    && $totalPossibleWeight > 0 && count($keptScores) >= max(2, $topN)) {
+                    $upper = round(($weightedScoreSum + max(0, $totalPossibleWeight - $weightTotal) * 100) / $totalPossibleWeight, 2);
+                    if ($upper + 0.000001 < min($keptScores)) continue 2;
+                }
             }
 
             $ws = $weightTotal > 0
@@ -2449,48 +2478,49 @@ class MatchingEngineService
                 'reason' => $decisionReason,
                 'verification_evidence' => $verificationEvidence,
             ];
+            $keptScores[] = $ws;
+            rsort($keptScores);
+            $keptScores = array_slice($keptScores, 0, max(2, $topN));
 
             // -----------------------------------------------------------------
-            // Adaptive Candidate Pruning
-            // -----------------------------------------------------------------
-            if ($ws > $bestCandidateScore) {
-                $bestCandidateScore = $ws;
-            }
-            if ($finalClassification === 'matched') {
-                $autoMatchCount++;
-            }
-            $evaluatedCount++;
-
-            if ($pruningEnabled) {
-                // Condition 1: High confidence auto-match saturation (Rank 1/2 is >= 95% or verified auto-match)
-                if ($autoMatchCount >= 1 && $bestCandidateScore >= 95.0 && $evaluatedCount >= $topN) {
-                    if ($ws < ($bestCandidateScore - 20.0) || $ws < $reviewThreshold) {
-                        break;
-                    }
-                }
-
-                // Condition 2: Deep fall-off from best candidate score
-                if ($evaluatedCount >= $topN && $bestCandidateScore >= $reviewThreshold && $ws < ($bestCandidateScore - 30.0)) {
-                    break;
-                }
-
-                // Condition 3: Very low initial relevance (top 2 hits in Meilisearch are below 40%)
-                if ($evaluatedCount >= 2 && $bestCandidateScore < 40.0) {
-                    break;
-                }
-
-                // Condition 4: Below review threshold once topN candidates are collected
-                if ($evaluatedCount >= $topN && $ws < $reviewThreshold) {
-                    break;
-                }
-            }
+            // Search relevance supplies no upper bound on the WLS of later hits.
+            // Score the bounded retrieval pool completely before retaining top N.
         }
 
-        // Sort candidates by score descending
-        usort($evaluated, fn (array $a, array $b) => $b['score'] <=> $a['score']);
+        return $this->retainCandidates($evaluated, $configuration);
+    }
 
-        $topN = (int) data_get($configuration, 'candidateGeneration.topN', 3);
-        return array_slice($evaluated, 0, $topN);
+    private function retainCandidates(array $evaluated, array $configuration): array
+    {
+        usort($evaluated, fn ($a, $b) => ($b['score'] <=> $a['score']) ?: strcmp((string) $a['record']['key'], (string) $b['record']['key']));
+        if (count($evaluated) > 1
+            && $evaluated[0]['score'] === $evaluated[1]['score']
+            && (string) $evaluated[0]['record']['key'] !== (string) $evaluated[1]['record']['key']) {
+            foreach ($evaluated as &$candidate) {
+                if ($candidate['score'] !== $evaluated[0]['score']) break;
+                if ($candidate['classification'] !== 'matched') continue;
+                $candidate['classification'] = 'possible_match';
+                $candidate['reason'] = 'Ambiguous candidates with identical weighted similarity require review';
+                $candidate['verification_evidence']['final_classification'] = 'possible_match';
+                $candidate['verification_evidence']['downgraded'] = true;
+                $candidate['verification_evidence']['downgrade_reason'] = $candidate['reason'];
+            }
+            unset($candidate);
+        }
+        return array_slice($evaluated, 0, max(1, (int) data_get($configuration, 'candidateGeneration.topN', 3)));
+    }
+
+    private function memoizationKey(array $input, array $mappings): string
+    {
+        $raw = [];
+        foreach ($mappings as $mapping) {
+            foreach ([$mapping['input_column_name'] ?? '', $mapping['parent_input_column'] ?? data_get($mapping, 'metadata.parent_input_column', '')] as $column) {
+                if ($column !== '') $raw[$column] = $input['row'][$column] ?? null;
+            }
+        }
+        // Generated values live in normalized[], not row[]. A raw-only cache key
+        // collapses different company names when mappings use generated columns.
+        return hash('sha256', json_encode([$raw, $input['normalized'] ?? [], $input['identity'] ?? []], JSON_THROW_ON_ERROR));
     }
 
     /**
@@ -2784,7 +2814,8 @@ class MatchingEngineService
         ?array $verificationEvidence = null,
         array $mappings = [],
     ): array {
-        $leanInput = $this->leanRecordRow($inputRecord['row'] ?? [], $mappings, 'input');
+        $useSnapshots = $this->snapshotStorageAvailable ??= MatchingRecordSnapshots::available();
+        $leanInput = $useSnapshots ? ($inputRecord['row'] ?? []) : $this->leanRecordRow($inputRecord['row'] ?? [], $mappings, 'input');
         if (! empty($inputRecord['normalized'])) {
             foreach ($inputRecord['normalized'] as $normK => $normV) {
                 if (str_starts_with($normK, '[Generated]') && ! isset($leanInput[$normK]) && $normV !== null && $normV !== '') {
@@ -2792,7 +2823,12 @@ class MatchingEngineService
                 }
             }
         }
-        $leanReference = $this->leanRecordRow($referenceRecord['row'] ?? null, $mappings, 'reference');
+        $leanReference = $useSnapshots ? ($referenceRecord['row'] ?? null) : $this->leanRecordRow($referenceRecord['row'] ?? null, $mappings, 'reference');
+        $metadata = ['worker_slot' => $workerSlot];
+        if ($useSnapshots && $rank > 1) $metadata['_input_primary'] = (string) $inputRecord['key'];
+        else $metadata['input_record'] = $leanInput;
+        if ($useSnapshots && $leanReference !== null) $metadata['_reference_snapshot'] = MatchingRecordSnapshots::store($leanReference);
+        else $metadata['reference_record'] = $leanReference;
         if (! empty($referenceRecord['normalized'])) {
             foreach ($referenceRecord['normalized'] as $normK => $normV) {
                 if (str_starts_with($normK, '[Generated]') && ! isset($leanReference[$normK]) && $normV !== null && $normV !== '') {
@@ -2814,11 +2850,7 @@ class MatchingEngineService
                 'input_province_code' => null, 'input_regency_code' => null, 'input_region_indexed' => false,
             ]),
             'candidate_rank' => $rank,
-            ...MatchingResultStorage::pack([
-                'worker_slot' => $workerSlot,
-                'input_record' => $leanInput,
-                'reference_record' => $leanReference,
-            ], $fieldScores, $verificationEvidence),
+            ...MatchingResultStorage::pack($metadata, $fieldScores, $verificationEvidence),
             'decision_reason' => $reason,
             'created_at' => Carbon::now(),
             'updated_at' => Carbon::now(),
@@ -3108,6 +3140,7 @@ class MatchingEngineService
     /** Build a bounded union of independent name-field queries for better candidate recall. */
     public function buildCandidateBlockingQueries(array $inputRecord, array $mappings): array
     {
+        $identifierCandidates = [];
         $coreCandidates = [];
         $nameCandidates = [];
         $fallbackCandidates = [];
@@ -3123,6 +3156,11 @@ class MatchingEngineService
             }
 
             $colLower = strtolower($colName);
+            if (preg_match('/(?:^|_)(?:nib|npwp|identifier|registration)(?:_|$)/', $colLower)) {
+                $identifier = preg_replace('/[^\pL\pN]/u', '', $val);
+                if (mb_strlen($identifier) >= 8 && ! preg_match('/^(.)\1+$/u', $identifier)) $identifierCandidates[] = $identifier;
+                continue;
+            }
             $transform = (string) ($mapping['transform'] ?? data_get($mapping, 'metadata.transform') ?? '');
 
             if ($transform === 'EXTRACT_LEGAL_FORM' || str_contains($colLower, 'badan_usaha') || str_contains($colLower, 'legal_form')) continue;
@@ -3146,7 +3184,7 @@ class MatchingEngineService
         }
 
         $queries = [];
-        foreach ([$coreCandidates, $nameCandidates, $fallbackCandidates] as $group) {
+        foreach ([$identifierCandidates, $coreCandidates, $nameCandidates, $fallbackCandidates] as $group) {
             foreach ($group as $candidate) {
                 $query = $this->prepareCandidateQuery($candidate);
                 if ($query !== '' && !in_array($query, $queries, true)) $queries[] = $query;

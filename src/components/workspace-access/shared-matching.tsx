@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout, PageHeader } from "@/components/app-layout";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { accessApi, type SharedFilters } from "@/lib/workspace-access";
 import { ManageAccessButton } from "./access-management";
@@ -14,6 +15,15 @@ import { useWorkspaceAccess } from "./use-workspace-access";
 import { AccessFeedback, accessButton } from "./access-feedback";
 import provinces from "@/lib/wilayah/provinces.json";
 import regencies from "@/lib/wilayah/regencies.json";
+
+const reviewStatusLabels: Record<string, string> = {
+  matched: "Matched",
+  possible_match: "Need Review",
+  unmatched: "Unmatched",
+  duplicate_input: "Duplicate Input",
+  reference_conflict: "Konflik Acuan",
+  integrity_hold: "Perlu Rekonsiliasi",
+};
 
 export function SharedMatching({
   workspaceId,
@@ -133,14 +143,15 @@ function SharedWorkspaceDetail({
         {!fatal && w && (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-4">
-              <div>
+              <div className="min-w-0 flex-1">
                 <h2 className="text-sm font-semibold">{w.name}</h2>
                 <p className="text-xs text-muted-foreground">
                   Pemilik: {workspace.data?.owner.name} · {w.status} · Akses:{" "}
                   {permission.access?.role}
                 </p>
               </div>
-              <ManageAccessButton
+              <div className="flex flex-wrap items-center gap-2">
+                <ManageAccessButton
                 label="Bagikan Workspace"
                 workspaceId={w.id}
                 name={w.name}
@@ -151,11 +162,12 @@ function SharedWorkspaceDetail({
               </button>
               <Link
                 to={results ? "/matching" : "/results"}
-                search={{ workspace: w.id }}
+                search={{ workspace: w.id, view: "shared" }}
                 className={accessButton}
               >
                 {results ? "Review" : "Lihat Hasil"}
               </Link>
+              </div>
             </div>
             {job && (
               <p className="text-sm">
@@ -192,11 +204,11 @@ function SharedWorkspaceDetail({
                       : "Baris dari file sumber."}
                   </p>
                   <div className="overflow-auto max-h-64">
-                    <table className="w-full text-xs">
-                      <thead>
+                    <table className="w-full min-w-max text-xs">
+                      <thead className="sticky top-0 bg-secondary text-muted-foreground">
                         <tr>
                           {Object.keys(preview.data.data[0] ?? {}).map((c) => (
-                            <th className="p-2 text-left" key={c}>
+                            <th className="px-3 py-2.5 text-left font-medium whitespace-nowrap" key={c}>
                               {c}
                             </th>
                           ))}
@@ -206,7 +218,7 @@ function SharedWorkspaceDetail({
                         {preview.data.data.map((r, i) => (
                           <tr key={i}>
                             {Object.values(r).map((v, j) => (
-                              <td className="p-2 border-t" key={j}>
+                              <td className="max-w-xs px-3 py-2.5 border-t border-border break-words align-top" key={j}>
                                 {String(v ?? "")}
                               </td>
                             ))}
@@ -256,6 +268,7 @@ function SharedWorkspaceDetail({
                     ]}
                   />
                   <form
+                    className="flex items-center gap-2"
                     onSubmit={(e) => {
                       e.preventDefault();
                       change({
@@ -268,7 +281,7 @@ function SharedWorkspaceDetail({
                       name="search"
                       aria-label="Cari record"
                       placeholder="Cari record"
-                      className="rounded-md border p-2 w-full"
+                      className="h-9 sm:h-10 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-xs sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/15"
                     />
                     <button className={accessButton}>Cari</button>
                   </form>
@@ -307,7 +320,7 @@ function SharedWorkspaceDetail({
                     ]}
                   />
                   <form
-                    className="flex flex-wrap gap-1"
+                    className="flex items-center gap-2"
                     onSubmit={(e) => {
                       e.preventDefault();
                       const f = new FormData(e.currentTarget);
@@ -320,7 +333,7 @@ function SharedWorkspaceDetail({
                     }}
                   >
                     <input
-                      className="w-20 rounded-md border p-2"
+                      className="h-9 sm:h-10 min-w-0 w-20 flex-1 rounded-md border border-border bg-background px-3 text-xs sm:text-sm"
                       type="number"
                       min="0"
                       max="100"
@@ -329,7 +342,7 @@ function SharedWorkspaceDetail({
                       placeholder="0"
                     />
                     <input
-                      className="w-20 rounded-md border p-2"
+                      className="h-9 sm:h-10 min-w-0 w-20 flex-1 rounded-md border border-border bg-background px-3 text-xs sm:text-sm"
                       type="number"
                       min="0"
                       max="100"
@@ -340,7 +353,7 @@ function SharedWorkspaceDetail({
                     <button className={accessButton}>Terapkan</button>
                   </form>
                   <button
-                    className={accessButton}
+                    className="sm:col-span-3 justify-self-end rounded-md px-2 py-1 text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
                     onClick={() => setFilters({ page: 1, per_page: 25, sort: "record_order" })}
                   >
                     Reset filter
@@ -348,11 +361,15 @@ function SharedWorkspaceDetail({
                 </section>
                 <AccessFeedback error={review.error} reload={() => void reload()} />
                 {review.data && (
-                  <p className="text-sm" data-testid="review-summary">
+                  <div className="flex flex-wrap gap-2" data-testid="review-summary">
                     {Object.entries(review.data.summary)
-                      .map(([s, n]) => `${s}: ${n}`)
-                      .join(" · ")}
-                  </p>
+                      .map(([s, n]) => (
+                        <span key={s} className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-xs font-medium">
+                          {reviewStatusLabels[s] ?? s}
+                          <span className="text-muted-foreground tabular-nums">{n.toLocaleString("id-ID")}</span>
+                        </span>
+                      ))}
+                  </div>
                 )}
                 <div
                   className="min-h-[360px] rounded-lg border overflow-auto"
@@ -363,46 +380,58 @@ function SharedWorkspaceDetail({
                       Memperbarui…
                     </p>
                   )}
-                  <table className="w-full text-sm">
-                    <thead>
+                  <table className="w-full min-w-[920px] table-fixed text-sm">
+                    <colgroup>
+                      <col className="w-[40%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[6%]" />
+                      <col className="w-[12%]" />
+                    </colgroup>
+                    <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                       <tr>
-                        <th className="p-3 text-left">Input</th>
-                        <th>Acuan</th>
-                        <th>Similarity</th>
-                        <th>Status</th>
-                        <th>Versi</th>
-                        <th>Review</th>
+                        <th className="px-4 py-3 text-left font-medium">Input</th>
+                        <th className="px-4 py-3 text-left font-medium">Acuan</th>
+                        <th className="px-4 py-3 text-right font-medium">Similarity</th>
+                        <th className="px-4 py-3 text-left font-medium">Status</th>
+                        <th className="px-4 py-3 text-center font-medium">Versi</th>
+                        <th className="px-4 py-3 text-right font-medium">Review</th>
                       </tr>
                     </thead>
                     <tbody>
                       {review.data?.data.map((r) => (
                         <tr
-                          className="border-t"
+                          className="border-t border-border hover:bg-secondary/20 transition-colors"
                           key={r.input_record_key}
                           data-record-key={r.input_record_key}
                         >
-                          <td className="p-3">
-                            {r.input_record_key}
-                            <div className="text-xs text-muted-foreground">
+                          <td className="px-4 py-4 align-middle">
+                            <span className="text-xs font-medium">ID Input: {r.input_record_key}</span>
+                            <div className="mt-1 line-clamp-2 break-words text-xs leading-5 text-muted-foreground">
                               {Object.values(r.displayed_candidate?.input_record ?? {})
                                 .map(String)
                                 .join(" · ")}
                             </div>
                           </td>
-                          <td>{r.displayed_candidate?.reference_record_key ?? "—"}</td>
-                          <td>{r.similarity_score === null ? "—" : `${r.similarity_score}%`}</td>
-                          <td>{r.status}</td>
-                          <td>{r.version}</td>
-                          <td>
-                            <button
-                              className={accessButton}
+                          <td className="px-4 py-4 text-xs tabular-nums align-middle">{r.displayed_candidate?.reference_record_key ?? "—"}</td>
+                          <td className="px-4 py-4 text-right font-semibold tabular-nums align-middle">{r.similarity_score === null ? "—" : `${r.similarity_score.toLocaleString("id-ID", { maximumFractionDigits: 2 })}%`}</td>
+                          <td className="px-4 py-4 align-middle">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-medium ${r.status === "matched" ? "bg-emerald-500/10 text-emerald-600" : r.status === "possible_match" ? "bg-amber-500/10 text-amber-600" : "bg-secondary text-muted-foreground"}`}>
+                              {reviewStatusLabels[r.status] ?? r.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center text-xs text-muted-foreground tabular-nums align-middle">{r.version}</td>
+                          <td className="px-4 py-4 text-right align-middle">
+                            <Button
+                              size="sm"
                               onClick={() => {
                                 setSelected(r.input_record_key);
                                 setCandidatePage(1);
                               }}
                             >
                               Buka Review
-                            </button>
+                            </Button>
                           </td>
                         </tr>
                       ))}

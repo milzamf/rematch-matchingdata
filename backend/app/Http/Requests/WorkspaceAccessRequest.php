@@ -19,6 +19,9 @@ final class WorkspaceAccessRequest extends FormRequest
             'decision' => ['required', Rule::in(['accept_match', 'select_candidate', 'reject_match', 'mark_unmatched'])], 'candidate_id' => ['nullable', 'uuid']];
 
         return match ($this->route()->getActionMethod()) {
+            'index' => ['page' => ['sometimes', 'integer', 'min:1'], 'per_page' => ['sometimes', 'integer', 'min:1', 'max:100']],
+            'renameWorkspace' => ['name' => ['required', 'string', 'max:255'], 'expected_version' => $version],
+            'deleteWorkspace' => ['expected_version' => $version],
             'setMember' => ['user_id' => ['required', 'integer', 'min:1'], 'role' => ['required', Rule::in(['editor', 'viewer'])], 'expected_version' => ['required', 'integer', 'min:0']],
             'revokeMember' => ['expected_version' => $version],
             'propose' => $item + ['reason' => ['required', 'string', 'max:1000'], 'idempotency_key' => ['required', 'string', 'max:128']],

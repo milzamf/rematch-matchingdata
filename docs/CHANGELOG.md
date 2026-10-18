@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 2026-10-19: restore established workspace/navigation UI, connect review to current versioned states/CAS/Undo, add selectable comparison columns and reference-format XLSX with audit. Prepare 50 unlabeled manual-review pairs locally. Fix generated-name memoization, bounded candidate expansion and provable per-candidate pruning; extend address suffix normalization. Add immutable reference snapshots for new results through an additive migration (not applied to main). Historical results and production flags unchanged.
+
 - Backup utama atas izin eksplisit: snapshot InnoDB terkompresi 4.044.149.000 byte, gzip tervalidasi dan checksum tercatat lokal; restore tetap belum terbukti. Tidak ada schema/data/flag utama yang diubah; arsip tidak di-stage.
 
 - Admission produksi: shared lock untuk API/review/matching/queue dan exclusive lock untuk backfill/rollback dengan freeze+flag nonaktif. Tes Linux baru 4/18 dan tiga pemeriksaan MySQL baru lulus; recovery retry idempotent dan Undo superseded melindungi keputusan terbaru. Backup utama diizinkan pengguna; restore penuh tetap menunggu persetujuan. Tidak ada migrasi/aktivasi.

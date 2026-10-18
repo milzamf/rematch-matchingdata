@@ -34,7 +34,19 @@ final class WorkspaceAccessController extends Controller
 
     public function index(WorkspaceAccessRequest $r)
     {
-        return $this->output($this->access()->workspaces((int) $r->user()->getKey(), (int) $r->input('page', 1)));
+        return $this->output($this->access()->workspaces((int) $r->user()->getKey(), (int) $r->input('page', 1), (int) $r->input('per_page', 50)));
+    }
+
+    public function renameWorkspace(WorkspaceAccessRequest $r, string $workspace)
+    {
+        $service = new \App\Services\Workspace\WorkspaceManagementService(DB::connection(), $this->access());
+        return $this->output($service->rename((int) $r->user()->getKey(), $workspace, (int) $r->validated('expected_version'), $r->validated('name')));
+    }
+
+    public function deleteWorkspace(WorkspaceAccessRequest $r, string $workspace)
+    {
+        $service = new \App\Services\Workspace\WorkspaceManagementService(DB::connection(), $this->access());
+        return $this->output($service->delete((int) $r->user()->getKey(), $workspace, (int) $r->validated('expected_version')));
     }
 
     public function permissions(WorkspaceAccessRequest $r, string $workspace)

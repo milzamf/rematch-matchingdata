@@ -1,7 +1,9 @@
 # RE-MATCH - Implementation Status
 
-Last Updated: 2026-10-14
+Last Updated: 2026-10-19
 Version: MVP v0.1.0
+
+Current delivery: established review UI reads current review_states when sharing is enabled; CAS writes, bulk (maximum 50), Undo, revision actions, comparison-column preferences, and reference-format XLSX are integrated. Candidate retrieval/cache/pruning and address normalization updated for future runs. Additive snapshot migration tested in isolation only; main DB and flags unchanged. Manual sample has 50 unlabeled pairs; real accuracy and threshold calibration await human labels. Earlier entries below describe prior milestones and evidence.
 
 Backup utama konsisten sudah dibuat atas izin pengguna: arsip 4,04 GB, gzip/SHA-256 tercatat, tidak masuk Git. Restore penuh belum diizinkan/dibuktikan; NO-GO tetap. Admission Linux baru 4/18, penolakan maintenance non-fixture satu tes tambahan, dan tiga cek MySQL recovery/admission baru lulus. Database/schema/flag utama tidak diubah.
 

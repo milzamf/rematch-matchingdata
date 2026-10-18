@@ -256,7 +256,7 @@ function ContinueWork({ workspace }: { workspace: WorkspaceSummary }) {
         </div>
         <Link
           to="/matching"
-          search={buildMatchingSearch(workspace.id)}
+          search={buildMatchingSearch(workspace.id, workspace.current_step)}
           className="inline-flex items-center justify-center gap-1.5 rounded-md bg-brand px-4 py-2.5 sm:py-2 text-sm font-semibold text-brand-foreground hover:opacity-90 w-full sm:w-auto min-h-[44px]"
         >
           {t("dashboard.real.continue")}
@@ -288,7 +288,7 @@ function ActionRequired({ items }: { items: DashboardActionItem[] }) {
               <Link
                 key={`${item.workspace.id}-${item.kind}`}
                 to="/matching"
-                search={buildMatchingSearch(item.workspace.id)}
+                search={buildMatchingSearch(item.workspace.id, item.workspace.current_step)}
                 className="flex items-center justify-between gap-3 sm:gap-4 px-4 py-3 sm:px-6 sm:py-4 hover:bg-secondary/30 transition-colors"
               >
                 <div className="flex min-w-0 items-center gap-2.5 sm:gap-3 flex-1">
@@ -468,7 +468,7 @@ function ReviewQueue({ items }: { items: WorkspaceSummary[] }) {
             <Link
               key={workspace.id}
               to="/matching"
-              search={buildMatchingSearch(workspace.id)}
+              search={buildMatchingSearch(workspace.id, workspace.current_step)}
               className="flex items-center justify-between gap-3 sm:gap-4 px-4 py-3 sm:px-6 sm:py-4 hover:bg-secondary/30 transition-colors"
             >
               <div className="min-w-0 flex-1">

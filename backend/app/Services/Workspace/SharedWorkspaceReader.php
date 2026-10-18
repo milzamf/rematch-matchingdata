@@ -95,17 +95,19 @@ final class SharedWorkspaceReader
             if ($scoreQuery && ! $projected) $q->leftJoin('matching_results as c', fn ($j) => $j->on('c.id', '=', 's.selected_matching_result_id')->on('c.matching_job_id', '=', 's.matching_job_id')->on('c.input_record_key', '=', 's.input_record_key')->whereRaw('BINARY c.input_record_key = BINARY s.input_record_key'));
             $score = $projected ? 's.display_score' : 'CASE WHEN s.selected_matching_result_id IS NULL THEN p.overall_score ELSE c.overall_score END';
             if (isset($filters['record_key'])) $q->where('s.input_record_key', $filters['record_key']);
+            if (isset($filters['record_keys'])) $q->whereIn('s.input_record_key', array_map('strval', $filters['record_keys']));
+            if (isset($filters['statuses'])) $q->whereIn('s.status', $filters['statuses']);
             if (isset($filters['status'])) $q->where('s.status', $filters['status']);
             if (isset($filters['search'])) {
                 $search = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $filters['search']).'%';
-                $q->where(fn ($sub) => $sub->whereRaw("s.input_record_key LIKE ? ESCAPE '!'", [$search])->orWhereRaw("JSON_EXTRACT(p.candidate_metadata, '$.input_record') LIKE ? ESCAPE '!'", [$search]));
+                $q->where(fn ($sub) => $sub->whereRaw("s.input_record_key LIKE ? ESCAPE '!'", [$search])->orWhereRaw("LOWER(JSON_EXTRACT(p.candidate_metadata, '$.input_record')) LIKE LOWER(?) ESCAPE '!'", [$search]));
             }
             foreach (['similarity_min' => '>=', 'similarity_max' => '<='] as $field => $op) if (isset($filters[$field])) $q->whereRaw("($score) $op ?", [$filters[$field]]);
             if (isset($filters['input_province_code']) || isset($filters['input_regency_code'])) {
                 if ($this->db->table('matching_results')->where('matching_job_id', $job)->where('candidate_rank', 1)->where('input_region_indexed', false)->exists()) throw new ReviewWriteConflict('review_regions_not_ready');
             }
             foreach (['input_province_code', 'input_regency_code'] as $field) if (isset($filters[$field])) $q->where('p.'.$field, $filters[$field]);
-            if ($candidateFilter) {
+            if ($candidateFilter || isset($filters['record_keys']) || isset($filters['statuses'])) {
                 $countQuery = clone $q;
                 // Counting a region need not traverse the score ordering. Allow
                 // a covered region scan followed by exact state-key lookups.
@@ -200,6 +202,13 @@ final class SharedWorkspaceReader
     private function candidate(object $row): array
     {
         $metadata = $this->decode($row->candidate_metadata) ?? [];
+        if (isset($metadata['_reference_snapshot']) || isset($metadata['_input_primary'])) {
+            $model = new \App\Models\MatchingResult;
+            $model->setRawAttributes((array) $row);
+            $metadata = $model->candidate_metadata;
+            $this->decodedBytes += strlen(json_encode([$metadata['input_record'] ?? [], $metadata['reference_record'] ?? []], JSON_THROW_ON_ERROR));
+            if ($this->decodedBytes > 2097152) throw new ReviewWriteConflict('reader_payload_too_large', [], 413);
+        }
         return ['id' => $row->id, 'input_record_key' => $row->input_record_key, 'reference_record_key' => $row->reference_record_key,
             'rank' => (int) $row->candidate_rank, 'score' => $row->overall_score === null ? null : (float) $row->overall_score,
             'input_record' => $metadata['input_record'] ?? [], 'reference_record' => $metadata['reference_record'] ?? [],

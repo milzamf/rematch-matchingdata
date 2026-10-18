@@ -71,7 +71,7 @@ import {
   type IdentitySemantic,
   type IdentitySummary,
 } from "@/lib/result-identity";
-import { buildMatchingSearch, validateWorkflowSearch } from "@/lib/workflow-route";
+import { buildMatchingSearch, validateWorkflowSearch, usesSharedWorkspaceView } from "@/lib/workflow-route";
 
 export const Route = createFileRoute("/results")({
   ssr: !workspaceSharingEnabled,
@@ -105,7 +105,7 @@ type ReviewHistoryView = "groups" | "records";
 
 function ResultsPage() {
   const search = Route.useSearch();
-  return workspaceSharingEnabled ? <SharedMatching workspaceId={search.workspace} results /> : <LegacyResultsPage />;
+  return usesSharedWorkspaceView(workspaceSharingEnabled, search) ? <SharedMatching workspaceId={search.workspace} results /> : <LegacyResultsPage />;
 }
 
 function LegacyResultsPage() {

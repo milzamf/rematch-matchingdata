@@ -6,6 +6,10 @@ import { toast } from "sonner";
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { workspaceSharingEnabled } from "@/lib/workspace-access";
 import { SharedMatching } from "@/components/workspace-access/shared-matching";
+import { ManageAccessButton } from "@/components/workspace-access/access-management";
+import { ReviewComparisonColumns, ComparisonAvailableColumns, ComparisonRecord } from '@/components/review-comparison-columns';
+import { ReviewRevisionButton } from '@/components/workspace-access/review-revision-button';
+import { ApprovalInbox } from '@/components/workspace-access/approval-inbox';
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
 import { Stepper } from "@/components/stepper";
 import { EmptyState } from "@/components/empty-state";
@@ -101,6 +105,7 @@ import {
   buildMatchingSearch,
   buildResultsSearch,
   validateWorkflowSearch,
+  usesSharedWorkspaceView,
 } from "@/lib/workflow-route";
 import { cn } from "@/lib/utils";
 import {
@@ -298,12 +303,16 @@ const MAX_MB = 500;
 
 function MatchingPage() {
   const search = Route.useSearch();
-  return workspaceSharingEnabled ? <SharedMatching workspaceId={search.workspace} /> : <LegacyMatchingPage />;
+  return usesSharedWorkspaceView(workspaceSharingEnabled, search) ? (
+    <SharedMatching workspaceId={search.workspace} />
+  ) : (
+    <LegacyMatchingPage />
+  );
 }
 
 function LegacyMatchingPage() {
   const { t } = usePreferences();
-  const { can } = useAuth();
+  const { can, currentUser } = useAuth();
   const navigate = useNavigate();
   const search = Route.useSearch();
   const initialWorkspaceId = search.workspace ?? null;
@@ -1547,6 +1556,15 @@ function LegacyMatchingPage() {
           </div>
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {workspaceError && <span className="text-destructive text-[10px] sm:text-xs">{workspaceError}</span>}
+            {workspaceSharingEnabled && workspaceId && (
+              <ManageAccessButton
+                workspaceId={workspaceId}
+                name={workspaceName}
+                owner={currentUser?.name ?? "Administrator"}
+                label="Kelola akses workspace"
+                iconOnly
+              />
+            )}
             {canUpdateWorkspace && (
               <button
                 type="button"
@@ -5655,7 +5673,12 @@ function StepRun({
 type ReviewFilter = "possible_match" | "matched" | "unmatched" | "all";
 type CaseGroupFilter = "open" | "resolved" | "all";
 
-function StepReview({
+function StepReview(props: { jobId: string | null; canDecide: boolean; columnMappings: ColumnMappingDraft[] }) {
+  const mappings = useMemo(() => extractIdentityMappings(props.columnMappings), [props.columnMappings]);
+  return <ReviewComparisonColumns key={props.jobId} job={props.jobId} mappings={mappings}><StepReviewContent {...props} /></ReviewComparisonColumns>;
+}
+
+function StepReviewContent({
   jobId,
   canDecide,
   columnMappings,
@@ -5673,6 +5696,11 @@ function StepReview({
   const [regions, setRegions] = useState<ReviewRegionOptions | null>(null);
   const [regionsError, setRegionsError] = useState<string | null>(null);
   const [regionsRetry, setRegionsRetry] = useState(0);
+  useEffect(() => {
+    const changed = () => setRefreshVersion(value => value + 1);
+    window.addEventListener('rematch:review-changed', changed);
+    return () => window.removeEventListener('rematch:review-changed', changed);
+  }, []);
   useEffect(() => { setReviewFilters({ sort: "record_order" }); }, [jobId]);
   useEffect(() => {
     setRegions(null);
@@ -5799,6 +5827,7 @@ function StepReview({
       .then((data) => {
         if (!cancelled) {
           setReview(data);
+          setSelected(current => current ? data.items.find(item => item.input_record_key === current.input_record_key) ?? current : current);
           setLoadedRequestKey(requestKey);
           if (!isRefresh) {
             setSelectedAllRecordKeys([]);
@@ -6103,6 +6132,7 @@ function StepReview({
     setIsBulkDecidingAllRecords(decision);
     try {
       const next = await saveReviewDecision(jobId, {
+        snapshots: review?.items,
         inputRecordKey: selectedAllRecordKeys[0],
         inputRecordKeys: selectedAllRecordKeys,
         decision,
@@ -6134,6 +6164,7 @@ function StepReview({
     setPendingRecords((current) => ({ ...current, [item.input_record_key]: decision }));
     try {
       const next = await saveReviewDecision(jobId, {
+        snapshots: [item],
         inputRecordKey: item.input_record_key,
         matchingResultId: candidate?.id,
         decision,
@@ -6192,6 +6223,7 @@ function StepReview({
     setPendingGroups((current) => ({ ...current, [group.id]: decision }));
     try {
       const next = await saveReviewDecision(jobId, {
+        groupSnapshot: group,
         inputRecordKey: keys[0],
         inputRecordKeys: keys,
         decision,
@@ -6237,7 +6269,9 @@ function StepReview({
     if (!jobId) return;
     setPendingUndos((current) => ({ ...current, [decisionId]: true }));
     try {
-      const next = await undoReviewDecision(jobId, decisionId);
+      const decisionSnapshot = [selected, ...(review?.items ?? []), ...(recordUpdates?.items ?? [])]
+        .find(item => item?.decision?.id === decisionId)?.decision ?? undefined;
+      const next = await undoReviewDecision(jobId, decisionId, decisionSnapshot);
       applyReviewSnapshot(next, next.items.map((item) => item.input_record_key), findDecisionGroupId(review, decisionId));
       if (selectedInputKey) {
         const updated = next.items?.find(
@@ -6292,6 +6326,8 @@ function StepReview({
   return (
     <>
       <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
+      <ComparisonAvailableColumns columns={review?.comparison_columns} />
+      {workspaceSharingEnabled && review?.workspace_id && jobId && review.access?.permissions.approve && <details className="mb-3 rounded-lg border border-border px-3 py-2 text-xs"><summary className="cursor-pointer font-medium">Usulan revisi keputusan</summary><ApprovalInbox workspaceId={review.workspace_id} name={review.job.name ?? 'Workspace'} jobId={jobId} /></details>}
 
       {error && <p role="alert" className="mb-3 text-sm text-destructive">{error}</p>}
 
@@ -6383,6 +6419,7 @@ function StepReview({
         (selectedCaseGroup ? (
           <GroupReviewSubview
             jobId={jobId}
+            workspaceId={review?.workspace_id}
             latestSnapshot={recordUpdates?.job.id === jobId ? recordUpdates : null}
             queryFilters={reviewFilters}
             search={debouncedQuery}
@@ -6611,14 +6648,10 @@ function StepReview({
                               />
                             </td>
                           <td className="px-4 py-3 min-w-0">
-                            <IdentityCell identity={inputIdentity} />
+                            <ComparisonRecord record={item.input_record} side="input" />
                           </td>
                           <td className="px-4 py-3 min-w-0">
-                            <IdentityCell
-                              identity={referenceIdentity}
-                              emptyHeadline={t("matching.review.noCandidate")}
-                              emptyMeta={t("matching.review.noCandidateDesc")}
-                            />
+                            <ComparisonRecord record={candidate?.reference_record ?? {}} side="reference" />
                           </td>
                           <td
                             className={`px-4 py-3 text-right tabular-nums font-semibold ${scoreTone(candidate?.score ?? 0)}`}
@@ -6641,6 +6674,7 @@ function StepReview({
                             {item.candidates.length}
                           </td>
                           <td className="px-4 py-3">
+                            {workspaceSharingEnabled && review?.workspace_id && item.actions?.propose && <span onClick={event => event.stopPropagation()}><ReviewRevisionButton item={item} job={jobId!} workspace={review.workspace_id} reload={() => setRefreshVersion(value => value + 1)} /></span>}
                             {canDecide ? (
                               <div
                                 className="flex justify-end gap-1.5"
@@ -6648,7 +6682,7 @@ function StepReview({
                               >
                                 <button
                                   onClick={() => decide(item, "accept_match", candidate)}
-                                  disabled={!hasReferenceCandidate || Boolean(rowPending)}
+                                  disabled={!hasReferenceCandidate || Boolean(rowPending) || item.actions?.review === false}
                                   className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-brand-foreground transition-colors hover:bg-brand/90 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   {rowPending === "accept_match" ? (
@@ -6662,7 +6696,7 @@ function StepReview({
                                 </button>
                                 <button
                                   onClick={() => decide(item, "mark_unmatched", null)}
-                                  disabled={Boolean(rowPending)}
+                                  disabled={Boolean(rowPending) || item.actions?.review === false}
                                   className="cursor-pointer rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-secondary active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                   {rowPending === "mark_unmatched" ? (
@@ -7178,6 +7212,7 @@ function CaseGroupsReview({
 
 function GroupReviewSubview({
   jobId,
+  workspaceId,
   latestSnapshot,
   queryFilters,
   search,
@@ -7195,6 +7230,7 @@ function GroupReviewSubview({
   onDecideGroup,
 }: {
   jobId?: string | null;
+  workspaceId?: string;
   latestSnapshot: ReviewResults | null;
   queryFilters: ReviewQueryFilters;
   search: string;
@@ -7531,14 +7567,10 @@ function GroupReviewSubview({
                         />
                       </td>
                       <td className="px-3 py-3 min-w-0">
-                        <IdentityCell identity={inputIdentity} />
+                        <ComparisonRecord record={item.input_record} side="input" />
                       </td>
                       <td className="px-3 py-3 min-w-0">
-                        <IdentityCell
-                          identity={referenceIdentity}
-                          emptyHeadline={t("matching.review.noCandidate")}
-                          emptyMeta={t("matching.review.noCandidateDesc")}
-                        />
+                        <ComparisonRecord record={candidate?.reference_record ?? {}} side="reference" />
                       </td>
                       <td
                         className={`px-3 py-3 text-right font-semibold tabular-nums ${scoreTone(candidate?.score ?? 0)}`}
@@ -7561,12 +7593,13 @@ function GroupReviewSubview({
                         </span>
                       </td>
                       <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        {workspaceId && jobId && item.actions?.propose && <ReviewRevisionButton item={item} job={jobId} workspace={workspaceId} reload={() => { setReloadKey(value => value + 1); window.dispatchEvent(new Event('rematch:review-changed')); }} />}
                         {canDecide ? (
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleDecideRecord(item, "accept_match", candidate)}
-                              disabled={!rowCanAccept || Boolean(rowPending) || Boolean(groupPending)}
+                              disabled={!rowCanAccept || Boolean(rowPending) || Boolean(groupPending) || item.actions?.review === false}
                               className="cursor-pointer rounded-md bg-brand px-2.5 py-1 text-xs font-semibold text-brand-foreground transition-all hover:bg-brand/90 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
                             >
                               {rowPending === "accept_match" ? (
@@ -7581,7 +7614,7 @@ function GroupReviewSubview({
                             <button
                               type="button"
                               onClick={() => handleDecideRecord(item, "mark_unmatched", null)}
-                              disabled={Boolean(rowPending) || Boolean(groupPending)}
+                              disabled={Boolean(rowPending) || Boolean(groupPending) || item.actions?.review === false}
                               className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 shadow-2xs whitespace-nowrap"
                             >
                               {rowPending === "mark_unmatched" ? (

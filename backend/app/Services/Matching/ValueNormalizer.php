@@ -88,6 +88,7 @@ class ValueNormalizer
 
         if ($isAddress) {
             $text = mb_strtolower($text);
+            $text = preg_replace('/\b(?:no|nomor)\.?\s*(?=\d)/u', 'nomor ', $text) ?? $text;
             $text = preg_replace('/\b(jl|jln)\b/u', 'jalan', $text) ?? $text;
             $text = preg_replace('/\bno\b/u', 'nomor', $text) ?? $text;
             $text = preg_replace('/\bgg\b/u', 'gang', $text) ?? $text;
@@ -103,6 +104,8 @@ class ValueNormalizer
             // suffix does not identify a different building: No. 14 A == No 14A.
             $text = preg_replace_callback('/\bnomor\s*(\d+)(?:\s*([a-z]))?\b/u',
                 static fn ($m) => 'nomor '.(ltrim($m[1], '0') ?: '0').($m[2] ?? ''), $text) ?? $text;
+            // Unlabelled house suffix before RT/RW or the end of an address.
+            $text = preg_replace('/\b(\d+)\s+([a-z])(?=\s+(?:rt|rw)\b|$)/u', '$1$2', $text) ?? $text;
 
             return trim($text);
         }

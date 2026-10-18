@@ -1,7 +1,7 @@
 import { WorkspaceAccessError } from "@/lib/workspace-access";
 
 export const accessButton =
-  "inline-flex min-h-9 items-center justify-center rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 disabled:cursor-not-allowed";
+  "inline-flex min-h-9 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium shadow-xs transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
 export function AccessFeedback({ error, reload }: { error: unknown; reload: () => void }) {
   if (!error) return null;
   return (

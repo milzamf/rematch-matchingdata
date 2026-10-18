@@ -13,6 +13,8 @@ Route::prefix('stage5a')->middleware(['auth:sanctum', EnsureIsolatedWorkspaceAcc
     Route::get('workspaces/{workspace}/jobs/{job}/export', [SharedWorkspaceReadController::class, 'export']);
     Route::get('workspaces/{workspace}/datasets/{dataset}/rows', [SharedWorkspaceReadController::class, 'dataset']);
     Route::get('workspaces', [WorkspaceAccessController::class, 'index']);
+    Route::patch('workspaces/{workspace}', [WorkspaceAccessController::class, 'renameWorkspace']);
+    Route::delete('workspaces/{workspace}', [WorkspaceAccessController::class, 'deleteWorkspace']);
     Route::get('workspaces/{workspace}/permissions', [WorkspaceAccessController::class, 'permissions']);
     Route::get('workspaces/{workspace}/members', [WorkspaceAccessController::class, 'listMembers']);
     Route::get('workspaces/{workspace}/users', [WorkspaceAccessController::class, 'searchUsers']);

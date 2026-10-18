@@ -136,7 +136,7 @@ final class WorkspaceAccessService
         return $row;
     }
 
-    public function workspaces(int $actor, int $page = 1): array
+    public function workspaces(int $actor, int $page = 1, int $perPage = 50): array
     {
         $this->guard();
         $user = $this->db->table('users')->where('id', $actor)->first(['id', 'role']);
@@ -149,9 +149,12 @@ final class WorkspaceAccessService
         if ($user->role === 'user') {
             $query->where(fn ($q) => $q->where('w.user_id', $actor)->orWhereExists(fn ($m) => $m->selectRaw('1')->from('workspace_members')->whereColumn('workspace_id', 'w.id')->where('user_id', $actor)->where('status', 'active')));
         }
-        $query->select(['w.id', 'w.name', 'w.user_id', 'w.status', 'w.matching_job_id', 'w.configuration_version', 'owner.name as owner_name'])
+        $query->leftJoin('datasets as input', 'input.id', '=', 'w.input_dataset_id')
+            ->leftJoin('matching_jobs as job', 'job.id', '=', 'w.matching_job_id');
+        $query->select(['w.id', 'w.name', 'w.user_id', 'w.status', 'w.matching_job_id', 'w.configuration_version', 'w.current_step', 'w.updated_at', 'owner.name as owner_name'])
+            ->selectRaw('COALESCE(input.row_count, job.total_count) AS record_count')
             ->selectRaw("CASE WHEN ? IN ('admin','pimpinan') THEN ? WHEN w.user_id = ? THEN 'owner' ELSE member.role END AS access_role", [$user->role, $user->role, $actor]);
-        $result = $query->orderBy('w.id')->paginate(50, ['w.id', 'w.name', 'w.user_id', 'w.status', 'w.matching_job_id', 'w.configuration_version', 'owner.name as owner_name'], 'page', max(1, $page));
+        $result = $query->orderByDesc('w.updated_at')->orderByDesc('w.id')->paginate(max(1, min(100, $perPage)), ['*'], 'page', max(1, $page));
 
         return ['data' => array_map(fn ($r) => (array) $r, $result->items()), 'total' => $result->total(), 'current_page' => $result->currentPage(), 'last_page' => $result->lastPage(), 'per_page' => $result->perPage()];
     }

@@ -29,6 +29,9 @@ export type AccessWorkspace = {
   configuration_version: number;
   owner_name?: string;
   access_role?: AccessRole;
+  current_step?: number;
+  record_count?: number | null;
+  updated_at?: string | null;
 };
 export type SharedCandidate = {
   id: string;
@@ -187,6 +190,8 @@ export class WorkspaceAccessError extends Error {
 }
 export function accessErrorMessage(code: string): string {
   const messages: Record<string, string> = {
+    stale_workspace_version: "Workspace telah berubah. Muat daftar terbaru sebelum mencoba kembali.",
+    workspace_busy: "Matching masih berjalan. Tunggu proses selesai sebelum mengubah atau menghapus workspace.",
     stale_review_version:
       "Record telah diubah pengguna lain. Muat data terbaru sebelum memutuskan kembali.",
     stale_proposal_version: "Usulan telah berubah atau diselesaikan. Muat daftar terbaru.",
@@ -280,8 +285,12 @@ export const accessApi = {
     }
     return response.blob();
   },
-  workspaces: (page = 1, signal?: AbortSignal) =>
-    request<Page<AccessWorkspace>>(`/workspaces?page=${page}`, { signal }),
+  workspaces: (page = 1, signal?: AbortSignal, perPage = 50) =>
+    request<Page<AccessWorkspace>>(`/workspaces?page=${page}&per_page=${perPage}`, { signal }),
+  renameWorkspace: (id: string, name: string, expected_version: number) =>
+    request<{ id: string; name: string; configuration_version: number }>(`/workspaces/${key(id)}`, json("PATCH", { name, expected_version })),
+  deleteWorkspace: (id: string, expected_version: number) =>
+    request<{ id: string }>(`/workspaces/${key(id)}`, json("DELETE", { expected_version })),
   permissions: (id: string, signal?: AbortSignal) =>
     request<WorkspaceAccess>(`/workspaces/${key(id)}/permissions`, { signal }),
   members: (id: string, page = 1, signal?: AbortSignal) =>

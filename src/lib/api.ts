@@ -348,6 +348,8 @@ export type ReviewCandidate = {
 };
 
 export type ReviewDecisionSummary = {
+  operation_id?: string | null;
+  undo_items?: { input_record_key: string; expected_version: number }[];
   id: string;
   decision: string;
   previous_result_type?: string | null;
@@ -382,6 +384,13 @@ export type ReviewDecisionSummary = {
 };
 
 export type ReviewItem = {
+  version?: number;
+  operation_id?: string | null;
+  actions?: { review: boolean; propose: boolean; requires_proposal: boolean };
+  integrity_status?: string;
+  decision_origin?: string;
+  decision_protection?: string;
+  reviewer_user_id?: number | null;
   input_record_key: string;
   status: "matched" | "possible_match" | "unmatched" | string;
   display_status?: string;
@@ -406,6 +415,8 @@ export type ReviewItem = {
 };
 
 export type ReviewCaseGroup = {
+  review_versions?: Record<string, number>;
+  review_candidates?: Record<string, string>;
   id: string;
   fingerprint: string;
   status?: "open" | "resolved" | string;
@@ -486,6 +497,10 @@ export type DuplicateDetail = {
 };
 
 export type ReviewResults = {
+  source?: 'review_states';
+  workspace_id?: string;
+  comparison_columns?: { input: string[]; reference: string[] };
+  access?: { workspace_id: string; role: string; permissions: Record<string, boolean> };
   contract_version?: 1;
   job: {
     id: string;
@@ -643,6 +658,8 @@ export type AiMatchingConfigurationSuggestion = {
 };
 
 type ReviewDecisionInput = {
+  snapshots?: ReviewItem[];
+  groupSnapshot?: ReviewCaseGroup;
   inputRecordKey: string;
   inputRecordKeys?: string[];
   matchingResultId?: string;
@@ -1048,6 +1065,7 @@ export async function fetchReviewRegionOptions(jobId: string, signal?: AbortSign
 export async function fetchReviewResults(
   jobId: string,
   params?: {
+    input_keys?: string[];
     page?: number;
     per_page?: number;
     status?: string;
@@ -1067,6 +1085,7 @@ export async function fetchReviewResults(
 ): Promise<ReviewResults> {
   const searchParams = new URLSearchParams();
   if (params) {
+    params.input_keys?.forEach((key) => searchParams.append('input_keys[]', key));
     if (params.page !== undefined && params.page !== null) searchParams.set("page", String(params.page));
     if (params.per_page !== undefined && params.per_page !== null) searchParams.set("per_page", String(params.per_page));
     const statusVal = params.status || params.filter;
@@ -1247,6 +1266,10 @@ export async function saveReviewDecision(
   jobId: string,
   input: ReviewDecisionInput,
 ): Promise<ReviewDecisionResult> {
+  if (import.meta.env.VITE_WORKSPACE_SHARING_UI === "true") {
+    const { saveVersionedReview } = await import('@/lib/versioned-review');
+    return saveVersionedReview(jobId, input);
+  }
   const response = await apiFetch(`/matching-jobs/${jobId}/review-decisions`, {
     method: "POST",
     headers: {
@@ -1547,7 +1570,12 @@ async function writeWorkspace(
 export async function undoReviewDecision(
   jobId: string,
   decisionId: string,
+  snapshot?: ReviewDecisionSummary,
 ): Promise<ReviewResults> {
+  if (import.meta.env.VITE_WORKSPACE_SHARING_UI === "true") {
+    const { undoVersionedReview } = await import('@/lib/versioned-review');
+    return undoVersionedReview(jobId, snapshot);
+  }
   const response = await apiFetch(
     `/matching-jobs/${jobId}/review-decisions/${decisionId}/undo`,
     {

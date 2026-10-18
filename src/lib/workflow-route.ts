@@ -4,6 +4,7 @@ const MAX_WORKFLOW_STEP = 3;
 export type WorkflowSearch = {
   workspace?: string;
   step?: number;
+  view?: "shared";
 };
 
 export function normalizeWorkspaceSearchValue(value: unknown) {
@@ -33,7 +34,13 @@ export function validateWorkflowSearch(search: Record<string, unknown>): Workflo
   return {
     workspace: normalizeWorkspaceSearchValue(search.workspace),
     step: normalizeWorkflowStep(search.step),
+    view: search.view === "shared" ? "shared" : undefined,
   };
+}
+
+// Missing step is a normal legacy bookmark, never a request for a different UI.
+export function usesSharedWorkspaceView(enabled: boolean, search: WorkflowSearch) {
+  return enabled && Boolean(search.workspace) && search.view === "shared";
 }
 
 export function buildMatchingSearch(workspaceId?: string | null, step?: number | null): WorkflowSearch {

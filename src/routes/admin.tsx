@@ -1,11 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { KeyRound, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, KeyRound, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { AppLayout, Card, PageHeader } from "@/components/app-layout";
 import { ErrorPanel } from "@/components/feedback-states";
+import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Dialog,
   DialogContent,
@@ -449,32 +451,28 @@ function AdminPage() {
                       <label className="text-[11px] font-medium text-muted-foreground">
                         {t("admin.owner")}
                       </label>
-                      <select
+                      <SearchableSelect
+                        aria-label={`${t("admin.owner")} ${workspace.name}`}
                         value={String(workspace.owner?.id ?? "")}
-                        onChange={(event) => changeOwner(workspace.id, event.target.value)}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs"
-                      >
-                        <option value="">{t("admin.selectOwner")}</option>
-                        {ownerOptions.map((user) => (
-                          <option key={String(user.id)} value={String(user.id)}>
-                            {user.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(value) => changeOwner(workspace.id, value)}
+                        placeholder={t("admin.selectOwner")}
+                        options={ownerOptions.map((user) => ({ value: String(user.id), label: user.name }))}
+                      />
                     </div>
 
-                    <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/40">
+                    <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground pt-3 border-t border-border/40">
                       <span className="tabular-nums">
-                        {workspace.record_count ?? "-"} records · {formatDate(workspace.updated_at)}
+                        {workspace.record_count?.toLocaleString("id-ID") ?? "-"} records · {formatDate(workspace.updated_at)}
                       </span>
-                      <Link
-                        to="/matching"
-                        search={buildMatchingSearch(workspace.id)}
-                        className="inline-flex items-center gap-1 font-semibold text-brand hover:underline p-1"
-                      >
-                        {t("monitoring.openWorkspace")}
-                      </Link>
-                      {workspaceSharingEnabled && <ManageAccessButton workspaceId={workspace.id} name={workspace.name} owner={workspace.owner?.name ?? "Tidak diketahui"} />}
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button asChild size="sm" className="h-9">
+                          <Link to="/matching" search={buildMatchingSearch(workspace.id, 1)}>
+                            {t("monitoring.openWorkspace")}
+                            <ArrowRight aria-hidden="true" />
+                          </Link>
+                        </Button>
+                        {workspaceSharingEnabled && <ManageAccessButton workspaceId={workspace.id} name={workspace.name} owner={workspace.owner?.name ?? "Tidak diketahui"} iconOnly />}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -482,14 +480,14 @@ function AdminPage() {
 
               {/* Desktop Workspaces Table View (>= sm) */}
               <div className="hidden sm:block overflow-x-auto">
-                <table className="w-full table-fixed text-sm min-w-[760px]">
+                <table className="w-full table-fixed text-sm min-w-[1040px]">
                   <colgroup>
                     <col style={{ width: "240px" }} />
                     <col style={{ width: "180px" }} />
                     <col style={{ width: "130px" }} />
                     <col style={{ width: "110px" }} />
                     <col style={{ width: "150px" }} />
-                    <col style={{ width: "130px" }} />
+                    <col style={{ width: "160px" }} />
                   </colgroup>
                   <thead className="bg-secondary/40 text-[11px] uppercase tracking-wider text-muted-foreground">
                     <tr>
@@ -505,22 +503,17 @@ function AdminPage() {
                     {workspaces.map((workspace) => (
                       <tr key={workspace.id} className="h-[68px] hover:bg-secondary/30">
                         <td className="min-w-0 px-6 py-3 align-middle">
-                          <p className="truncate font-semibold">{workspace.name}</p>
+                          <p className="truncate font-semibold" title={workspace.name}>{workspace.name}</p>
                           <p className="truncate text-[11px] text-muted-foreground">{workspace.id}</p>
                         </td>
                         <td className="px-6 py-3 align-middle">
-                          <select
+                          <SearchableSelect
+                            aria-label={`${t("admin.owner")} ${workspace.name}`}
                             value={String(workspace.owner?.id ?? "")}
-                            onChange={(event) => changeOwner(workspace.id, event.target.value)}
-                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                          >
-                            <option value="">{t("admin.selectOwner")}</option>
-                            {ownerOptions.map((user) => (
-                              <option key={String(user.id)} value={String(user.id)}>
-                                {user.name}
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(value) => changeOwner(workspace.id, value)}
+                            placeholder={t("admin.selectOwner")}
+                            options={ownerOptions.map((user) => ({ value: String(user.id), label: user.name }))}
+                          />
                         </td>
                         <td className="px-6 py-3 align-middle">
                           <span className="inline-flex rounded-full bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground">
@@ -528,20 +521,21 @@ function AdminPage() {
                           </span>
                         </td>
                         <td className="px-6 py-3 text-right align-middle tabular-nums">
-                          {workspace.record_count ?? "-"}
+                          {workspace.record_count?.toLocaleString("id-ID") ?? "-"}
                         </td>
-                        <td className="px-6 py-3 align-middle text-muted-foreground">
+                        <td className="px-6 py-3 align-middle text-xs leading-5 text-muted-foreground tabular-nums">
                           {formatDate(workspace.updated_at)}
                         </td>
-                        <td className="px-6 py-3 align-middle">
-                          <Link
-                            to="/matching"
-                            search={buildMatchingSearch(workspace.id)}
-                            className="inline-flex items-center whitespace-nowrap rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-secondary cursor-pointer"
-                          >
-                            {t("monitoring.openWorkspace")}
-                          </Link>
-                      {workspaceSharingEnabled && <ManageAccessButton workspaceId={workspace.id} name={workspace.name} owner={workspace.owner?.name ?? "Tidak diketahui"} />}
+                        <td className="px-4 py-3 align-middle">
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            <Button asChild size="sm" className="h-9">
+                              <Link to="/matching" search={buildMatchingSearch(workspace.id, 1)}>
+                                {t("monitoring.openWorkspace")}
+                                <ArrowRight aria-hidden="true" />
+                              </Link>
+                            </Button>
+                            {workspaceSharingEnabled && <ManageAccessButton workspaceId={workspace.id} name={workspace.name} owner={workspace.owner?.name ?? "Tidak diketahui"} iconOnly />}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -693,18 +687,14 @@ function UserForm({
         />
       </FormField>
       <FormField label={t("admin.role")} error={errors.role}>
-        <select
+        <SearchableSelect
+          aria-label={t("admin.role")}
           value={state.role}
-          onChange={(event) => onChange("role", event.target.value)}
+          onChange={(value) => onChange("role", value)}
           disabled={disabled}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-        >
-          {ROLES.map((role) => (
-            <option key={role} value={role}>
-              {t(`auth.role.${role}` as Parameters<typeof t>[0])}
-            </option>
-          ))}
-        </select>
+          searchable={false}
+          options={ROLES.map((role) => ({ value: role, label: t(`auth.role.${role}` as Parameters<typeof t>[0]) }))}
+        />
       </FormField>
       {includePassword ? (
         <div className="grid gap-4 sm:grid-cols-2">

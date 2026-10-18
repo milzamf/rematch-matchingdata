@@ -1,292 +1,104 @@
-# RE-MATCH — Sistem Matching Data Entitas & Acuan
+# RE-MATCH
 
-[![Laravel](https://img.shields.io/badge/Backend-Laravel%2011-FF2D20?style=for-the-badge&logo=laravel&logoColor=white)](https://laravel.com)
-[![React](https://img.shields.io/badge/Frontend-React%2019-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
-[![TanStack](https://img.shields.io/badge/Router-TanStack%20Start-FF4154?style=for-the-badge&logo=tanstack&logoColor=white)](https://tanstack.com)
-[![Tailwind CSS](https://img.shields.io/badge/Styling-Tailwind%20CSS%20v4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
-[![Meilisearch](https://img.shields.io/badge/Search%20Engine-Meilisearch-FF5CAA?style=for-the-badge&logo=meilisearch&logoColor=white)](https://www.meilisearch.com)
-[![Cloudflare](https://img.shields.io/badge/Deployment-Cloudflare%20Tunnel-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://www.cloudflare.com)
+Aplikasi pencocokan data perusahaan dari Excel/CSV ke dataset acuan, dengan review manual dan ekspor hasil.
 
-**RE-MATCH** adalah platform pencocokan data (*entity resolution & record linkage*) modern berkinerja tinggi yang dirancang untuk membersihkan, mencocokkan, dan merekonsiliasi data entitas bisnis/perusahaan antara dataset input (Excel / CSV) dengan dataset master acuan (referensi).
+## Alur penggunaan
 
-Sistem ini memadukan mesin pencarian asinkronus berbasis **Meilisearch**, algoritma pencocokan berbobot (*Weighted Linear Combination Score* - WLS), aturan pelindung numerik (*numeric guardrails*), pohon keputusan (*decision tree*) preset konstruksi, antarmuka penelaahan manual (*manual review clustering*), serta ekspor multi-sheet ke Microsoft Excel dan CSV.
+1. **Persiapan Data** — unggah acuan dan input, periksa profil data, lalu pasangkan kolom.
+2. **Aturan Pencocokan** — pilih konfigurasi dan bobot, kemudian jalankan matching.
+3. **Review & Hasil** — periksa kelompok kasus atau semua record, ambil keputusan, lalu ekspor.
 
----
+Workspace menyimpan progres. Fitur berbagi menambahkan akses Editor/Viewer pada alur tersebut; tampilan tiga langkah tetap dipertahankan.
 
-## 🚀 Fitur Unggulan
+## Fitur
 
-- **Mesin Pencarian Asinkronus & Candidate Pool 30 Kandidat:**
-  Menggunakan Meilisearch untuk pencarian teks penuh (*full-text fuzzy indexing*) berkecepatan sub-milidetik, mengevaluasi hingga 30 kandidat teratas di latar belakang dan menyajikan 3 kandidat paling relevan ke pengguna.
-- **Normalisasi Teks & Parsing Entitas:**
-  Ekstraksi cerdas bentuk badan usaha (PT, CV, UD, Koperasi, Firma, Yayasan, BUMN) dan nama inti perusahaan untuk mencegah bias pencocokan akibat perbedaan penulisan legalitas.
-- **Algoritma Fleksibel & Terkalibrasi:**
-  Mendukung *Exact Match*, *Levenshtein Distance*, *Jaro-Winkler*, *Token Set Ratio*, *Token Sort Ratio*, serta pembobotan metrik (*Weighted Score*) dinamis.
-- **Decision Tree & Guardrails Preset Konstruksi:**
-  Pohon keputusan cerdas yang memvalidasi kemiripan kota/kabupaten serta mengarahkan entitas dengan nama dan alamat identik/mirip tinggi ($\ge 90\%$) namun beda wilayah administratif ke alur reviu manual.
-- **Klastering & 6 Preset Reviu Otomatis:**
-  Pengelompokan otomatis kasus ambiguitas ke dalam 6 kategori baku:
-  1. *Konflik Identitas Legal / NIB*
-  2. *Beda Bentuk Usaha (PT/CV)*
-  3. *Kandidat Ganda (Ambiguitas Selisih Skor $\le 5\%$)*
-  4. *Beda Wilayah (Kabupaten/Kota)*
-  5. *Beda Alamat Jalan*
-  6. *Nama & Alamat Sama, Beda Kabupaten/Kota*
-  7. *Pola Dinamis & Aturan Kustom Heuristik*
-- **Ekspor Cerdas Multi-Sheet XLSX & CSV:**
-  Menyediakan opsi ekspor pemutakhiran master data dengan memisahkan hasil ke dalam sheet tersendiri: `Matched`, `New Entity (Unmatched)`, dan `Semua Data`.
-- **UI Responsif & Aksesibilitas Terstandarisasi:**
-  Dibangun dengan prinsip *Anti-Slop*, mikrokopi netral, kontras tinggi, navigasi keyboard penuh, dan visualisasi distribusi skor.
+- Normalisasi nama, badan usaha, alamat, serta kode provinsi/kabupaten/kota melalui MFD.
+- Strict Exact Pass dan pencarian kandidat Meilisearch, dilanjutkan similarity per kolom, WLS, serta verifikasi konflik.
+- Kelompok kasus, pencarian, filter wilayah/skor, dan sorting similarity.
+- Pilihan kolom pembanding per job. Default: nama perusahaan, badan usaha, alamat, dan kabupaten/kota. Semua kolom default dapat disembunyikan.
+- Keputusan versioned, one-to-one assignment, Undo per operasi, usulan revisi, dan approval Owner/Admin.
+- Ekspor CSV dan Excel. **Format data acuan + audit matching** menghasilkan dua sheet:
+  - `Data Acuan`: hanya pasangan efektif Matched, dengan nama/urutan kolom dan nilai asli acuan. Tidak melakukan enrichment.
+  - `Audit Matching`: seluruh input beserta status, keputusan, key acuan, versi, WLS, dan similarity per pasangan kolom.
 
----
+Skor similarity bukan probabilitas bahwa dua perusahaan pasti sama. Akurasi nyata belum dapat dinyatakan sebelum sampel diverifikasi petugas.
 
-## 🏛️ Arsitektur Sistem
+## Teknologi
 
-```mermaid
-graph TD
-    subgraph Client ["Frontend (Client Layer)"]
-        UI["React 19 + TanStack Start"]
-        State["TanStack Query + Context"]
-        Proxy["Vite Dev Server Proxy (/api, /sanctum)"]
-    end
+| Bagian | Teknologi |
+| --- | --- |
+| Frontend | React 19, TypeScript, TanStack Start/Router/Query, Vite 8, Tailwind CSS |
+| Backend | PHP 8.3+, Laravel 13, Sanctum |
+| Database | MySQL 8 / InnoDB |
+| Pencarian | Meilisearch |
+| Penyimpanan kerja | SQLite untuk spill/cache/checkpoint, file sumber di storage backend |
+| Eksekusi | Docker Compose, queue worker |
 
-    subgraph Tunnel ["Ingress & Deployment Layer"]
-        CF["Cloudflare Tunnel (cloudflared)"]
-    end
+## Menjalankan pengembangan lokal
 
-    subgraph Server ["Backend (API Layer)"]
-        Laravel["Laravel 11 REST API"]
-        Pipeline["Matching Engine Pipeline"]
-        Scorer["Similarity Scorer (TokenSet, Levenshtein, Jaro)"]
-        ReviewSvc["Review & Clustering Service"]
-    end
+Prasyarat: Docker Desktop/Compose dan Node.js yang kompatibel dengan dependency proyek. Untuk pengembangan tanpa container backend, diperlukan PHP 8.3+, Composer, MySQL, serta ekstensi PHP yang digunakan proyek.
 
-    subgraph Data ["Data & Storage Layer"]
-        DB[("MySQL 8.0 / SQLite")]
-        Meili[("Meilisearch Search Engine")]
-        Storage["Local Disk / Datasets"]
-    end
-
-    Client -->|HTTPS / WSS| CF
-    CF -->|Reverse Proxy| UI
-    CF -->|API Calls| Laravel
-    UI --> Proxy
-    Proxy --> Laravel
-    Laravel --> DB
-    Laravel --> Meili
-    Laravel --> Pipeline
-    Pipeline --> Scorer
-    Pipeline --> Storage
-    ReviewSvc --> DB
+```sh
+npm ci
 ```
 
----
+Gunakan `.env.example` dan `backend/.env.example` sebagai referensi konfigurasi. Atur kredensial lokal sendiri; jangan commit `.env`, dump database, backup, atau token.
 
-## 💻 Panduan Instalasi & Menjalankan Secara Lokal
-
-### Prasyarat Sistem
-- **Node.js**: Versi `v20.x` atau `v22.x` (LTS) & `npm`
-- **PHP**: Versi `8.2` atau `8.3` dengan ekstensi: `pdo`, `pdo_mysql`, `pdo_sqlite`, `mbstring`, `openssl`, `curl`, `fileinfo`
-- **Composer**: Versi `2.x`
-- **Meilisearch**: Versi `v1.12+` (Binary lokal atau Docker)
-- **Database**: MySQL `8.0+` atau SQLite
-
----
-
-### Opsi 1: Menjalankan Menggunakan Docker Compose (Direkomendasikan)
-
-Jika Anda memiliki Docker dan Docker Compose yang terpasang di komputer:
-
-1. **Clone repositori:**
-   ```bash
-   git clone https://github.com/milzamf/rematch-matchingdata.git
-   cd rematch-matchingdata
-   ```
-
-2. **Jalankan seluruh stack kontainer:**
-   ```bash
-   docker compose up -d
-   ```
-   *Stack ini secara otomatis menginisialisasi MySQL (port 3306), Meilisearch (port 7700), Laravel API (port 8000), Queue Worker, dan Frontend (port 8090 & 5173).*
-
-3. **Migrasi dan inisialisasi database di dalam kontainer:**
-   ```bash
-   docker compose exec backend php artisan migrate --seed
-   ```
-
-4. **Buka aplikasi di peramban:**
-   - Frontend: `http://localhost:8090`
-   - Backend API: `http://localhost:8000/api`
-   - Meilisearch: `http://localhost:7700`
-
----
-
-### Opsi 2: Menjalankan Secara Manual (Native Local)
-
-#### 1. Setup Backend (Laravel)
-
-```bash
-cd backend
-
-# Salin file konfigurasi lingkungan
-cp .env.example .env
-
-# Instal dependensi PHP
-composer install
-
-# Buat application key
-php artisan key:generate
-
-# Konfigurasi database di .env (contoh SQLite atau MySQL lokal):
-# DB_CONNECTION=sqlite (pastikan database/database.sqlite dibuat)
-# atau gunakan MySQL lokal:
-# DB_CONNECTION=mysql
-# DB_HOST=127.0.0.1
-# DB_PORT=3306
-# DB_DATABASE=rematch
-# DB_USERNAME=root
-# DB_PASSWORD=
-
-# Jalankan migrasi dan seeder
-php artisan migrate --seed
-
-# Jalankan server backend API
-php artisan serve --port=8000
+```sh
+docker compose up -d --build
 ```
 
-#### 2. Menjalankan Engine Meilisearch
+Alamat bawaan:
 
-Unduh binary Meilisearch untuk OS Anda (Windows/macOS/Linux), lalu jalankan pada port default `7700`:
+- Aplikasi: http://localhost:8090
+- API backend: http://localhost:8000/api
 
-```bash
-# Windows PowerShell:
-.\meilisearch.exe --master-key rematch_meili_master_key --http-addr 127.0.0.1:7700
+Untuk frontend lokal di luar container:
 
-# Linux / macOS:
-./meilisearch --master-key rematch_meili_master_key --http-addr 127.0.0.1:7700
-```
-
-#### 3. Setup Frontend (React 19 + TanStack)
-
-Buka terminal baru di direktori utama (*root*) repositori:
-
-```bash
-# Instal dependensi JavaScript
-npm install
-
-# Jalankan server pengembangan Vite
+```sh
+# Atur VITE_API_PROXY_TARGET=http://localhost:8000 pada lingkungan lokal.
 npm run dev
 ```
 
-Aplikasi frontend akan aktif di `http://localhost:8090` atau `http://localhost:5173`. Seluruh permintaan API ke `/api/*` dan `/sanctum/*` akan diproksikan secara otomatis ke backend Laravel di `http://localhost:8000`.
+Jangan menjalankan migrasi/backfill pada database berisi data pengguna sebagai bagian dari setup otomatis. Deployment Workspace Sharing menggunakan guard, readiness, drain writer, dan bukti recovery yang dijelaskan pada dokumentasi cutover.
 
----
+## Review dan keamanan data
 
-## 🌐 Integrasi Cloudflare Tunnel
+Ketika sharing aktif, tampilan review menggunakan `review_states` sebagai satu-satunya sumber keputusan efektif. `review_decisions` tetap menjadi histori append-only. Penulisan memakai versi yang ditampilkan kepada pengguna, pemeriksaan akses, dan constraint assignment acuan. Konflik tidak di-retry otomatis.
 
-Cloudflare Tunnel (`cloudflared`) memungkinkan aplikasi **RE-MATCH** diakses secara publik dan aman melalui jaringan global Cloudflare dengan sertifikat SSL/TLS otomatis tanpa perlu membuka port (*port forwarding*) di router atau memiliki IP publik statis.
+Operasi kolektif versioned dibatasi **50 record per operasi**, sesuai kontrak concurrency service. Undo memulihkan satu operasi lengkap dan menolak operasi yang sudah ditimpa keputusan baru. Keputusan reviewer lain menggunakan usulan revisi.
 
-### 1. Instalasi CLI `cloudflared`
+Ketika flag nonaktif, jalur legacy tetap tersedia sesuai konfigurasi deployment. Jangan mencampur writer legacy dan versioned, melewati integrity hold, atau mengaktifkan sharing untuk job yang belum ready.
 
-- **Windows (winget / choco):**
-  ```powershell
-  winget install --id Cloudflare.cloudflared
-  # atau
-  choco install cloudflared
-  ```
-- **macOS (Homebrew):**
-  ```bash
-  brew install cloudflared
-  ```
-- **Linux (Debian/Ubuntu):**
-  ```bash
-  curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-  sudo dpkg -i cloudflared.deb
-  ```
+## Efisiensi matching dan penyimpanan
 
-### 2. Autentikasi Cloudflare
+- Jumlah kandidat yang dicari terpisah dari jumlah kandidat yang disimpan. Pool awal dibatasi; pencarian diperluas untuk hasil yang belum meyakinkan dan terpotong oleh limit.
+- Pruning hanya boleh mengabaikan satu kandidat jika batas atas WLS membuktikan kandidat tersebut tidak dapat masuk top N. Skor kandidat awal tidak menghentikan seluruh pencarian.
+- Cache memasukkan nilai normalisasi dan identitas hasil ekstraksi, sehingga nama berbeda tidak memakai cache kosong yang sama.
+- Migrasi additive `2026_10_19_000001_create_matching_record_snapshots.php` menyediakan snapshot acuan berbasis hash. Setelah tersedia, hasil baru menyimpan acuan sekali dan input pada kandidat utama. Pembaca tetap mendukung format lama.
+- Migrasi ini tidak memadatkan hasil historis secara otomatis. Angka penghematan produksi dan waktu matching penuh harus diukur tersendiri; tidak dijamin oleh fixture kecil.
+- Kolom historis yang tidak tersimpan ditandai pada review. Ekspor acuan memeriksa file sumber jika snapshot lama tidak lengkap, dan menolak ekspor bila baris asli tidak dapat dibuktikan.
 
-```bash
-cloudflared tunnel login
-```
-*Perintah ini akan membuka peramban untuk memilih domain Cloudflare Anda dan mengunduh sertifikat otorisasi (`cert.pem`).*
+## Pemeriksaan terarah
 
-### 3. Membuat Tunnel
-
-```bash
-cloudflared tunnel create rematch-tunnel
-```
-*Simpan `Tunnel-ID` (UUID) yang dihasilkan.*
-
-### 4. Konfigurasi `config.yml`
-
-Buat berkas konfigurasi tunnel di `~/.cloudflared/config.yml` (atau `%USERPROFILE%\.cloudflared\config.yml` di Windows):
-
-```yaml
-tunnel: <TUNNEL_UUID_ANDA>
-credentials-file: C:\Users\<USERNAME>\.cloudflared\<TUNNEL_UUID_ANDA>.json
-
-ingress:
-  # 1. Routing Domain Frontend (React / TanStack)
-  - hostname: rematch.domainanda.com
-    service: http://localhost:8090
-    originRequest:
-      noTLSVerify: false
-      httpHostHeader: localhost:8090
-
-  # 2. Routing Domain Backend API (Opsional jika ingin subdomain terpisah)
-  # - hostname: api-rematch.domainanda.com
-  #   service: http://localhost:8000
-
-  # 3. Catch-all rule (Wajib di akhir)
-  - service: http_status:404
-```
-
-### 5. Menghubungkan DNS Hostname ke Tunnel
-
-```bash
-cloudflared tunnel route dns rematch-tunnel rematch.domainanda.com
-```
-
-### 6. Menjalankan Cloudflare Tunnel
-
-- **Mode Uji Coba Cepat (Quick Ad-hoc Tunnel):**
-  ```bash
-  cloudflared tunnel --url http://localhost:8090
-  ```
-- **Mode Produksi (Berbasis Berkas Konfigurasi):**
-  ```bash
-  cloudflared tunnel run rematch-tunnel
-  ```
-- **Menjalankan sebagai Background Service:**
-  ```bash
-  cloudflared service install
-  cloudflared service start
-  ```
-
----
-
-## 🧪 Pengujian & Verifikasi Kualitas
-
-Repositori dilengkapi rangkaian pengujian unit dan fitur komprehensif:
-
-```bash
-# Menjalankan seluruh pengujian backend (PHPUnit)
-cd backend
-php artisan test
-
-# Menjalankan pengujian spesifik pohon keputusan matching
-php artisan test tests/Feature/PresetKonstruksiDecisionTreeTest.php
-
-# Menjalankan pengujian hirarki aturan review
-php artisan test tests/Feature/ReviewRulesHierarchyTest.php
-
-# Memeriksa kompilasi frontend dan tipe data TypeScript
-cd ..
+```sh
+node scripts/test-workflow-route.mjs
+npx tsc --noEmit
 npm run build
+
+docker exec rematch-backend php artisan test --compact --filter='MatchingCandidateRecallTest|AddressNormalizationTest|MatchingPayloadCodecTest|ReviewContractTest|TabularWorkbookTest'
 ```
 
----
+Tes unit di atas menggunakan konfigurasi `backend/phpunit.xml` dengan SQLite memory. `backend/scripts/test_review_refresh_mysql.php` hanya menerima host/database fixture yang telah ditentukan dan menguji integrasi pada MySQL terisolasi. Jangan mengarahkannya ke database utama.
 
-## 📄 Lisensi & Kontribusi
+`backend/scripts/prepare_manual_matching_sample.php` menyediakan ekstraksi read-only maksimal 50 pasangan dari job ready. Label petugas selalu kosong. File sampel dan data hasil ekstraksi disimpan lokal, tidak dipublikasikan ke Git.
 
-Proyek ini dikembangkan untuk kebutuhan standardisasi matching data dan rekonsiliasi entitas bisnis. Seluruh hak cipta dilindungi undang-undang.
+## Dokumentasi
+
+- [Kontrak review](docs/REVIEW_CONTRACT_V1.md)
+- [Skema review](docs/REVIEW_SCHEMA_STAGE2.md)
+- [Sesi pengembangan terakhir](docs/SESSION.md)
+- [Status implementasi](docs/IMPLEMENTATION_STATUS.md)
+- [Catatan perubahan](docs/CHANGELOG.md)
+
+Repository terhubung dengan Lovable. Hindari force push atau menulis ulang histori commit yang sudah dipublikasikan.

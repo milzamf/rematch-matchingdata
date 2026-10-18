@@ -68,6 +68,7 @@ export function ApprovalInbox({
           ? "Usulan disetujui"
           : "Usulan ditolak; keputusan sebelumnya dipertahankan",
       );
+      window.dispatchEvent(new Event('rematch:review-changed'));
       setResolving(null);
       await reload();
       await client.invalidateQueries({ queryKey: ["stage5a", "review", jobId] });

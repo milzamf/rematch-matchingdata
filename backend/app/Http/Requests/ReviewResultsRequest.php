@@ -13,6 +13,8 @@ class ReviewResultsRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'input_keys' => 'sometimes|array|max:100',
+            'input_keys.*' => 'required|string|max:255',
             'sort' => 'sometimes|in:record_order,similarity_desc,similarity_asc',
             'similarity_min' => 'nullable|numeric|between:0,100',
             'similarity_max' => 'nullable|numeric|between:0,100',

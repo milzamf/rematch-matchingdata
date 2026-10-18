@@ -11,6 +11,7 @@ use App\Services\Matching\MatchingPayloadCodec;
 
 class MatchingResult extends Model
 {
+    private static array $inputSnapshots = [];
     use HasFactory, HasUuids;
 
     protected $fillable = [
@@ -52,6 +53,32 @@ class MatchingResult extends Model
     public function reviewDecisions(): HasMany
     {
         return $this->hasMany(ReviewDecision::class, 'matching_result_id');
+    }
+
+    public function getCandidateMetadataAttribute(mixed $value): ?array
+    {
+        if ($value === null) return null;
+        $metadata = is_array($value) ? $value : json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+        if (isset($metadata['_reference_snapshot'])) {
+            $metadata['reference_record'] = \App\Services\Matching\MatchingRecordSnapshots::load($metadata['_reference_snapshot']);
+        }
+        if (isset($metadata['_input_primary'])) {
+            if ((string) $metadata['_input_primary'] !== (string) $this->input_record_key) throw new \RuntimeException('Input snapshot identity mismatch.');
+            $key = $this->matching_job_id.':key:'.$metadata['_input_primary'];
+            if (! isset(self::$inputSnapshots[$key])) {
+                $query = self::where('matching_job_id', $this->matching_job_id)->where('input_record_key', (string) $metadata['_input_primary'])->where('candidate_rank', 1);
+                if ($this->getConnection()->getDriverName() === 'mysql') $query->whereRaw('BINARY input_record_key = BINARY ?', [(string) $metadata['_input_primary']]);
+                $primary = $query->first(['matching_job_id', 'input_record_key', 'candidate_metadata']);
+                if (! $primary) throw new \RuntimeException('Immutable input snapshot is unavailable.');
+                if (count(self::$inputSnapshots) >= 128) array_shift(self::$inputSnapshots);
+                self::$inputSnapshots[$key] = $primary->candidate_metadata['input_record'] ?? [];
+            }
+            $metadata['input_record'] = self::$inputSnapshots[$key];
+        } elseif (isset($metadata['input_record']) && $this->matching_job_id !== null) {
+            if (count(self::$inputSnapshots) >= 128) array_shift(self::$inputSnapshots);
+            self::$inputSnapshots[$this->matching_job_id.':key:'.$this->input_record_key] = $metadata['input_record'];
+        }
+        return $metadata;
     }
 
     /** Read historical JSON columns and lossless evidence stored with new metadata. */
