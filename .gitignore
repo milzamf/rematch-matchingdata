@@ -72,7 +72,7 @@ backend/inspect_*.php
 backend/test_meili.php
 backend/count_results.php
 
-# Generated analysis stays local; source code and reproducible tests stay versioned.
+# Generated analysis stays local.
 /graphify-out/
 backend/app/Services/Matching/graphify-out/cache/
 /review/shared-e2e.json
@@ -99,5 +99,30 @@ backend/app/Services/Matching/graphify-out/cache/
 /docs/*_UAT*.md
 /docs/*_UAT_RESULTS.json
 
-# Canonical published diagrams remain in docs/flowcharts/.
+# Diagrams and development documents stay local.
 /flowcharts/
+/docs/
+/.agents/
+/.codex/
+/.lovable/plan.md
+/AGENTS.md
+/PRD.md
+/PROJECT_HANDOVER.md
+/logo_branding_showcase.md
+
+# Local testing and development helpers are not part of the application release.
+/playwright/
+/playwright*.config.ts
+/scripts/
+/backend/tests/
+/backend/phpunit.xml
+/backend/README.md
+/backend/scripts/*
+!/backend/scripts/evaluate_manual_matching_sample.php
+!/backend/scripts/prepare_manual_matching_sample.php
+
+# Convenience launchers remain local; Docker Compose is the deployment entry point.
+/docker*.bat
+/docker-restart.ps1
+/run.bat
+/stop.bat

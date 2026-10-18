@@ -60,7 +60,7 @@ Untuk frontend lokal di luar container:
 npm run dev
 ```
 
-Jangan menjalankan migrasi/backfill pada database berisi data pengguna sebagai bagian dari setup otomatis. Deployment Workspace Sharing menggunakan guard, readiness, drain writer, dan bukti recovery yang dijelaskan pada dokumentasi cutover.
+Jangan menjalankan migrasi/backfill pada database berisi data pengguna sebagai bagian dari setup otomatis. Deployment Workspace Sharing memerlukan guard, readiness, drain writer, dan bukti recovery yang telah diverifikasi.
 
 ## Review dan keamanan data
 
@@ -80,17 +80,12 @@ Ketika flag nonaktif, jalur legacy tetap tersedia sesuai konfigurasi deployment.
 - Pembacaan snapshot dibatch per halaman, terikat ke koneksi database model, dan memverifikasi hash. Kolom generated tetap tersedia tanpa mengubah nilai asli acuan. Checkpoint menolak resume jika snapshot acuannya hilang.
 - Kolom historis yang tidak tersimpan ditandai pada review. Ekspor acuan memeriksa file sumber jika snapshot lama tidak lengkap, dan menolak ekspor bila baris asli tidak dapat dibuktikan.
 
-## Pemeriksaan terarah
+## Pemeriksaan build
 
 ```sh
-node scripts/test-workflow-route.mjs
 npx tsc --noEmit
 npm run build
-
-docker exec rematch-backend php artisan test --compact --filter='MatchingCandidateRecallTest|AddressNormalizationTest|MatchingPayloadCodecTest|ReviewContractTest|TabularWorkbookTest'
 ```
-
-Tes unit di atas menggunakan konfigurasi `backend/phpunit.xml` dengan SQLite memory. `backend/scripts/test_review_refresh_mysql.php` hanya menerima host/database fixture yang telah ditentukan dan menguji integrasi pada MySQL terisolasi. Jangan mengarahkannya ke database utama.
 
 `backend/scripts/prepare_manual_matching_sample.php` menyediakan ekstraksi read-only maksimal 50 pasangan dari job ready. Label petugas selalu kosong. File sampel dan data hasil ekstraksi disimpan lokal, tidak dipublikasikan ke Git.
 
@@ -101,14 +96,5 @@ php backend/scripts/evaluate_manual_matching_sample.php --file=/path/sampel-revi
 ```
 
 Header Excel default di baris 6 pada sheet `Review Manual`; CSV default di baris 1. Evaluator mengabaikan label kosong/Belum pasti, memisahkan keputusan manual dari auto-match, dan tidak mengubah threshold. Sampel purposif ini tidak membuktikan akurasi populasi atau recall kandidat.
-
-## Dokumentasi
-
-- [Kontrak review](docs/REVIEW_CONTRACT_V1.md)
-- [Skema review](docs/REVIEW_SCHEMA_STAGE2.md)
-- [Arsitektur aplikasi](docs/ARCHITECTURE.md)
-- [Struktur database](docs/DATABASE.md)
-- [Eksekusi final dan pengamanan rollback](docs/DEPLOYMENT.md)
-- [Catatan perubahan](docs/CHANGELOG.md)
 
 Repository terhubung dengan Lovable. Hindari force push atau menulis ulang histori commit yang sudah dipublikasikan.
