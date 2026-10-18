@@ -106,8 +106,8 @@ Header Excel default di baris 6 pada sheet `Review Manual`; CSV default di baris
 
 - [Kontrak review](docs/REVIEW_CONTRACT_V1.md)
 - [Skema review](docs/REVIEW_SCHEMA_STAGE2.md)
-- [Sesi pengembangan terakhir](docs/SESSION.md)
-- [Status implementasi](docs/IMPLEMENTATION_STATUS.md)
+- [Arsitektur aplikasi](docs/ARCHITECTURE.md)
+- [Struktur database](docs/DATABASE.md)
 - [Eksekusi final dan pengamanan rollback](docs/DEPLOYMENT.md)
 - [Catatan perubahan](docs/CHANGELOG.md)
 

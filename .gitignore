@@ -1,0 +1,103 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+.output
+.vinxi
+.tanstack/**
+.nitro
+*.local
+test-results/
+playwright-report/
+coverage/
+
+# Wrangler / Cloudflare
+.wrangler/
+.dev.vars
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# SQLite & Databases
+*.sqlite
+*.sqlite-journal
+backend/database/*.sqlite
+backend/database/*.sqlite-journal
+# Executables & Search Engines
+*.exe
+data.ms/
+backend/data.ms/
+
+# Backend storage & vendor
+backend/vendor/
+backend/storage/app/private/
+backend/storage/app/public/
+backend/storage/framework/
+backend/storage/logs/
+backend/bootstrap/cache/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Large archives and database dumps
+*.tar
+*.tar.gz
+*.zip
+*.sql
+
+# Temporary backend scratch / debug scripts
+backend/*_backfill.php
+backend/inspect_*.php
+backend/test_meili.php
+backend/count_results.php
+
+# Generated analysis stays local; source code and reproducible tests stay versioned.
+/graphify-out/
+backend/app/Services/Matching/graphify-out/cache/
+/review/shared-e2e.json
+
+
+/review/shared-uat.json
+/review/uat-*.csv
+/review/uat-*.sql
+/review/shared-legacy.json
+/.codegraph/
+/review/backups/
+
+# Manual evaluation artifacts contain real source data; keep them local.
+/review/manual-labels/
+/outputs/manual-review-*/
+
+# Generated review evidence and local development reports
+/review/
+/docs/PROJECT_FILE_INVENTORY.md
+/docs/SESSION.md
+/docs/IMPLEMENTATION_STATUS.md
+/docs/*BENCHMARK*.json
+/docs/*_QA.md
+/docs/*_UAT*.md
+/docs/*_UAT_RESULTS.json
+
+# Canonical published diagrams remain in docs/flowcharts/.
+/flowcharts/
