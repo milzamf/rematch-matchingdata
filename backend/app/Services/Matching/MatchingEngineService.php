@@ -206,6 +206,8 @@ class MatchingEngineService
 
     private function runAdmittedJob(MatchingJob $job): array
     {
+        // Queue workers may reuse this service after a deployment adds snapshot storage.
+        $this->snapshotStorageAvailable = MatchingRecordSnapshots::available();
         if (ini_get('memory_limit') !== '-1') {
             @ini_set('memory_limit', '1024M');
         }
@@ -1591,13 +1593,15 @@ class MatchingEngineService
                     $exactRefs = [];
                     foreach ($referenceByKey->exactMatches('mandatory', $compKey) as $exactRef) {
                         $exactRefs[] = $exactRef;
-                        if (count($exactRefs) >= $topN) break;
+                        if (count($exactRefs) >= max(2, $topN)) break;
                     }
                     if ($exactRefs !== []) {
                         $exactMatchFound = true;
+                        $exactStatus = count($exactRefs) > 1 ? 'possible_match' : 'matched';
+                        $exactRefs = array_slice($exactRefs, 0, $topN);
                         $candidatesScoredForThisRecord += count($exactRefs);
                         $summaryDelta['candidates_scored'] += count($exactRefs);
-                        $summaryDelta['matched']++;
+                        $summaryDelta[$exactStatus]++;
 
                         foreach ($exactRefs as $rank => $exactRef) {
                             $exactFieldScores = $this->calculateFieldScores($inputRecord, $exactRef, $mappings);
@@ -1607,10 +1611,10 @@ class MatchingEngineService
                                 'is_exact_match' => true,
                                 'bypassed_fuzzy' => true,
                                 'initial_classification' => 'matched',
-                                'final_classification' => 'matched',
+                                'final_classification' => $exactStatus,
                                 'weighted_similarity' => 100.0,
-                                'downgraded' => false,
-                                'downgrade_reason' => null,
+                                'downgraded' => $exactStatus !== 'matched',
+                                'downgrade_reason' => $exactStatus !== 'matched' ? 'multiple_exact_references' : null,
                                 'rules_evaluated' => [],
                                 'summary' => [
                                     'total_rules' => 0,
@@ -1628,8 +1632,8 @@ class MatchingEngineService
                                 100.0,
                                 $rank + 1,
                                 $exactFieldScores,
-                                'matched',
-                                'Exact match on mandatory fields (bypassed fuzzy scoring)',
+                                $exactStatus,
+                                $exactStatus === 'matched' ? 'Exact match on mandatory fields (bypassed fuzzy scoring)' : 'Multiple exact references require review',
                                 $workerSlot,
                                 $evidence,
                                 $mappings,
@@ -1683,15 +1687,16 @@ class MatchingEngineService
                             }
 
                             $validExactRefs[] = $exactRef;
-                            if (count($validExactRefs) >= $topN) break;
+                            if (count($validExactRefs) >= max(2, $topN)) break;
                         }
 
                         if (! empty($validExactRefs)) {
                             $exactMatchFound = true;
+                            $exactStatus = count($validExactRefs) > 1 ? 'possible_match' : 'matched';
                             $exactRefs = array_slice($validExactRefs, 0, $topN);
                             $candidatesScoredForThisRecord += count($exactRefs);
                             $summaryDelta['candidates_scored'] += count($exactRefs);
-                            $summaryDelta['matched']++;
+                            $summaryDelta[$exactStatus]++;
 
                             foreach ($exactRefs as $rank => $exactRef) {
                                 $exactFieldScores = $this->calculateFieldScores($inputRecord, $exactRef, $mappings);
@@ -1701,10 +1706,10 @@ class MatchingEngineService
                                     'is_exact_match' => true,
                                     'bypassed_fuzzy' => true,
                                     'initial_classification' => 'matched',
-                                    'final_classification' => 'matched',
+                                    'final_classification' => $exactStatus,
                                     'weighted_similarity' => 100.0,
-                                    'downgraded' => false,
-                                    'downgrade_reason' => null,
+                                    'downgraded' => $exactStatus !== 'matched',
+                                    'downgrade_reason' => $exactStatus !== 'matched' ? 'multiple_exact_references' : null,
                                     'rules_evaluated' => [],
                                     'summary' => [
                                         'total_rules' => 0,
@@ -1722,8 +1727,8 @@ class MatchingEngineService
                                     100.0,
                                     $rank + 1,
                                     $exactFieldScores,
-                                    'matched',
-                                    'Exact match pada seluruh atribut entitas (Gelondongan / Composite Exact)',
+                                    $exactStatus,
+                                    $exactStatus === 'matched' ? 'Exact match pada seluruh atribut entitas (Gelondongan / Composite Exact)' : 'Multiple exact references require review',
                                     $workerSlot,
                                     $evidence,
                                     $mappings,
@@ -1742,7 +1747,7 @@ class MatchingEngineService
                 }
                 $memoizationCache[$cacheKey] = [
                     'results' => $exactMatchResults,
-                    'status' => 'matched',
+                    'status' => $exactStatus,
                     'candidates_scored' => $candidatesScoredForThisRecord,
                 ];
                 continue;
@@ -2828,14 +2833,16 @@ class MatchingEngineService
         if ($useSnapshots && $rank > 1) $metadata['_input_primary'] = (string) $inputRecord['key'];
         else $metadata['input_record'] = $leanInput;
         if ($useSnapshots && $leanReference !== null) $metadata['_reference_snapshot'] = MatchingRecordSnapshots::store($leanReference);
-        else $metadata['reference_record'] = $leanReference;
         if (! empty($referenceRecord['normalized'])) {
             foreach ($referenceRecord['normalized'] as $normK => $normV) {
                 if (str_starts_with($normK, '[Generated]') && ! isset($leanReference[$normK]) && $normV !== null && $normV !== '') {
                     $leanReference[$normK] = $normV;
+                    if ($useSnapshots) $metadata['_reference_generated'][$normK] = $normV;
                 }
             }
         }
+
+        if (! $useSnapshots || $leanReference === null) $metadata['reference_record'] = $leanReference;
 
         return [
             // Time-ordered UUIDs keep new InnoDB writes local instead of scattering

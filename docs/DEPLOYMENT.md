@@ -1,25 +1,17 @@
-# Deployment Guide
+# Eksekusi final RE-MATCH
 
-Status: Draft
+Prosedur terpadu ini disiapkan untuk persetujuan pengguna, **belum dijalankan pada database utama**. Gunakan bukti backup/restore dan UAT terdahulu; jangan mengulang benchmark atau seeding besar. Kelengkapan kode bukan bukti GO operasional. Kalibrasi threshold berbasis label tetap menunggu penilaian petugas.
 
-Planned deployment:
+1. **Pemeriksaan dan drain.** Setelah mendapat izin, cocokkan database/release/ledger dengan bukti recovery dan backup yang sudah ada. Periksa kapasitas, transaksi panjang, metadata lock, queue aktif, dan freeze/admission lock bersama. Freeze writer dan hentikan worker secara graceful; tunggu batch committed, simpan checkpoint. Jangan DDL bila masih ada writer atau bukti pemulihan tidak cocok. Semua instance harus memakai release dan inode lock yang sama.
+2. **Migrasi additive saja.** Jalankan hanya migrasi pending yang telah diverifikasi di bawah `ReviewDeploymentFence::withMaintenance`. Untuk rilis ini: `2026_10_19_000001_create_matching_record_snapshots.php`. Jangan menjalankan ulang migrasi review yang sudah selesai atau menjalankan `migrate` tanpa path. Gunakan batas waktu metadata lock pendek; DDL MySQL tidak dapat dibatalkan sebagai satu transaksi. Jika tabel sudah terbentuk tetapi ledger belum tercatat, cocokkan struktur dahulu; jangan mengulang atau mencatat ledger secara buta. Tabel snapshot harus InnoDB dengan PK hash 64 karakter dan payload utuh. Tidak ada pemadatan atau backfill snapshot historis.
+3. **Readiness dan validasi.** Pertahankan semua histori/keputusan. Untuk job completed yang belum ready dan benar-benar diperlukan, gunakan `ReviewStateBackfill::prepare/apply` dengan artifact/checkpoint existing dan chunk terbatas; jangan mengulang job selesai. Jangan membungkus `apply` dengan maintenance lock tambahan. Validasi cardinality key string, histori/actor, assignment unik/hold, statistik dan proyeksi skor memakai pemeriksaan existing. Integrity hold lokal tetap ditahan. Reader sharing hanya boleh menerima job completed, schema version 1, readiness ready. Snapshot lama inline tetap valid; snapshot baru harus tersedia dan hash cocok. Checkpoint v4 tidak memakai kembali hasil klasifikasi versi sebelumnya; checkpoint lama tetap disimpan.
+4. **Integrasi dan aktivasi terbatas.** Setelah seluruh gerbang lulus, aktifkan pasangan backend `WORKSPACE_ACCESS_ENABLED` dan `REVIEW_STATE_TRANSACTIONS_ENABLED` bersama konfigurasi production/attestation release yang benar; build frontend dengan `VITE_WORKSPACE_SHARING_UI` yang sama. Jika sharing sudah aktif, pertahankan state versioned dan konfigurasi yang konsisten; jangan menonaktifkannya untuk kembali ke histori legacy. Jalur legacy yang belum kompatibel tetap ditutup oleh guard server. Jangan membuka matching/config writer legacy hanya karena UI menampilkan wizard. Smoke singkat: login pengguna sendiri, workflow tiga langkah, Bagikan Workspace/Kelola Akses, Editor/Viewer, keputusan/revisi/approval/Undo dengan versi aktual, HTTP 409 tanpa retry otomatis, filter dan ekspor. Gunakan fixture integrasi terisolasi untuk penulisan; jangan membuat keputusan pengguna sebagai tes. Buka layanan dan worker yang kompatibel hanya setelah lolos.
 
-Frontend:
-- React
-- Vite
+## Penghentian dan recovery
 
-Backend:
-- Laravel
+- Gagal drain/DDL/readiness/permission/integritas: hentikan aktivasi, pertahankan freeze yang diperlukan dan checkpoint, catat sebab; jangan memaksakan ready atau menghapus hold.
+- Sebelum snapshot dipakai, migrasi snapshot hanya boleh dibatalkan jika guard `down()` membuktikan tidak ada hasil yang mereferensikannya. Setelah dipakai, pertahankan tabel dan gunakan perbaikan maju; jangan menghapus bukti immutable atau menurunkan release ke pembaca yang tidak memahami pointer.
+- Sebelum ada keputusan versioned baru, rollback shadow hanya melalui `ReviewStateBackfill::rollback` dengan artifact cocok dan pemeriksaan kepemilikan/version existing. Jangan `migrate:rollback` foundation.
+- Setelah ada keputusan baru, recovery **forward-only**. Pertahankan `review_states`, operasi, audit, snapshot, dan versi terbaru; gunakan Undo append-only/service yang tersedia bila sesuai. Jangan menghidupkan writer legacy atau menimpa database dengan backup lama.
 
-Database:
-- MySQL / PostgreSQL
-
-Environment:
-- Development
-- Staging
-- Production
-
-Future:
-- Docker
-- Nginx
-- Cloudflare
+Tidak ada langkah di atas yang mengizinkan perubahan database utama tanpa persetujuan eksplisit. Jika bukti backup tidak lagi mencakup titik pemulihan yang diperlukan, hentikan dan laporkan; jangan membuat backup/restore berat otomatis.

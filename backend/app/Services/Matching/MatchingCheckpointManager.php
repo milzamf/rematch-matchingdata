@@ -141,7 +141,7 @@ class MatchingCheckpointManager
         ];
 
         return hash('sha256', json_encode([
-            'engine_version' => 'bounded-recall-snapshot-v3',
+            'engine_version' => 'bounded-recall-snapshot-v4',
             'ref' => $referenceDatasetId,
             'inp' => $inputDatasetId,
             'map' => $normalizedMappings,
@@ -351,6 +351,11 @@ class MatchingCheckpointManager
 
             // If target job in MySQL doesn't have the results yet (e.g. new job created upon restart/rerun),
             // insert the cached results from SQLite in batches.
+            // Check dependencies even when resuming the same job with existing rows.
+            while ($chunkRow = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                MatchingRecordSnapshots::assertReferences(MatchingPayloadCodec::decode($chunkRow['results_json']));
+            }
+            $stmt->execute([':key' => $checkpointKey]);
             if ($existingCountInDb === 0) {
                 $nowFormatted = Carbon::now()->toDateTimeString();
                 $rowsToInsert = [];

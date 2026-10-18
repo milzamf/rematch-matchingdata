@@ -15,14 +15,15 @@ class MatchingPayloadCodec
         return strlen($encoded) < strlen($json) ? $encoded : $json;
     }
 
-    public static function decode(string $payload): array
+    public static function decode(string $payload, ?int $maxBytes = null): array
     {
         if (str_starts_with($payload, 'gz1:')) {
             $bytes = base64_decode(substr($payload, 4), true);
-            $json = $bytes === false ? false : @gzdecode($bytes);
-            if ($json === false) throw new \RuntimeException('Invalid compressed matching payload.');
+            $json = $bytes === false ? false : @gzdecode($bytes, $maxBytes === null ? 0 : $maxBytes + 1);
+            if ($json === false) throw new \RuntimeException($maxBytes === null ? 'Invalid compressed matching payload.' : 'Invalid compressed matching payload or hydration budget exceeded.');
             $payload = $json;
         }
+        if ($maxBytes !== null && strlen($payload) > $maxBytes) throw new \RuntimeException('Matching payload exceeds the hydration budget.');
         $decoded = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
         if (!is_array($decoded)) throw new \RuntimeException('Invalid matching payload structure.');
         return $decoded;

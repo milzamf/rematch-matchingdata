@@ -37,6 +37,13 @@ class MatchingPayloadCodecTest extends TestCase
         MatchingPayloadCodec::decode('gz1:invalid!');
     }
 
+    public function test_hydration_budget_rejects_a_small_compressed_but_large_decoded_payload(): void
+    {
+        $payload = MatchingPayloadCodec::encode(['data' => str_repeat('original ', 1000)]);
+        $this->expectExceptionMessage('hydration budget');
+        MatchingPayloadCodec::decode($payload, 128);
+    }
+
     public function test_compact_scores_preserve_explanation_and_sql_quality_projection(): void
     {
         $fields = array_fill(0, 5, ['reference_column' => 'alamat', 'input_column' => 'address', 'score' => 92,

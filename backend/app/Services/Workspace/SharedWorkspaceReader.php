@@ -201,10 +201,15 @@ final class SharedWorkspaceReader
 
     private function candidate(object $row): array
     {
+        $model = $row instanceof \App\Models\MatchingResult ? $row : null;
+        $row = $model ? (object) $model->getAttributes() : $row;
         $metadata = $this->decode($row->candidate_metadata) ?? [];
         if (isset($metadata['_reference_snapshot']) || isset($metadata['_input_primary'])) {
-            $model = new \App\Models\MatchingResult;
-            $model->setRawAttributes((array) $row);
+            if (! $model) {
+                $model = new \App\Models\MatchingResult;
+                $model->setConnection($this->db->getName());
+                $model->setRawAttributes((array) $row);
+            }
             $metadata = $model->candidate_metadata;
             $this->decodedBytes += strlen(json_encode([$metadata['input_record'] ?? [], $metadata['reference_record'] ?? []], JSON_THROW_ON_ERROR));
             if ($this->decodedBytes > 2097152) throw new ReviewWriteConflict('reader_payload_too_large', [], 413);
@@ -221,7 +226,13 @@ final class SharedWorkspaceReader
     {
         $sizes = (clone $query)->select('id')->selectRaw('COALESCE(OCTET_LENGTH(candidate_metadata),0)+COALESCE(OCTET_LENGTH(field_scores),0)+COALESCE(OCTET_LENGTH(verification_evidence),0) AS bytes')->get();
         if ($sizes->sum('bytes') > 2097152) throw new ReviewWriteConflict('reader_payload_too_large', ['max_bytes' => 2097152], 413);
-        return $this->db->table('matching_results')->whereIn('id', $sizes->pluck('id')->all())->orderBy('candidate_rank')->orderBy('id')->get();
+        $rows = $this->db->table('matching_results')->whereIn('id', $sizes->pluck('id')->all())->orderBy('candidate_rank')->orderBy('id')->get()->map(function ($row) {
+            $model = new \App\Models\MatchingResult;
+            $model->setConnection($this->db->getName());
+            return $model->setRawAttributes((array) $row);
+        });
+        \App\Models\MatchingResult::preloadSnapshots($rows);
+        return $rows;
     }
 
     private function decode(?string $json): ?array

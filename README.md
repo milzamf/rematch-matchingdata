@@ -42,7 +42,7 @@ Prasyarat: Docker Desktop/Compose dan Node.js yang kompatibel dengan dependency 
 npm ci
 ```
 
-Gunakan `.env.example` dan `backend/.env.example` sebagai referensi konfigurasi. Atur kredensial lokal sendiri; jangan commit `.env`, dump database, backup, atau token.
+Gunakan `backend/.env.example` sebagai referensi konfigurasi backend; variabel frontend memakai awalan `VITE_`. Atur kredensial lokal sendiri; jangan commit `.env`, dump database, backup, atau token.
 
 ```sh
 docker compose up -d --build
@@ -77,6 +77,7 @@ Ketika flag nonaktif, jalur legacy tetap tersedia sesuai konfigurasi deployment.
 - Cache memasukkan nilai normalisasi dan identitas hasil ekstraksi, sehingga nama berbeda tidak memakai cache kosong yang sama.
 - Migrasi additive `2026_10_19_000001_create_matching_record_snapshots.php` menyediakan snapshot acuan berbasis hash. Setelah tersedia, hasil baru menyimpan acuan sekali dan input pada kandidat utama. Pembaca tetap mendukung format lama.
 - Migrasi ini tidak memadatkan hasil historis secara otomatis. Angka penghematan produksi dan waktu matching penuh harus diukur tersendiri; tidak dijamin oleh fixture kecil.
+- Pembacaan snapshot dibatch per halaman, terikat ke koneksi database model, dan memverifikasi hash. Kolom generated tetap tersedia tanpa mengubah nilai asli acuan. Checkpoint menolak resume jika snapshot acuannya hilang.
 - Kolom historis yang tidak tersimpan ditandai pada review. Ekspor acuan memeriksa file sumber jika snapshot lama tidak lengkap, dan menolak ekspor bila baris asli tidak dapat dibuktikan.
 
 ## Pemeriksaan terarah
@@ -93,12 +94,21 @@ Tes unit di atas menggunakan konfigurasi `backend/phpunit.xml` dengan SQLite mem
 
 `backend/scripts/prepare_manual_matching_sample.php` menyediakan ekstraksi read-only maksimal 50 pasangan dari job ready. Label petugas selalu kosong. File sampel dan data hasil ekstraksi disimpan lokal, tidak dipublikasikan ke Git.
 
+Setelah petugas mengisi Excel sampel, evaluasi dapat dijalankan offline tanpa koneksi database:
+
+```sh
+php backend/scripts/evaluate_manual_matching_sample.php --file=/path/sampel-review-matching.xlsx
+```
+
+Header Excel default di baris 6 pada sheet `Review Manual`; CSV default di baris 1. Evaluator mengabaikan label kosong/Belum pasti, memisahkan keputusan manual dari auto-match, dan tidak mengubah threshold. Sampel purposif ini tidak membuktikan akurasi populasi atau recall kandidat.
+
 ## Dokumentasi
 
 - [Kontrak review](docs/REVIEW_CONTRACT_V1.md)
 - [Skema review](docs/REVIEW_SCHEMA_STAGE2.md)
 - [Sesi pengembangan terakhir](docs/SESSION.md)
 - [Status implementasi](docs/IMPLEMENTATION_STATUS.md)
+- [Eksekusi final dan pengamanan rollback](docs/DEPLOYMENT.md)
 - [Catatan perubahan](docs/CHANGELOG.md)
 
 Repository terhubung dengan Lovable. Hindari force push atau menulis ulang histori commit yang sudah dipublikasikan.

@@ -489,6 +489,7 @@ class ReviewResultService
      */
     private function transformResultsToItems($results, $latestDecisions, $decisionHistory, array $customRules = []): \Illuminate\Support\Collection
     {
+        MatchingResult::preloadSnapshots($results);
         return $results->groupBy('input_record_key')->map(function ($group, string $inputKey) use ($latestDecisions, $decisionHistory, $customRules) {
             /** @var \Illuminate\Support\Collection<int, MatchingResult> $group */
             $group = $group->sortBy('candidate_rank')->values();

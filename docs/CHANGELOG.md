@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 2026-10-19: complete snapshot page batching, connection isolation, generated-column overlays, bounded decompression and checkpoint dependency checks; force InnoDB for the pending additive migration. Detect ambiguous exact references even at top N = 1. Add offline manual-label evaluation and fix prefixed/sparse XLSX import. Prepare one integrated activation/recovery procedure; main database and feature flags untouched, empirical calibration still awaits labels.
+
 - 2026-10-19: restore established workspace/navigation UI, connect review to current versioned states/CAS/Undo, add selectable comparison columns and reference-format XLSX with audit. Prepare 50 unlabeled manual-review pairs locally. Fix generated-name memoization, bounded candidate expansion and provable per-candidate pruning; extend address suffix normalization. Add immutable reference snapshots for new results through an additive migration (not applied to main). Historical results and production flags unchanged.
 
 - Backup utama atas izin eksplisit: snapshot InnoDB terkompresi 4.044.149.000 byte, gzip tervalidasi dan checksum tercatat lokal; restore tetap belum terbukti. Tidak ada schema/data/flag utama yang diubah; arsip tidak di-stage.

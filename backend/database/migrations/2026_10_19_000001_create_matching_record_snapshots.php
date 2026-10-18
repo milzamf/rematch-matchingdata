@@ -8,6 +8,7 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('matching_record_snapshots', function (Blueprint $table) {
+            $table->engine = 'InnoDB';
             $table->char('id', 64)->primary();
             $table->longText('payload');
             $table->timestamp('created_at')->useCurrent();

@@ -1,5 +1,9 @@
 # RE-MATCH Database Design
 
+### Snapshot hasil baru (19 Oktober 2026, belum dimigrasikan ke utama)
+
+Migrasi additive `2026_10_19_000001_create_matching_record_snapshots.php` menambah tabel InnoDB `matching_record_snapshots` (PK SHA-256 64 karakter, payload lossless, created_at). Acuan asli disimpan berdasarkan hash; kolom generated adalah overlay terpisah pada kandidat. Input tetap tersedia sekali pada rank 1, kandidat lain memakai pointer string dalam job yang sama. Format inline lama tetap dibaca. Pembaca memverifikasi hash, koneksi, dan identitas input, serta memuat snapshot dalam batch halaman terbatas. Batas payload acuan 2 MiB/baris, 16 MiB per batch hydration. JSON pointer tidak mempunyai FK fisik; engine menerbitkan snapshot sebelum hasil/checkpoint, dan resume menolak dependensi hilang. `down()` menolak menghapus tabel yang masih direferensikan. Tidak melakukan pemadatan atau perubahan data historis.
+
 ### Tahap 3 reconciliation schema (2026-10-13, isolated only)
 
 Approved additive migration `2026_10_13_000003_create_review_reconciliation_holds.php`

@@ -64,7 +64,8 @@ class XlsxDatasetParser implements DatasetParserInterface
         try {
             while ($reader->read()) {
                 if ($reader->nodeType === XMLReader::ELEMENT && $reader->localName === 'row') {
-                    $rowCounter++;
+                    $position = $reader->getAttribute('r');
+                    $rowCounter = $position !== null && ctype_digit($position) ? (int) $position : $rowCounter + 1;
 
                     if ($rowCounter < $headerRow) {
                         continue;
@@ -161,7 +162,8 @@ class XlsxDatasetParser implements DatasetParserInterface
         try {
             while ($reader->read()) {
                 if ($reader->nodeType === XMLReader::ELEMENT && $reader->localName === 'row') {
-                    $rowCounter++;
+                    $position = $reader->getAttribute('r');
+                    $rowCounter = $position !== null && ctype_digit($position) ? (int) $position : $rowCounter + 1;
 
                     if ($rowCounter < $headerRow) {
                         continue;
@@ -308,7 +310,7 @@ class XlsxDatasetParser implements DatasetParserInterface
         $rels = $this->loadXml($relsXml, 'The XLSX workbook relationships could not be parsed.');
         $relationshipMap = [];
 
-        foreach ($rels->Relationship as $relationship) {
+        foreach ($rels->children('http://schemas.openxmlformats.org/package/2006/relationships')->Relationship as $relationship) {
             $attributes = $relationship->attributes();
             $target = (string) $attributes['Target'];
             $relationshipMap[(string) $attributes['Id']] = str_starts_with($target, '/')
@@ -319,7 +321,7 @@ class XlsxDatasetParser implements DatasetParserInterface
         $workbook->registerXPathNamespace('rel', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
         $sheets = [];
 
-        foreach ($workbook->sheets->sheet as $sheet) {
+        foreach ($workbook->children('http://schemas.openxmlformats.org/spreadsheetml/2006/main')->sheets->sheet as $sheet) {
             $attributes = $sheet->attributes();
             $relAttributes = $sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships');
             $relationshipId = (string) $relAttributes['id'];

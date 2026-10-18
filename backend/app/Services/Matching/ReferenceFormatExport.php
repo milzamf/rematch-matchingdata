@@ -46,6 +46,7 @@ final class ReferenceFormatExport
                 $decisions = $versioned ? collect() : ReviewDecision::where('matching_job_id', $jobId)->whereIn('input_record_key', $keys)->whereNull('undone_at')->orderByDesc('created_at')->orderByDesc('id')->get()->unique('input_record_key')->keyBy('input_record_key');
                 $selected = $versioned ? $batch->pluck('selected_matching_result_id')->filter()->all() : $decisions->pluck('matching_result_id')->filter()->all();
                 $results = MatchingResult::where('matching_job_id', $jobId)->whereIn('input_record_key', $keys)->where(fn ($r) => $r->where('candidate_rank', 1)->orWhereIn('id', $selected))->get();
+                MatchingResult::preloadSnapshots($results);
                 $primary = $results->where('candidate_rank', 1)->keyBy('input_record_key'); $byId = $results->keyBy('id');
                 foreach ($batch as $state) {
                     $last = $state->id;
