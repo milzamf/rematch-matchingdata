@@ -335,6 +335,7 @@ function LegacyMatchingPage() {
   const [runState, setRunState] = useState<RunState>("idle");
   const [progress, setProgress] = useState(0);
   const [runResult, setRunResult] = useState<MatchingRunResult | null>(null);
+  const [workspaceJobId, setWorkspaceJobId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
@@ -427,7 +428,7 @@ function LegacyMatchingPage() {
   }));
   const workspaceStatus = deriveWorkspaceStatus(activeStep, runState);
   const hasPreviousRun = Boolean(
-    runResult !== null ||
+    (workspaceSharingEnabled && workspaceJobId) || runResult !== null ||
       workspaceStatus === "reviewing" ||
       workspaceStatus === "completed" ||
       runState === "success",
@@ -800,6 +801,7 @@ function LegacyMatchingPage() {
         setMatchingConfiguration(restoredConfiguration);
         setRunState(restoredRunState);
         setProgress(restoredProgress);
+        setWorkspaceJobId(workspace.matching_job_id ?? restoredRunResult?.job.id ?? null);
         setRunResult(restoredRunResult);
         setRunError(restoredRunError);
         setSyncState(restoredSyncState);
@@ -873,6 +875,7 @@ function LegacyMatchingPage() {
           setRunState("idle");
           setProgress(0);
           setRunResult(null);
+          setWorkspaceJobId(null);
           setRunError(null);
           setSyncState(null);
           setExportHistory([]);
@@ -951,7 +954,7 @@ function LegacyMatchingPage() {
       restoringWorkspaceRef.current ||
       !canUpdateWorkspace ||
       runState === "running" ||
-      (workspaceSharingEnabled && Boolean(runResult?.job.id)) ||
+      (workspaceSharingEnabled && Boolean(workspaceJobId || runResult?.job.id)) ||
       reference?.status === "loading" ||
       input?.status === "loading" ||
       isInspectingUpload
@@ -1004,6 +1007,7 @@ function LegacyMatchingPage() {
     input,
     reference,
     runResult,
+    workspaceJobId,
     runState,
     activeStep,
     syncState,
@@ -1101,11 +1105,12 @@ function LegacyMatchingPage() {
     setRunState("running");
     setProgress(0);
     setRunError(null);
-    setRunResult(null);
+    // Keep the existing job/result until the server accepts a replacement run.
+    if (!workspaceSharingEnabled) setRunResult(null);
     setSyncState(null);
 
     try {
-      if (workspaceSharingEnabled && workspaceIdRef.current && !runResult?.job.id) {
+      if (workspaceSharingEnabled && workspaceIdRef.current && !workspaceJobId && !runResult?.job.id) {
         await updateWorkspace(workspaceIdRef.current, {
           name: workspaceName, status: "configuring", currentStep: 2,
           referenceDatasetId: reference.result.dataset.id, inputDatasetId: input.result.dataset.id,
@@ -1174,6 +1179,7 @@ function LegacyMatchingPage() {
         },
       });
 
+      setWorkspaceJobId(result.job.id);
       setRunResult(result);
       const initialStatus = result.job.status;
 
@@ -1413,7 +1419,7 @@ function LegacyMatchingPage() {
 
       setIsNavigatingStep(true);
       try {
-        if (workspaceIdRef.current && canUpdateWorkspace) {
+        if (workspaceIdRef.current && canUpdateWorkspace && !(workspaceSharingEnabled && (workspaceJobId || runResult?.job.id))) {
           setWorkspaceSaveState("saving");
           try {
             await updateWorkspace(workspaceIdRef.current, {
@@ -1723,11 +1729,22 @@ function LegacyMatchingPage() {
                         }
                       }}
                       onStop={() => setIsCancelConfirmOpen(true)}
-                      onRetry={() => {
-                        setRunState("idle");
-                        setProgress(0);
-                        setRunResult(null);
-                        setRunError(null);
+                      onRetry={async () => {
+                        try {
+                          if (workspaceSharingEnabled && workspaceIdRef.current) {
+                            const latest = await fetchWorkspace(workspaceIdRef.current);
+                            setWorkspaceJobId(latest.matching_job_id ?? latest.matching_job?.id ?? null);
+                            const latestResult = jobToRunResult(latest);
+                            if (latestResult) setRunResult(latestResult);
+                          } else {
+                            setRunResult(null);
+                          }
+                          setRunState("idle");
+                          setProgress(0);
+                          setRunError(null);
+                        } catch (error) {
+                          setRunError(error instanceof Error ? error.message : t("workspace.loadFailed"));
+                        }
                       }}
                       onProceed={() => selectStep(3)}
                       canRun={canRunMatching}
@@ -1802,12 +1819,12 @@ function LegacyMatchingPage() {
           title={hasPreviousRun ? t("matching.run.rerunDialogTitle") : t("feedback.confirm.runTitle")}
           description={
             hasPreviousRun
-              ? t("matching.run.rerunDialogDesc")
+              ? t(workspaceSharingEnabled ? "matching.run.rerunPreserveDesc" : "matching.run.rerunDialogDesc")
               : t("feedback.confirm.runDesc")
           }
           cancelLabel={t("common.cancel")}
-          actionLabel={hasPreviousRun ? t("matching.run.rerunOverwrite") : t("matching.run.start")}
-          onConfirm={startRun}
+          actionLabel={hasPreviousRun ? t(workspaceSharingEnabled ? "matching.run.rerunPreserve" : "matching.run.rerunOverwrite") : t("matching.run.start")}
+          onConfirm={() => startRun({ forceRestart: workspaceSharingEnabled && runResult?.job.status === "completed" })}
         />
         <ConfirmationDialog
           open={isCancelConfirmOpen}
@@ -5164,7 +5181,7 @@ function StepRunCard({
               ? hasResumableCheckpoint
                 ? "Tersedia checkpoint tersimpan dari proses sebelumnya."
                 : hasPreviousRun
-                  ? t("matching.run.rerunIdleDesc")
+                  ? t(workspaceSharingEnabled ? "matching.run.rerunPreserveIdleDesc" : "matching.run.rerunIdleDesc")
                   : t("matching.run.idleDesc")
               : state === "running"
                 ? t("matching.run.progressTitle")
@@ -5205,7 +5222,7 @@ function StepRunCard({
                 className="inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground shadow hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
               >
                 {hasPreviousRun ? <RefreshCw className="size-4" /> : <Play className="size-4" />}
-                <span>{hasPreviousRun ? t("matching.run.rerunOverwrite") : t("matching.run.start")}</span>
+                <span>{hasPreviousRun ? t(workspaceSharingEnabled ? "matching.run.rerunPreserve" : "matching.run.rerunOverwrite") : t("matching.run.start")}</span>
               </button>
             )
           )}
