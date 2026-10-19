@@ -8,6 +8,8 @@ use App\Models\Dataset;
 use App\Models\MatchingJob;
 use App\Models\Workspace;
 use App\Support\Auth\ResourceOwnership;
+use App\Services\Workspace\DraftWorkspaceService;
+use App\Services\Matching\Transactions\ReviewDeploymentFence;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -42,6 +44,11 @@ class WorkspaceController extends Controller
     public function store(WorkspaceRequest $request): JsonResponse
     {
         $data = $request->validated();
+        if (ReviewDeploymentFence::legacyBlocked()) {
+            $workspace = app(DraftWorkspaceService::class)->save($request->user(), $data);
+            return response()->json(['success' => true, 'data' => $this->payload($workspace->load(['user', 'referenceDataset.columns', 'inputDataset.columns', 'matchingJob']))], 201);
+        }
+        unset($data['expected_version']);
         $this->assertLinkedResources($request, $data);
 
         $workspace = Workspace::create([
@@ -81,8 +88,13 @@ class WorkspaceController extends Controller
 
     public function update(WorkspaceRequest $request, string $workspace): JsonResponse
     {
+        if (ReviewDeploymentFence::legacyBlocked()) {
+            $model = app(DraftWorkspaceService::class)->save($request->user(), $request->validated(), $workspace);
+            return response()->json(['success' => true, 'data' => $this->payload($model->load(['user', 'referenceDataset.columns', 'inputDataset.columns', 'matchingJob', 'matchingJobs']))]);
+        }
         $model = $this->ownership->findWorkspace($request->user(), $workspace);
         $data = $request->validated();
+        unset($data['expected_version']);
         $this->assertLinkedResources($request, $data);
 
         // Safety: If workspace already has a completed matching job, prevent stale client autosave from reverting matching_job_id or overwriting completed runResult
@@ -142,6 +154,7 @@ class WorkspaceController extends Controller
             'name' => $workspace->name,
             'status' => $workspace->status,
             'current_step' => $workspace->current_step,
+            'configuration_version' => $workspace->configuration_version === null ? null : (int) $workspace->configuration_version,
             'reference_dataset_id' => $workspace->reference_dataset_id,
             'input_dataset_id' => $workspace->input_dataset_id,
             'matching_job_id' => $activeJob?->id ?? $workspace->matching_job_id,
@@ -187,6 +200,7 @@ class WorkspaceController extends Controller
             'name' => $workspace->name,
             'status' => $workspace->status,
             'current_step' => $workspace->current_step,
+            'configuration_version' => $workspace->configuration_version === null ? null : (int) $workspace->configuration_version,
             'reference_dataset_id' => $workspace->reference_dataset_id,
             'input_dataset_id' => $workspace->input_dataset_id,
             'matching_job_id' => $activeJob?->id ?? $workspace->matching_job_id,

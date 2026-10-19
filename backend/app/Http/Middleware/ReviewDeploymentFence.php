@@ -24,7 +24,11 @@ final class ReviewDeploymentFence
             // to a workspace or alter matching/review state. Keep admission + freeze,
             // authentication and matching.create authorization on this upload route.
             $createsDataset = $request->isMethod('POST') && $request->is('api/datasets/inspect');
-            if (! $request->isMethodSafe() && ! $request->is('api/stage5a/*') && ! $createsDataset) {
+            // These routes dispatch to DraftWorkspaceService in shared mode. That
+            // service refuses any workspace with a job, and requires a current version.
+            $draftWorkspace = ($request->isMethod('POST') && $request->is('api/workspaces'))
+                || ($request->isMethod('PATCH') && preg_match('#^api/workspaces/[^/]+$#D', $request->path()));
+            if (! $request->isMethodSafe() && ! $request->is('api/stage5a/*') && ! $createsDataset && ! $draftWorkspace) {
                 if (Fence::legacyBlocked() && $request->is('api/matching-jobs/*/review-decisions*')) {
                     throw new \App\Services\Matching\Transactions\ReviewWriteConflict('legacy_review_write_disabled');
                 }

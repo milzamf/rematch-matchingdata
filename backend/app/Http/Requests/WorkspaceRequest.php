@@ -20,6 +20,7 @@ class WorkspaceRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'expected_version' => ['nullable', 'integer', 'min:1'],
             'name' => ['nullable', 'string', 'max:160'],
             'status' => ['nullable', Rule::in([
                 'draft',

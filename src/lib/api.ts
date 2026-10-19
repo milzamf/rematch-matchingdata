@@ -136,6 +136,7 @@ export type WorkspaceSummary = {
   name: string;
   status: WorkspaceStatus | string;
   current_step: number;
+  configuration_version?: number | null;
   reference_dataset_id: string | null;
   input_dataset_id: string | null;
   matching_job_id: string | null;
@@ -223,6 +224,7 @@ export type MonitoringOverview = {
 };
 
 type WorkspaceInput = {
+  expectedVersion?: number;
   name?: string;
   status?: WorkspaceStatus;
   currentStep?: number;
@@ -1488,6 +1490,18 @@ export async function fetchMonitoringOverview(): Promise<MonitoringOverview> {
   return payload.data;
 }
 
+const workspaceVersions = new Map<string, number>();
+const blockedWorkspaceSaves = new Set<string>();
+const workspaceSaveQueues = new Map<string, Promise<WorkspaceSummary>>();
+function rememberWorkspaceVersion(workspace: WorkspaceSummary) {
+  const version = workspace.configuration_version;
+  if (typeof version === "number" && Number.isSafeInteger(version) && version > 0) {
+    workspaceVersions.set(workspace.id, version);
+    blockedWorkspaceSaves.delete(workspace.id);
+  }
+  return workspace;
+}
+
 export async function createWorkspace(input: WorkspaceInput): Promise<WorkspaceSummary> {
   return writeWorkspace(`${API_BASE_URL}/workspaces`, "POST", input);
 }
@@ -1507,14 +1521,34 @@ export async function fetchWorkspace(id: string): Promise<WorkspaceSummary> {
     );
   }
 
-  return payload.data;
+  return rememberWorkspaceVersion(payload.data);
 }
 
 export async function updateWorkspace(
   id: string,
   input: WorkspaceInput,
 ): Promise<WorkspaceSummary> {
-  return writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", input);
+  if (import.meta.env.VITE_WORKSPACE_SHARING_UI !== "true") {
+    return writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", input);
+  }
+  // Serialize local autosave/upload/rename writes; never retry a rejected write.
+  const previous = workspaceSaveQueues.get(id);
+  const write = Promise.resolve(previous).catch(() => undefined).then(async () => {
+    const version = input.expectedVersion ?? workspaceVersions.get(id);
+    if (blockedWorkspaceSaves.has(id) || version === undefined) {
+      throw new ApiError("Muat ulang workspace sebelum menyimpan kembali. Perubahan sebelumnya belum terkonfirmasi.", 409);
+    }
+    try {
+      return await writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", { ...input, expectedVersion: version });
+    } catch (error) {
+      blockedWorkspaceSaves.add(id);
+      throw error;
+    }
+  });
+  workspaceSaveQueues.set(id, write);
+  const clear = () => { if (workspaceSaveQueues.get(id) === write) workspaceSaveQueues.delete(id); };
+  void write.then(clear, clear);
+  return write;
 }
 
 export async function deleteWorkspace(id: string): Promise<void> {
@@ -1546,6 +1580,7 @@ async function writeWorkspace(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
+      expected_version: input.expectedVersion,
       name: input.name,
       status: input.status,
       current_step: input.currentStep,
@@ -1568,7 +1603,7 @@ async function writeWorkspace(
     );
   }
 
-  return payload.data;
+  return rememberWorkspaceVersion(payload.data);
 }
 
 export async function undoReviewDecision(
