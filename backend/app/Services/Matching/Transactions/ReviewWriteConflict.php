@@ -14,6 +14,14 @@ final class ReviewWriteConflict extends HttpException
 
     public function render(): JsonResponse
     {
-        return response()->json(['success' => false, 'code' => $this->reason, 'details' => $this->details], $this->getStatusCode());
+        $message = match ($this->reason) {
+            'legacy_workspace_write_disabled' => 'Penyimpanan atau perubahan workspace melalui jalur lama masih dibatasi saat Workspace Sharing aktif. Data belum disimpan.',
+            'legacy_review_write_disabled' => 'Keputusan review harus disimpan melalui layanan review terbaru. Muat ulang workspace.',
+            'review_deployment_frozen', 'review_deployment_busy' => 'Layanan sedang dalam pemeliharaan. Coba kembali setelah pemeliharaan selesai.',
+            default => null,
+        };
+        return response()->json(array_filter([
+            'success' => false, 'code' => $this->reason, 'details' => $this->details, 'message' => $message,
+        ], static fn ($value) => $value !== null), $this->getStatusCode());
     }
 }

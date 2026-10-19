@@ -20,7 +20,11 @@ final class ReviewDeploymentFence
         // Keep session login/logout/bootstrap available, not business endpoints.
         if ($request->is('api/*') && ! $request->is('api/login', 'api/logout', 'api/me')) {
             if (Fence::frozen()) Fence::assertWritable();
-            if (! $request->isMethodSafe() && ! $request->is('api/stage5a/*')) {
+            // Inspection creates a new, actor-owned dataset only. It cannot attach it
+            // to a workspace or alter matching/review state. Keep admission + freeze,
+            // authentication and matching.create authorization on this upload route.
+            $createsDataset = $request->isMethod('POST') && $request->is('api/datasets/inspect');
+            if (! $request->isMethodSafe() && ! $request->is('api/stage5a/*') && ! $createsDataset) {
                 if (Fence::legacyBlocked() && $request->is('api/matching-jobs/*/review-decisions*')) {
                     throw new \App\Services\Matching\Transactions\ReviewWriteConflict('legacy_review_write_disabled');
                 }
