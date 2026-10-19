@@ -8,7 +8,7 @@ import { AccessDeniedState } from "@/components/access-denied-state";
 import { workspaceSharingEnabled } from "@/lib/workspace-access";
 import { SharedMatching } from "@/components/workspace-access/shared-matching";
 import { ManageAccessButton } from "@/components/workspace-access/access-management";
-import { ReviewComparisonColumns, ComparisonAvailableColumns, ComparisonRecord } from '@/components/review-comparison-columns';
+import { ReviewComparisonColumns, ComparisonAvailableColumns, ComparisonRecord, ComparisonColumnControls } from '@/components/review-comparison-columns';
 import { ReviewRevisionButton } from '@/components/workspace-access/review-revision-button';
 import { ApprovalInbox } from '@/components/workspace-access/approval-inbox';
 import { AppLayout, PageHeader, Card } from "@/components/app-layout";
@@ -6527,6 +6527,8 @@ function StepReviewContent({
             </div>
           </div>
 
+          <ComparisonColumnControls />
+
           <div className="mb-2 flex h-5 justify-end">
             {loading && isCurrentPage && <RefreshIndicator label={t("common.updating")} />}
           </div>
@@ -7516,6 +7518,8 @@ function GroupReviewSubview({
             ) : null}
           </div>
         </div>
+
+        <div className="px-4 pt-3"><ComparisonColumnControls /></div>
 
         <div className="overflow-auto">
           <table className="w-full min-w-[1180px] text-sm">

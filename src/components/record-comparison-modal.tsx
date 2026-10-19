@@ -23,6 +23,7 @@ import {
 import type { ReviewItem, ReviewCandidate } from "@/lib/api";
 import { formatLegalFormDisplay, type IdentityFieldPair } from "@/lib/result-identity";
 import { normalizeLegalForm } from "@/lib/data-normalizer";
+import { ComparisonColumnControls, ComparisonRecordDetails, useHasComparisonColumns } from "@/components/review-comparison-columns";
 import { LegalEntityDictionaryDialog } from "@/components/legal-entity-dictionary-dialog";
 
 class ModalErrorBoundary extends Component<
@@ -519,6 +520,7 @@ export function RecordComparisonModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, hasPrev, hasNext, handlePrev, handleNext, onClose]);
 
+  const hasComparisonColumns = useHasComparisonColumns();
   const inputData = useMemo(() => item?.input_record ?? {}, [item]);
   const referenceData = useMemo(() => currentCandidate?.reference_record ?? {}, [currentCandidate]);
 
@@ -736,6 +738,7 @@ export function RecordComparisonModal({
           <div className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 space-y-4 sm:space-y-6">
             {activeTab === "overview" ? (
               <>
+                <ComparisonColumnControls />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                   <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-4.5 relative overflow-hidden flex flex-col justify-between">
                     <div>
@@ -752,7 +755,7 @@ export function RecordComparisonModal({
                         {inputName}
                       </h3>
                       <div className="space-y-1.5 text-xs">
-                        {overviewData.rows.map((row) => (
+                        {hasComparisonColumns ? <ComparisonRecordDetails record={inputData} side="input" /> : overviewData.rows.map((row) => (
                           <div
                             key={`input-${row.key}`}
                             className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
@@ -786,7 +789,7 @@ export function RecordComparisonModal({
                             {referenceName}
                           </h3>
                           <div className="space-y-1.5 text-xs">
-                            {overviewData.rows.map((row) => (
+                            {hasComparisonColumns ? <ComparisonRecordDetails record={referenceData} side="reference" /> : overviewData.rows.map((row) => (
                               <div
                                 key={`ref-${row.key}`}
                                 className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
