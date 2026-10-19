@@ -34,7 +34,8 @@ class RunMatchingJob implements ShouldQueue
 
     private function handleAdmitted(MatchingEngineService $engine): void
     {
-        \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable(true);
+        \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable();
+        if (!\App\Services\Matching\SharedMatchingLifecycle::enabled()) \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable(true);
         if (ini_get('memory_limit') !== '-1') {
             @ini_set('memory_limit', '1024M');
         }
@@ -51,9 +52,14 @@ class RunMatchingJob implements ShouldQueue
             return;
         }
 
+        if (\App\Services\Matching\SharedMatchingLifecycle::enabled() && !\App\Services\Matching\SharedMatchingLifecycle::owns($job)) throw new \App\Services\Matching\Transactions\ReviewWriteConflict('historical_matching_protected');
+
         try {
             $engine->runJob($job);
         } catch (Throwable $exception) {
+            if ($exception instanceof \App\Services\Matching\Transactions\ReviewWriteConflict && $exception->reason === 'matching_job_busy') return;
+            $job->refresh();
+            if (in_array($job->status, ['cancelled', 'stopped'], true) || $job->review_state_readiness === 'ready') return;
             Log::error("RunMatchingJob failed for Job ID [{$this->matchingJobId}]: {$exception->getMessage()}", [
                 'trace' => $exception->getTraceAsString(),
             ]);
@@ -83,7 +89,10 @@ class RunMatchingJob implements ShouldQueue
     private function failedAdmitted(\Throwable $exception): void
     {
         // A deployment refusal must not rewrite the matching business state.
-        if (\App\Services\Matching\Transactions\ReviewDeploymentFence::legacyBlocked()) {
+        $current = MatchingJob::find($this->matchingJobId);
+        if (\App\Services\Matching\Transactions\ReviewDeploymentFence::frozen()
+            || (\App\Services\Matching\Transactions\ReviewDeploymentFence::legacyBlocked() && (!$current || !\App\Services\Matching\SharedMatchingLifecycle::owns($current)))
+            || ($current && (in_array($current->status, ['cancelled', 'stopped'], true) || $current->review_state_readiness === 'ready'))) {
             Log::warning('Matching queue admission blocked by review deployment fence.', ['job' => $this->matchingJobId]);
             return;
         }

@@ -951,6 +951,7 @@ function LegacyMatchingPage() {
       restoringWorkspaceRef.current ||
       !canUpdateWorkspace ||
       runState === "running" ||
+      (workspaceSharingEnabled && Boolean(runResult?.job.id)) ||
       reference?.status === "loading" ||
       input?.status === "loading" ||
       isInspectingUpload
@@ -1104,6 +1105,13 @@ function LegacyMatchingPage() {
     setSyncState(null);
 
     try {
+      if (workspaceSharingEnabled && workspaceIdRef.current && !runResult?.job.id) {
+        await updateWorkspace(workspaceIdRef.current, {
+          name: workspaceName, status: "configuring", currentStep: 2,
+          referenceDatasetId: reference.result.dataset.id, inputDatasetId: input.result.dataset.id,
+          workflowState: { ...workspaceSnapshot, runState: "idle", runResult: null, progress: 0, runError: null },
+        });
+      }
       const inspectedRef = reference.result.columns ?? [];
       const inspectedInp = input.result.columns ?? [];
 

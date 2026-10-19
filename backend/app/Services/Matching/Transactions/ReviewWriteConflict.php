@@ -16,6 +16,12 @@ final class ReviewWriteConflict extends HttpException
     {
         $message = match ($this->reason) {
             'legacy_workspace_write_disabled' => 'Penyimpanan atau perubahan workspace melalui jalur lama masih dibatasi saat Workspace Sharing aktif. Data belum disimpan.',
+            'matching_workspace_required' => 'Simpan workspace terlebih dahulu sebelum menjalankan matching.',
+            'matching_dataset_changed' => 'Pilihan dataset belum tersimpan atau sudah berubah. Muat ulang workspace.',
+            'matching_configuration_locked' => 'Konfigurasi job ini sudah digunakan. Gunakan workspace baru untuk konfigurasi berbeda agar hasil sebelumnya tetap terjaga.',
+            'historical_matching_protected' => 'Hasil matching yang sudah digunakan untuk review dilindungi dari penulisan ulang.',
+            'matching_source_missing', 'matching_source_changed' => 'File sumber tidak tersedia atau berubah sejak matching disiapkan. Unggah kembali pada workspace baru.',
+            'matching_job_busy' => 'Job matching sedang dikerjakan oleh worker lain.',
             'draft_workspace_only' => 'Workspace ini sudah memiliki proses atau hasil matching. Perubahan draft tidak diizinkan agar hasil dan histori tetap aman.',
             'draft_payload_not_allowed' => 'Penyimpanan draft hanya menerima persiapan data dan konfigurasi, bukan hasil matching atau review.',
             'invalid_workspace_version', 'stale_workspace_version' => 'Versi workspace sudah berubah atau belum tersedia. Muat ulang workspace sebelum menyimpan kembali.',

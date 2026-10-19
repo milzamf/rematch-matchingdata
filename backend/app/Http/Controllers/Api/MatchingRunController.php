@@ -25,6 +25,8 @@ class MatchingRunController extends Controller
                 'success' => true,
                 'data' => $this->engine->run($request->user(), $request->validated()),
             ]);
+        } catch (\App\Services\Matching\Transactions\ReviewWriteConflict $exception) {
+            return $exception->render();
         } catch (InvalidArgumentException $exception) {
             return response()->json([
                 'success' => false,

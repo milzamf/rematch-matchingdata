@@ -237,6 +237,7 @@ type WorkspaceInput = {
 };
 
 export type MatchingRunResult = {
+  workspace?: { id: string; configuration_version: number } | null;
   job: {
     id: string;
     name: string | null;
@@ -995,6 +996,14 @@ export async function fetchWorkspaceStandardizedPreview(
 }
 
 export async function runMatching(input: RunMatchingInput): Promise<MatchingRunResult> {
+  if (import.meta.env.VITE_WORKSPACE_SHARING_UI === "true") {
+    if (!input.workspaceId) throw new ApiError("Simpan workspace sebelum menjalankan matching.", 422);
+    return queueWorkspaceWrite(input.workspaceId, version => sendMatchingRun(input, version));
+  }
+  return sendMatchingRun(input);
+}
+
+async function sendMatchingRun(input: RunMatchingInput, expectedVersion?: number): Promise<MatchingRunResult> {
   const response = await apiFetch("/matching-jobs/run", {
     method: "POST",
     signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(300000) : undefined,
@@ -1003,6 +1012,7 @@ export async function runMatching(input: RunMatchingInput): Promise<MatchingRunR
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
+      expected_workspace_version: expectedVersion,
       name: input.name,
       workspace_id: input.workspaceId,
       reference_dataset_id: input.referenceDatasetId,
@@ -1023,7 +1033,7 @@ export async function runMatching(input: RunMatchingInput): Promise<MatchingRunR
     );
   }
 
-  return payload.data;
+  return rememberMatchingWorkspace(payload.data);
 }
 
 export async function fetchMatchingJobStatus(jobId: string): Promise<MatchingRunResult> {
@@ -1043,7 +1053,7 @@ export async function fetchMatchingJobStatus(jobId: string): Promise<MatchingRun
     );
   }
 
-  return payload.data;
+  return rememberMatchingWorkspace(payload.data);
 }
 
 export type ReviewQueryFilters = {
@@ -1490,13 +1500,37 @@ export async function fetchMonitoringOverview(): Promise<MonitoringOverview> {
   return payload.data;
 }
 
+const matchingWorkspaces = new Map<string, string>();
 const workspaceVersions = new Map<string, number>();
 const blockedWorkspaceSaves = new Set<string>();
-const workspaceSaveQueues = new Map<string, Promise<WorkspaceSummary>>();
-function rememberWorkspaceVersion(workspace: WorkspaceSummary) {
+const workspaceSaveQueues = new Map<string, Promise<unknown>>();
+function queueWorkspaceWrite<T>(id: string, action: (version: number) => Promise<T>): Promise<T> {
+  const previous = workspaceSaveQueues.get(id);
+  const work = Promise.resolve(previous).catch(() => undefined).then(async () => {
+    const version = workspaceVersions.get(id);
+    if (blockedWorkspaceSaves.has(id) || version === undefined) throw new ApiError("Muat ulang workspace sebelum menyimpan atau menjalankan matching.", 409);
+    try { return await action(version); }
+    catch (error) { blockedWorkspaceSaves.add(id); throw error; }
+  });
+  workspaceSaveQueues.set(id, work);
+  const clear = () => { if (workspaceSaveQueues.get(id) === work) workspaceSaveQueues.delete(id); };
+  void work.then(clear, clear);
+  return work;
+}
+
+function rememberMatchingWorkspace(result: MatchingRunResult): MatchingRunResult {
+  if (result.workspace) {
+    rememberWorkspaceVersion(result.workspace);
+    matchingWorkspaces.set(result.job.id, result.workspace.id);
+  }
+  return result;
+}
+
+function rememberWorkspaceVersion<T extends { id: string; configuration_version?: number | null; matching_job_id?: string | null }>(workspace: T): T {
   const version = workspace.configuration_version;
   if (typeof version === "number" && Number.isSafeInteger(version) && version > 0) {
     workspaceVersions.set(workspace.id, version);
+    if (workspace.matching_job_id) matchingWorkspaces.set(workspace.matching_job_id, workspace.id);
     blockedWorkspaceSaves.delete(workspace.id);
   }
   return workspace;
@@ -1524,31 +1558,9 @@ export async function fetchWorkspace(id: string): Promise<WorkspaceSummary> {
   return rememberWorkspaceVersion(payload.data);
 }
 
-export async function updateWorkspace(
-  id: string,
-  input: WorkspaceInput,
-): Promise<WorkspaceSummary> {
-  if (import.meta.env.VITE_WORKSPACE_SHARING_UI !== "true") {
-    return writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", input);
-  }
-  // Serialize local autosave/upload/rename writes; never retry a rejected write.
-  const previous = workspaceSaveQueues.get(id);
-  const write = Promise.resolve(previous).catch(() => undefined).then(async () => {
-    const version = input.expectedVersion ?? workspaceVersions.get(id);
-    if (blockedWorkspaceSaves.has(id) || version === undefined) {
-      throw new ApiError("Muat ulang workspace sebelum menyimpan kembali. Perubahan sebelumnya belum terkonfirmasi.", 409);
-    }
-    try {
-      return await writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", { ...input, expectedVersion: version });
-    } catch (error) {
-      blockedWorkspaceSaves.add(id);
-      throw error;
-    }
-  });
-  workspaceSaveQueues.set(id, write);
-  const clear = () => { if (workspaceSaveQueues.get(id) === write) workspaceSaveQueues.delete(id); };
-  void write.then(clear, clear);
-  return write;
+export async function updateWorkspace(id: string, input: WorkspaceInput): Promise<WorkspaceSummary> {
+  if (import.meta.env.VITE_WORKSPACE_SHARING_UI !== "true") return writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", input);
+  return queueWorkspaceWrite(id, version => writeWorkspace(`${API_BASE_URL}/workspaces/${id}`, "PATCH", { ...input, expectedVersion: input.expectedVersion ?? version }));
 }
 
 export async function deleteWorkspace(id: string): Promise<void> {
@@ -1637,12 +1649,20 @@ export async function undoReviewDecision(
 }
 
 export async function stopMatching(jobId: string): Promise<void> {
-  await apiFetch(`/matching-jobs/${jobId}/stop`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-    },
-  });
+  const shared = import.meta.env.VITE_WORKSPACE_SHARING_UI === "true";
+  const workspace = matchingWorkspaces.get(jobId);
+  if (shared && !workspace) throw new ApiError("Muat ulang status matching sebelum menghentikan job.", 409);
+  const stop = async (version?: number) => {
+    const response = await apiFetch(`/matching-jobs/${jobId}/stop`, {
+      method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_workspace_version: version }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.success !== true) throw new ApiError(payload?.message ?? "Job matching tidak dapat dihentikan.", response.status);
+    if (payload.data?.workspace) rememberWorkspaceVersion(payload.data.workspace);
+  };
+  if (shared && workspace) return queueWorkspaceWrite(workspace, stop);
+  return stop();
 }
 
 export async function fetchReviewRules(jobId: string): Promise<ReviewRuleDefinition[]> {

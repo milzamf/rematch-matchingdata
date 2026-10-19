@@ -30,7 +30,7 @@ final class WorkspaceAccessService
         $query = $this->db->table('users')->where('id', $actor);
         $user = ($locked ? $query->sharedLock() : $query)->first(['id', 'role']);
         $query = $this->db->table('workspaces')->where('id', $id);
-        $workspace = ($locked ? $query->sharedLock() : $query)->first(['id', 'user_id', 'matching_job_id', 'reference_dataset_id', 'input_dataset_id', 'configuration_version']);
+        $workspace = ($locked ? $query->sharedLock() : $query)->first(['id', 'user_id', 'matching_job_id', 'reference_dataset_id', 'input_dataset_id', 'configuration_version', 'status']);
         if (! $user || ! $workspace || $workspace->id !== $id) {
             throw new ReviewWriteConflict('workspace_forbidden', [], 403);
         }
@@ -57,14 +57,18 @@ final class WorkspaceAccessService
             'export_read' => in_array($role, ['admin', 'owner', 'editor', 'viewer', 'pimpinan'], true),
         ];
         if (ReviewDeploymentFence::productionMode()) {
-            // This release admits sharing/review only; legacy wizard writers stay fenced.
+            // Configuration is admitted only for job-free drafts. Historical writers remain fenced.
             $ready = $workspace->matching_job_id !== null && $this->db->table('matching_jobs')
                 ->where('id', $workspace->matching_job_id)->where('status', 'completed')
                 ->where('review_state_readiness', 'ready')->where('review_state_schema_version', 1)->exists();
             foreach (['review', 'propose', 'approve', 'members', 'export_read'] as $capability) {
                 $permissions[$capability] = $permissions[$capability] && $ready;
             }
-            foreach (['configure', 'run', 'dataset_write'] as $capability) $permissions[$capability] = false;
+            $draft = $workspace->matching_job_id === null && in_array($workspace->status, ['draft', 'configuring'], true)
+                && !$this->db->table('matching_jobs')->where('workspace_id', $id)->exists();
+            foreach (['configure', 'dataset_write'] as $capability) $permissions[$capability] = $permissions[$capability] && $draft;
+            // Run on a completed workspace means a confirmed fresh job, not overwriting it.
+            $permissions['run'] = $permissions['run'] && ($draft || $ready || $this->db->table('matching_configurations')->where('matching_job_id', $workspace->matching_job_id)->whereRaw("JSON_EXTRACT(advanced_settings, '$.shared_matching.version') = 1")->exists());
         }
         if (! ($permissions[$permission] ?? false)) {
             throw new ReviewWriteConflict('workspace_forbidden', [], 403);

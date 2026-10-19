@@ -20,6 +20,7 @@ class RunMatchingRequest extends FormRequest
     {
         return [
             'name' => ['nullable', 'string', 'max:255'],
+            'expected_workspace_version' => ['nullable', 'integer', 'min:1'],
             'workspace_id' => ['nullable', 'uuid', 'exists:workspaces,id'],
             'reference_dataset_id' => ['required', 'uuid', 'exists:datasets,id'],
             'input_dataset_id' => ['required', 'uuid', 'exists:datasets,id', 'different:reference_dataset_id'],

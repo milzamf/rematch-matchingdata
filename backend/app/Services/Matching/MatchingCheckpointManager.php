@@ -140,6 +140,7 @@ class MatchingCheckpointManager
             'candidateGeneration' => $configuration['candidateGeneration'] ?? [],
         ];
 
+        if (isset($configuration['sharedJobKey'])) $configPayload['sharedJobKey'] = $configuration['sharedJobKey'];
         $scope = app(MatchingInputScope::class)->normalize($configuration['inputScope'] ?? []);
         if ($scope['provinceCodes'] || $scope['regencyCodes']) $configPayload['inputScope'] = $scope;
 

@@ -71,6 +71,15 @@ class MatchingEngineService
      */
     public function prepareJob(User $user, array $payload): MatchingJob
     {
+        return \App\Services\Matching\Transactions\ReviewDeploymentFence::withAdmission(function () use ($user, $payload) {
+            \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable();
+            if (SharedMatchingLifecycle::enabled()) return app(SharedMatchingLifecycle::class)->admit($user, $payload, fn ($admitted) => $this->prepareAdmittedJob($user, $admitted));
+            return $this->prepareAdmittedJob($user, $payload);
+        });
+    }
+
+    private function prepareAdmittedJob(User $user, array $payload): MatchingJob
+    {
         $reference = $this->ownership->scopeDatasets(Dataset::with('columns'), $user)
             ->findOrFail($payload['reference_dataset_id']);
         $input = $this->ownership->scopeDatasets(Dataset::with('columns'), $user)
@@ -201,6 +210,16 @@ class MatchingEngineService
     public function runJob(MatchingJob $job): array
     {
         return \App\Services\Matching\Transactions\ReviewDeploymentFence::withAdmission(function () use ($job) {
+            if (SharedMatchingLifecycle::enabled()) {
+                $lifecycle = app(SharedMatchingLifecycle::class);
+                return $lifecycle->withRunner($job, function () use ($job, $lifecycle) {
+                    $job->refresh()->load(['configuration', 'workspace', 'inputDataset', 'referenceDataset']);
+                    if (SharedMatchingLifecycle::owns($job) && $job->review_state_readiness === 'ready') return $this->responseFor($job);
+                    $lifecycle->assertJob($job);
+                    $lifecycle->verifySources($job);
+                    return $this->runAdmittedJob($job);
+                });
+            }
             \App\Services\Matching\Transactions\ReviewDeploymentFence::assertWritable(true);
             return $this->runAdmittedJob($job);
         });
@@ -239,6 +258,8 @@ class MatchingEngineService
             'inputScope' => data_get($configModel?->advanced_settings, 'inputScope', []),
             'runOptions' => data_get($configModel?->advanced_settings, 'runOptions', []),
         ]);
+
+        if (SharedMatchingLifecycle::owns($job)) $configuration['sharedJobKey'] = $job->id;
 
         $rawMappings = $job->mappings->map(fn (ColumnMapping $m) => [
             'id' => $m->id,
@@ -281,6 +302,14 @@ class MatchingEngineService
             'duplicate_details' => $inputRowsRaw->duplicateDetails(),
         ];
         $totalInputCount = count($inputRowsRaw);
+        if (SharedMatchingLifecycle::owns($job)) {
+            if ($sourceCount !== (int) $input->row_count) throw new \RuntimeException('Input source row count changed after inspection.');
+            if (data_get($job->record_counts, 'shared_scoring_complete')) {
+                app(NewMatchingReviewInitializer::class)->initialize($job, $inputRowsRaw);
+                return $this->responseFor($job->refresh());
+            }
+        }
+
 
         $job->refresh();
         if (in_array($job->status, ['cancelled', 'stopped']) || $job->error_message === 'Matching stopped by user.') {
@@ -379,18 +408,24 @@ class MatchingEngineService
             $finalStatus = in_array($job->status, ['cancelled', 'stopped']) ? $job->status : 'completed';
 
             $finalRecordCounts = array_merge($summary, [
-                'current_stage' => 'Matching selesai',
+                'current_stage' => SharedMatchingLifecycle::owns($job) ? 'Menyiapkan review dan memeriksa integritas hasil...' : 'Matching selesai',
+                'shared_scoring_complete' => SharedMatchingLifecycle::owns($job),
                 'is_resumed' => (bool) ($job->record_counts['is_resumed'] ?? false),
                 'resumed_at_record' => (int) ($job->record_counts['resumed_at_record'] ?? 0),
                 'checkpoint_key' => $job->record_counts['checkpoint_key'] ?? null,
             ]);
 
             $job->update([
-                'status' => $finalStatus,
+                'status' => $finalStatus === 'completed' && SharedMatchingLifecycle::owns($job) ? 'processing' : $finalStatus,
                 'processed_count' => $job->processed_count, // Use the actual processed count rather than forcing total count
                 'record_counts' => $finalRecordCounts,
                 'finished_at' => Carbon::now(),
             ]);
+
+            if ($finalStatus === 'completed' && SharedMatchingLifecycle::owns($job)) {
+                app(NewMatchingReviewInitializer::class)->initialize($job, $inputRowsRaw);
+                $job->refresh();
+            }
 
             $targetWorkspace = $job->workspace ?? ($job->workspace_id ? Workspace::find($job->workspace_id) : Workspace::where('matching_job_id', $job->id)->first());
             if ($targetWorkspace !== null) {
@@ -451,6 +486,10 @@ class MatchingEngineService
             }
         } catch (Throwable $exception) {
             $job->refresh();
+            if (SharedMatchingLifecycle::owns($job) && $job->review_state_readiness === 'ready') {
+                Log::warning('Matching review was published; post-publication metadata update failed.', ['job' => $job->id]);
+                return $this->responseFor($job);
+            }
             if (in_array($job->status, ['cancelled', 'stopped'], true)) {
                 Log::info("Matching job {$job->id} stopped during dataset normalization.");
 
@@ -1028,6 +1067,7 @@ class MatchingEngineService
         );
         /** @var MatchingRowStore $referenceRows */
         $referenceRows = $referenceCache['rows'];
+        if (SharedMatchingLifecycle::owns($job) && count($referenceRows) !== (int) $reference->row_count) throw new \RuntimeException('Reference source row count changed after inspection.');
         $metrics['reference_cache_hit'] = $referenceCache['cache_hit'];
         $metrics['reference_cache_ms'] = round((microtime(true) - $referenceCacheStart) * 1000, 2);
         $metrics['reference_cache_key'] = $referenceCache['cache_key'];
@@ -2919,6 +2959,7 @@ class MatchingEngineService
         }
 
         return [
+            'workspace' => $job->workspace ? ['id' => $job->workspace->id, 'configuration_version' => (int) $job->workspace->configuration_version] : null,
             'job' => [
                 'id' => $job->id,
                 'name' => $job->name,

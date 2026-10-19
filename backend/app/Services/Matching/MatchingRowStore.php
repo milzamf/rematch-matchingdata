@@ -79,6 +79,15 @@ class MatchingRowStore implements ArrayAccess, Countable, IteratorAggregate
         ], $rows);
     }
 
+    public function occurrenceCount(string $key): int
+    {
+        $this->flush();
+        if (!ctype_digit($key)) return 0;
+        $stmt = $this->connection()->prepare('SELECT occurrences FROM rows WHERE id=?');
+        $stmt->execute([(int) $key]);
+        return (int) $stmt->fetchColumn();
+    }
+
     public function setExactKeys(int $id, ?string $mandatory, ?string $composite): void
     {
         $this->beginBatchIfNeeded();
