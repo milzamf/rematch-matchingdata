@@ -360,9 +360,11 @@ function LegacyMatchingPage() {
   const hasRequestedStepRef = useRef(hasRequestedStep);
   const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const progressJobRef = useRef<{ jobId: string } | null>(null);
 
   useEffect(() => {
     return () => {
+      progressJobRef.current = null;
       if (pollingTimeoutRef.current) {
         clearTimeout(pollingTimeoutRef.current);
       }
@@ -497,6 +499,8 @@ function LegacyMatchingPage() {
 
   const pollMatchingJob = useCallback(
     (jobId: string, currentWorkspaceId: string | null) => {
+      const session = { jobId };
+      progressJobRef.current = session;
       // Clean up previous eventSource or polling timeout
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -507,29 +511,32 @@ function LegacyMatchingPage() {
         pollingTimeoutRef.current = null;
       }
 
+      const finish = (result: MatchingRunResult) => {
+        if (progressJobRef.current !== session || result.job.id !== jobId || result.job.status !== "completed") return;
+        progressJobRef.current = null;
+        setWorkspaceJobId(jobId);
+        setRunResult(result);
+        setRunError(null);
+        setProgress(100);
+        setRunState("success");
+        setStep(3);
+        void navigate({ to: "/matching", search: buildMatchingSearch(currentWorkspaceId, 3), replace: true });
+      };
+
       // Fallback polling function
       const startPollingFallback = () => {
         const checkStatus = async () => {
+          if (progressJobRef.current !== session) return;
           try {
             const statusResult = await fetchMatchingJobStatus(jobId);
+            if (progressJobRef.current !== session) return;
             setRunResult(statusResult);
 
             const currentStatus = statusResult.job.status;
             const pct = statusResult.progress.percentage ?? 0;
 
-            if (currentStatus === "completed" || pct >= 100) {
-              if (pollingTimeoutRef.current) {
-                clearTimeout(pollingTimeoutRef.current);
-                pollingTimeoutRef.current = null;
-              }
-              setProgress(100);
-              setRunState("success");
-              setStep(3);
-              void navigate({
-                to: "/matching",
-                search: buildMatchingSearch(currentWorkspaceId, 3),
-                replace: true,
-              });
+            if (currentStatus === "completed") {
+              finish(statusResult);
               return;
             }
 
@@ -568,11 +575,12 @@ function LegacyMatchingPage() {
             setRunState("running");
             pollingTimeoutRef.current = setTimeout(checkStatus, 1500);
           } catch (error) {
+            if (progressJobRef.current !== session) return;
             pollingTimeoutRef.current = setTimeout(checkStatus, 3000);
           }
         };
 
-        pollingTimeoutRef.current = setTimeout(checkStatus, 1000);
+        if (progressJobRef.current === session) pollingTimeoutRef.current = setTimeout(checkStatus, 1000);
       };
 
       // Check if EventSource is supported in browser
@@ -583,6 +591,7 @@ function LegacyMatchingPage() {
           eventSourceRef.current = es;
 
           es.onmessage = (event) => {
+            if (progressJobRef.current !== session) return;
             try {
               const data = JSON.parse(event.data);
               const currentStatus = data.status;
@@ -590,22 +599,17 @@ function LegacyMatchingPage() {
               const processed = typeof data.processed === "number" ? data.processed : 0;
               const total = typeof data.total === "number" ? data.total : 0;
 
-              if (currentStatus === "completed" || pct >= 100) {
-                if (eventSourceRef.current) {
-                  eventSourceRef.current.close();
-                  eventSourceRef.current = null;
-                }
-                setProgress(100);
-                setRunState("success");
+              if (currentStatus === "completed") {
+                es.close();
+                if (eventSourceRef.current === es) eventSourceRef.current = null;
+                // 100% scoring is not completion: wait for the authoritative ready result.
                 void fetchMatchingJobStatus(jobId)
-                  .then((fullResult) => setRunResult(fullResult))
-                  .catch(() => {});
-                setStep(3);
-                void navigate({
-                  to: "/matching",
-                  search: buildMatchingSearch(currentWorkspaceId, 3),
-                  replace: true,
-                });
+                  .then(fullResult => {
+                    if (progressJobRef.current !== session) return;
+                    if (fullResult.job.status === "completed") finish(fullResult);
+                    else startPollingFallback();
+                  })
+                  .catch(() => { if (progressJobRef.current === session) startPollingFallback(); });
                 return;
               }
 
@@ -671,6 +675,7 @@ function LegacyMatchingPage() {
           };
 
           es.onerror = () => {
+            if (progressJobRef.current !== session) return;
             // If SSE connection drops or errors, fallback to polling
             if (eventSourceRef.current) {
               eventSourceRef.current.close();
@@ -727,7 +732,7 @@ function LegacyMatchingPage() {
         if (jobResult) {
           restoredRunResult = {
             ...jobResult,
-            top_results: (snapshot?.runResult?.top_results?.length ? snapshot.runResult.top_results : jobResult.top_results) ?? [],
+            top_results: (snapshot?.runResult?.job.id === jobResult.job.id && snapshot.runResult.top_results?.length ? snapshot.runResult.top_results : jobResult.top_results) ?? [],
           };
         } else {
           restoredRunResult = snapshot?.runResult ?? null;
@@ -759,7 +764,7 @@ function LegacyMatchingPage() {
         const restoredRunError =
           actualJobStatus === "cancelled" || actualJobStatus === "stopped"
             ? null
-            : (snapshot?.runError ?? restoredRunResult?.job.error_message ?? null);
+            : (restoredRunResult?.job.error_message ?? (snapshot?.runResult?.job.id === restoredRunResult?.job.id ? snapshot?.runError : null) ?? null);
         const restoredHasCompletedMapping =
           restoredMappings?.filter((mapping) => mapping.referenceColumnId && mapping.inputColumnId)
             .length > 0 && !hasDuplicateReference(restoredMappings);
@@ -1101,6 +1106,11 @@ function LegacyMatchingPage() {
       return;
     }
 
+    progressJobRef.current = null;
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    if (pollingTimeoutRef.current) clearTimeout(pollingTimeoutRef.current);
+    pollingTimeoutRef.current = null;
     toast.info(forceRestart ? "Memulai ulang pencocokan dari awal..." : t("feedback.toast.runStarted"));
     setRunState("running");
     setProgress(0);
@@ -1245,7 +1255,8 @@ function LegacyMatchingPage() {
     
     try {
       await stopMatching(jobId);
-      if (workspaceId && canUpdateWorkspace) {
+      progressJobRef.current = null;
+      if (workspaceId && canUpdateWorkspace && !workspaceSharingEnabled) {
         void updateWorkspace(workspaceId, {
           status: "configuring",
           currentStep: 2,
@@ -6351,8 +6362,12 @@ function StepReviewContent({
     return (
       <>
         <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
-        {error ? <p role="alert" className="rounded-lg border border-destructive/30 p-6 text-sm text-destructive">{error}</p>
-          : <TableLoadingSkeleton label={t("matching.review.loading")} />}
+        {error ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 p-6 text-sm">
+          <p className="text-destructive">{error}</p>
+          <button type="button" onClick={() => setRefreshVersion(value => value + 1)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-secondary">
+            <RefreshCw className="size-3.5" />Muat ulang hasil review
+          </button>
+        </div> : <TableLoadingSkeleton label={t("matching.review.loading")} />}
       </>
     );
   }

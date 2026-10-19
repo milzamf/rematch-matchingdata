@@ -1151,7 +1151,7 @@ export async function fetchReviewResults(
     }
     if (!response.ok || !payload || payload.success === false) {
       throw new ApiError(
-        payload?.message ?? "Review results could not be loaded.",
+        payload?.message ?? "Hasil review belum dapat dimuat. Silakan muat ulang hasil review.",
         response.status,
         payload?.success === false ? payload.errors : undefined,
       );
