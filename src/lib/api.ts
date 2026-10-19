@@ -122,6 +122,7 @@ export type WorkspaceStatePayload = {
   } | null;
   columnMappings?: unknown[];
   matchingConfiguration?: unknown;
+  inputScope?: import("@/components/matching-input-scope").MatchingInputScope;
   runState?: "idle" | "running" | "success" | "failed";
   progress?: number;
   runResult?: MatchingRunResult | null;
@@ -270,6 +271,9 @@ export type MatchingRunResult = {
     unmatched: number;
     candidates_scored: number;
     total_raw_input?: number;
+    total_source_input?: number;
+    excluded_input?: number;
+    input_scope?: import("@/components/matching-input-scope").MatchingInputScope;
     total_unique_input?: number;
     total_duplicates?: number;
     duplicate_details?: DuplicateDetail[];

@@ -21,6 +21,8 @@ export interface SearchableSelectOption {
 
 export interface SearchableSelectProps {
   value?: string;
+  values?: string[];
+  multiple?: boolean;
   onChange: (value: string) => void;
   options: SearchableSelectOption[];
   placeholder?: string;
@@ -36,6 +38,8 @@ export interface SearchableSelectProps {
 
 export function SearchableSelect({
   value,
+  values = [],
+  multiple = false,
   onChange,
   options,
   placeholder = "Pilih opsi...",
@@ -96,12 +100,12 @@ export function SearchableSelect({
             "flex h-9 sm:h-10 w-full items-center justify-between rounded-md border border-border bg-background px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm text-foreground shadow-xs transition-colors",
             "hover:border-foreground/30 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15",
             "disabled:cursor-not-allowed disabled:opacity-50",
-            !selectedOption && "text-muted-foreground",
+            !(multiple ? values.length : selectedOption) && "text-muted-foreground",
             className,
           )}
         >
           <span className="truncate text-left font-medium">
-            {selectedOption ? selectedOption.label : placeholder}
+            {multiple ? (values.length ? `${values.length} dipilih` : placeholder) : selectedOption ? selectedOption.label : placeholder}
           </span>
           <ChevronsUpDown className="ml-1.5 sm:ml-2 size-3.5 sm:size-4 shrink-0 opacity-50" />
         </button>
@@ -137,6 +141,7 @@ export function SearchableSelect({
           )}
           <CommandList
             ref={listRef}
+            aria-multiselectable={multiple || undefined}
             className="max-h-60 overflow-y-auto p-1 overscroll-contain"
             onWheel={(e) => e.stopPropagation()}
           >
@@ -145,7 +150,7 @@ export function SearchableSelect({
             </CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
-                const isSelected = option.value === value;
+                const isSelected = multiple ? values.includes(option.value) : option.value === value;
                 return (
                   <CommandItem
                     key={option.value}
@@ -153,7 +158,7 @@ export function SearchableSelect({
                     disabled={option.disabled}
                     onSelect={() => {
                       onChange(option.value);
-                      setOpen(false);
+                      if (!multiple) setOpen(false);
                     }}
                     className={cn(
                       "flex cursor-pointer items-center justify-between rounded-md px-2.5 py-1.5 text-xs text-foreground transition-colors",

@@ -140,6 +140,9 @@ class MatchingCheckpointManager
             'candidateGeneration' => $configuration['candidateGeneration'] ?? [],
         ];
 
+        $scope = app(MatchingInputScope::class)->normalize($configuration['inputScope'] ?? []);
+        if ($scope['provinceCodes'] || $scope['regencyCodes']) $configPayload['inputScope'] = $scope;
+
         return hash('sha256', json_encode([
             'engine_version' => 'bounded-recall-snapshot-v4',
             'ref' => $referenceDatasetId,

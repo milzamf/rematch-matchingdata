@@ -1,3 +1,4 @@
+import { MatchingInputScopePanel, emptyInputScope, type MatchingInputScope } from "@/components/matching-input-scope";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { Dispatch, SetStateAction } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -338,6 +339,7 @@ function LegacyMatchingPage() {
   const [runConfirmOpen, setRunConfirmOpen] = useState(false);
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
+  const [inputScope, setInputScope] = useState<MatchingInputScope>(emptyInputScope);
   const [columnMappings, setColumnMappings] = useState<ColumnMappingDraft[]>([]);
   const [configureValid, setConfigureValid] = useState(true);
   const [matchingConfiguration, setMatchingConfiguration] = useState<MatchingConfiguration | null>(
@@ -436,6 +438,7 @@ function LegacyMatchingPage() {
       reference: uploadSnapshot(reference),
       input: uploadSnapshot(input),
       columnMappings,
+      inputScope,
       matchingConfiguration,
       workspaceNameEdited,
       runState,
@@ -448,6 +451,7 @@ function LegacyMatchingPage() {
       reference,
       input,
       columnMappings,
+      inputScope,
       matchingConfiguration,
       workspaceNameEdited,
       runState,
@@ -791,6 +795,7 @@ function LegacyMatchingPage() {
         );
         setReference(restoredReference);
         setInput(restoredInput);
+        setInputScope(snapshot?.inputScope ?? emptyInputScope());
         setColumnMappings(restoredMappings);
         setMatchingConfiguration(restoredConfiguration);
         setRunState(restoredRunState);
@@ -862,6 +867,7 @@ function LegacyMatchingPage() {
           setWorkspaceNameEdited(false);
           setReference(null);
           setInput(null);
+          setInputScope(emptyInputScope());
           setColumnMappings([]);
           setMatchingConfiguration(null);
           setRunState("idle");
@@ -1152,6 +1158,7 @@ function LegacyMatchingPage() {
           }),
         configuration: {
           ...matchingConfiguration,
+          inputScope,
           runOptions: {
             ...((matchingConfiguration as any)?.runOptions ?? {}),
             forceRestart,
@@ -1268,6 +1275,7 @@ function LegacyMatchingPage() {
       } else {
         inputRef.current = successState;
         setInput(successState);
+        setInputScope(emptyInputScope());
       }
 
       setColumnMappings([]);
@@ -1635,9 +1643,12 @@ function LegacyMatchingPage() {
                       if (inputRef.current) toast.info(t("feedback.toast.removed", { name: inputRef.current.name }));
                       inputRef.current = null;
                       setInput(null);
+                      setInputScope(emptyInputScope());
                     }}
                     error={uploadError}
                   />
+
+                  {input?.result && <MatchingInputScopePanel columns={inputColumns} value={inputScope} onChange={setInputScope} disabled={isInspectingUpload || !canUpdateWorkspace} />}
 
                   {(reference?.result || input?.result || isInspectingUpload) && (
                     <>
@@ -1682,6 +1693,10 @@ function LegacyMatchingPage() {
                       onValidityChange={setConfigureValid}
                     />
                   </div>
+
+                  {(inputScope.provinceCodes.length > 0 || inputScope.regencyCodes.length > 0) && (
+                    <p className="rounded-lg border border-border bg-secondary/20 p-3 text-xs text-muted-foreground">Matching dibatasi pada {inputScope.provinceCodes.length || "semua"} provinsi dan {inputScope.regencyCodes.length || "semua"} kabupaten/kota dalam cakupan. Ubah pilihan wilayah pada Persiapan Data.</p>
+                  )}
 
                   <div className="border-t border-border pt-4 sm:pt-6">
                     <StepRunCard
@@ -5674,7 +5689,7 @@ type ReviewFilter = "possible_match" | "matched" | "unmatched" | "all";
 type CaseGroupFilter = "open" | "resolved" | "all";
 
 function StepReview(props: { jobId: string | null; canDecide: boolean; columnMappings: ColumnMappingDraft[] }) {
-  const mappings = useMemo(() => extractIdentityMappings(props.columnMappings), [props.columnMappings]);
+  const mappings = useMemo(() => extractIdentityMappings({ columnMappings: props.columnMappings }), [props.columnMappings]);
   return <ReviewComparisonColumns key={props.jobId} job={props.jobId} mappings={mappings}><StepReviewContent {...props} /></ReviewComparisonColumns>;
 }
 
@@ -6326,7 +6341,10 @@ function StepReviewContent({
   return (
     <>
       <SectionTitle title={t("matching.review.title")} desc={t("matching.review.desc")} />
-      <ComparisonAvailableColumns columns={review?.comparison_columns} />
+      <ComparisonAvailableColumns columns={review.comparison_columns ?? {
+        input: [...new Set(items.flatMap(item => Object.keys(item.input_record ?? {})))],
+        reference: [...new Set(items.flatMap(item => item.candidates.flatMap(candidate => Object.keys(candidate.reference_record ?? {}))))],
+      }} />
       {workspaceSharingEnabled && review?.workspace_id && jobId && review.access?.permissions.approve && <details className="mb-3 rounded-lg border border-border px-3 py-2 text-xs"><summary className="cursor-pointer font-medium">Usulan revisi keputusan</summary><ApprovalInbox workspaceId={review.workspace_id} name={review.job.name ?? 'Workspace'} jobId={jobId} /></details>}
 
       {error && <p role="alert" className="mb-3 text-sm text-destructive">{error}</p>}

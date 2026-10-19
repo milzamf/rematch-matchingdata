@@ -22,6 +22,7 @@ class MatchingConfigResolver
         $fields = is_array($configuration['fields'] ?? null) ? $configuration['fields'] : [];
 
         return [
+            'inputScope' => app(MatchingInputScope::class)->normalize($configuration['inputScope'] ?? []),
             'preset' => $preset,
             'mode' => $mode,
             'strategy' => $this->normalizeStrategy($strategy),

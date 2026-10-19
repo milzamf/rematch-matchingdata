@@ -80,6 +80,7 @@ class MatchingEngineService
             : null;
 
         $configuration = $this->configResolver->resolve($payload['configuration'] ?? []);
+        app(MatchingInputScope::class)->predicate($configuration['inputScope'], $input->columns->pluck('name')->all());
         $forceRestart = (bool) ($payload['force_restart'] ?? data_get($payload, 'configuration.runOptions.forceRestart', false));
         if ($forceRestart) {
             $configuration['runOptions'] = array_merge($configuration['runOptions'] ?? [], ['forceRestart' => true]);
@@ -156,6 +157,7 @@ class MatchingEngineService
                     'fields' => ($configuration['fields'] ?? null),
                     'weighting' => ($configuration['weighting'] ?? null),
                     'rules' => ($configuration['rules'] ?? null),
+                    'inputScope' => $configuration['inputScope'],
                     'runOptions' => ($configuration['runOptions'] ?? null),
                 ],
                 'config_hash' => hash('sha256', json_encode($configuration, JSON_THROW_ON_ERROR)),
@@ -234,6 +236,7 @@ class MatchingEngineService
             'weighting' => data_get($configModel?->advanced_settings, 'weighting', []),
             'rules' => data_get($configModel?->advanced_settings, 'rules'),
             'output' => $configModel?->output_config ?? [],
+            'inputScope' => data_get($configModel?->advanced_settings, 'inputScope', []),
             'runOptions' => data_get($configModel?->advanced_settings, 'runOptions', []),
         ]);
 
@@ -257,13 +260,22 @@ class MatchingEngineService
         $referenceRowsRaw = $this->streamDatasetRows($reference);
         $inputRowsRaw = new MatchingRowStore();
         $rawCount = 0;
+        $sourceCount = 0;
+        $eligible = app(MatchingInputScope::class)->predicate($configuration['inputScope'], $input->columns->pluck('name')->all());
         foreach ($this->streamDatasetRows($input) as $row) {
+            $sourceCount++;
+            if (!$eligible($row)) continue;
             $rawCount++;
             $signatureRow = array_map(static fn ($value) => is_string($value) ? strtolower(trim($value)) : $value, $row);
             ksort($signatureRow);
-            $inputRowsRaw->append($row, hash('sha256', json_encode($signatureRow, JSON_THROW_ON_ERROR)), $rawCount);
+            $inputRowsRaw->append($row, hash('sha256', json_encode($signatureRow, JSON_THROW_ON_ERROR)), $sourceCount);
+        }
+        if ($rawCount === 0 && $sourceCount > 0) {
+            throw new InvalidArgumentException('Tidak ada baris input yang sesuai filter wilayah. Periksa pilihan wilayah dan kolom sumber.');
         }
         $dedupAnalysis = [
+            'source_count' => $sourceCount, 'excluded_count' => $sourceCount - $rawCount,
+            'input_scope' => $configuration['inputScope'],
             'raw_count' => $rawCount, 'unique_count' => count($inputRowsRaw),
             'duplicate_count' => $rawCount - count($inputRowsRaw),
             'duplicate_details' => $inputRowsRaw->duplicateDetails(),
@@ -297,6 +309,9 @@ class MatchingEngineService
                     'possible_match' => 0,
                     'unmatched' => 0,
                     'candidates_scored' => 0,
+                    'total_source_input' => $dedupAnalysis['source_count'] ?? $totalInputCount,
+                    'excluded_input' => $dedupAnalysis['excluded_count'] ?? 0,
+                    'input_scope' => $dedupAnalysis['input_scope'] ?? [],
                     'total_raw_input' => $dedupAnalysis['raw_count'],
                     'total_unique_input' => $dedupAnalysis['unique_count'],
                     'total_duplicates' => $dedupAnalysis['duplicate_count'],
@@ -333,6 +348,9 @@ class MatchingEngineService
                     'possible_match' => 0,
                     'unmatched' => 0,
                     'candidates_scored' => 0,
+                    'total_source_input' => $dedupAnalysis['source_count'] ?? $totalInputCount,
+                    'excluded_input' => $dedupAnalysis['excluded_count'] ?? 0,
+                    'input_scope' => $dedupAnalysis['input_scope'] ?? [],
                     'total_raw_input' => $dedupAnalysis['raw_count'],
                     'total_unique_input' => $dedupAnalysis['unique_count'],
                     'total_duplicates' => $dedupAnalysis['duplicate_count'],
@@ -405,6 +423,9 @@ class MatchingEngineService
                             'possible_match' => (int) ($finalRecordCounts['possible_match'] ?? 0),
                             'unmatched' => (int) ($finalRecordCounts['unmatched'] ?? 0),
                             'candidates_scored' => (int) ($finalRecordCounts['candidates_scored'] ?? 0),
+                            'total_source_input' => (int) ($finalRecordCounts['total_source_input'] ?? $job->total_count),
+                            'excluded_input' => (int) ($finalRecordCounts['excluded_input'] ?? 0),
+                            'input_scope' => $finalRecordCounts['input_scope'] ?? [],
                             'total_raw_input' => (int) ($finalRecordCounts['total_raw_input'] ?? $job->total_count),
                             'total_unique_input' => (int) ($finalRecordCounts['total_unique_input'] ?? $job->total_count),
                             'total_duplicates' => (int) ($finalRecordCounts['total_duplicates'] ?? 0),
@@ -1205,6 +1226,9 @@ class MatchingEngineService
             'possible_match' => 0,
             'unmatched' => 0,
             'candidates_scored' => 0,
+            'total_source_input' => $dedupAnalysis['source_count'] ?? $totalInputCount,
+            'excluded_input' => $dedupAnalysis['excluded_count'] ?? 0,
+            'input_scope' => $dedupAnalysis['input_scope'] ?? [],
             'total_raw_input' => $dedupAnalysis['raw_count'] ?? $totalInputCount,
             'total_unique_input' => $dedupAnalysis['unique_count'] ?? $totalInputCount,
             'total_duplicates' => $dedupAnalysis['duplicate_count'] ?? 0,
@@ -2881,7 +2905,8 @@ class MatchingEngineService
         $duplicates = (int) ($counts['total_duplicates'] ?? max(0, $rawInput - $uniqueInput));
         $duplicateDetails = $counts['duplicate_details'] ?? [];
 
-        if (empty($duplicateDetails) && $duplicates > 0 && $job->inputDataset) {
+        if (empty($duplicateDetails) && $duplicates > 0 && $job->inputDataset
+            && empty(data_get($counts, 'input_scope.provinceCodes')) && empty(data_get($counts, 'input_scope.regencyCodes'))) {
             try {
                 $rawRows = $this->loadDatasetRows($job->inputDataset);
                 $analysis = $this->analyzeAndDeduplicateInputRows($rawRows);
@@ -2919,6 +2944,9 @@ class MatchingEngineService
                 'possible_match' => (int) ($counts['possible_match'] ?? 0),
                 'unmatched' => (int) ($counts['unmatched'] ?? 0),
                 'candidates_scored' => (int) ($counts['candidates_scored'] ?? 0),
+                'total_source_input' => (int) ($counts['total_source_input'] ?? $rawInput),
+                'excluded_input' => (int) ($counts['excluded_input'] ?? 0),
+                'input_scope' => $counts['input_scope'] ?? [],
                 'total_raw_input' => $rawInput,
                 'total_unique_input' => $uniqueInput,
                 'total_duplicates' => $duplicates,

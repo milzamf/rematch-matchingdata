@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { extractIdentityMappings, type IdentityFieldPair } from '@/lib/result-identity';
 
 type Columns = { input: string[]; reference: string[] };
@@ -14,13 +14,17 @@ const initial = (mappings: IdentityFieldPair[], side: 'input' | 'reference') =>
 export function ReviewComparisonColumns({ job, mappings, children }: { job: string | null; mappings: IdentityFieldPair[]; children: ReactNode }) {
   const storageKey = `rematch:comparison-columns:v1:${job}`;
   const [available, setAvailable] = useState<Columns>({ input: [], reference: [] });
+  const registerAvailable = useCallback((next: Columns) => setAvailable(previous => {
+    const merged = { input: [...new Set([...previous.input, ...next.input])], reference: [...new Set([...previous.reference, ...next.reference])] };
+    return JSON.stringify(merged) === JSON.stringify(previous) ? previous : merged;
+  }), []);
   const [saved, setSaved] = useState<Columns | null>(() => {
     try { const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
       return value && ['input', 'reference'].every(side => Array.isArray(value[side]) && value[side].every((v: unknown) => typeof v === 'string')) ? value : null;
     } catch { return null; }
   });
   const defaults = useMemo(() => {
-    const all = [...mappings, ...extractIdentityMappings([...available.input.map(inputColumnName => ({ inputColumnName })), ...available.reference.map(referenceColumnName => ({ referenceColumnName }))])];
+    const all = [...mappings, ...extractIdentityMappings({ columnMappings: [...available.input.map(inputColumnName => ({ inputColumnName })), ...available.reference.map(referenceColumnName => ({ referenceColumnName }))] })];
     return { input: initial(all, 'input'), reference: initial(all, 'reference') };
   }, [mappings, available]);
   const value = saved ?? defaults;
@@ -28,7 +32,7 @@ export function ReviewComparisonColumns({ job, mappings, children }: { job: stri
     setSaved(next);
     try { if (next) localStorage.setItem(storageKey, JSON.stringify(next)); else localStorage.removeItem(storageKey); } catch { /* Selection still works when browser storage is unavailable. */ }
   };
-  return <AvailableContext.Provider value={setAvailable}><ComparisonContext.Provider value={value}>
+  return <AvailableContext.Provider value={registerAvailable}><ComparisonContext.Provider value={value}>
     <details className="relative mb-3 rounded-lg border border-border bg-card text-xs">
       <summary className="cursor-pointer px-3 py-2 font-medium">Kolom pembanding</summary>
       <div className="grid gap-4 border-t border-border p-3 sm:grid-cols-2">
